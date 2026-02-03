@@ -1,0 +1,6 @@
+void mx_wonderful_bsdf(
+    float value,
+    output closure color out
+) {
+    out = color(1,0,0) * diffuse(N);
+}

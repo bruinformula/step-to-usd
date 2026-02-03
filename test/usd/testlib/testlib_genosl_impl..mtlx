@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<materialx version="1.39">
+
+    <implementation name="IM_wonderful_bsdf_genosl" nodedef="ND_wonderful_bsdf" file="mx_wonderful_bsdf.osl" function="mx_wonderful_bsdf" target="genosl" />
+
+    <implementation name="IM_wonderful_bsdf_genglsl" nodedef="ND_wonderful_bsdf" target="genglsl" sourcecode="{{value}}" />
+
+
+</materialx>

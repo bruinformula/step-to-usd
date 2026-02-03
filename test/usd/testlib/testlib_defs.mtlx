@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<materialx version="1.39">
+
+  <typedef name="BSDF" doc="Bidirectional scattering distribution function" />
+  
+  <nodedef name="ND_wonderful_bsdf" node="wonderful_bsdf" nodegroup="pbr">
+    <input name="value" type="float" value="1.0" uimin="0.0" uimax="1.0" />
+    <output name="out" type="BSDF" />
+  </nodedef>
+
+</materialx>
