@@ -3,6 +3,7 @@
 
     <implementation name="IM_wonderful_bsdf_genosl" nodedef="ND_wonderful_bsdf" file="mx_wonderful_bsdf.osl" function="mx_wonderful_bsdf" target="genosl" />
 
+    <!-- Empty such that the shaders can be constructed in the MaterialXGraphEditor without crashing it.-->
     <implementation name="IM_wonderful_bsdf_genglsl" nodedef="ND_wonderful_bsdf" target="genglsl" sourcecode="{{value}}" />
 
 
