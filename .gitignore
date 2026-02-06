@@ -2,4 +2,5 @@
 **/*.oso
 oso/
 build/
+.build/
 .cache/
