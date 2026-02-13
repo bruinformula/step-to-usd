@@ -1,9 +1,7 @@
 #include <iostream>
 
-// Gmsh
 #include <gmsh.h>
 
-// OpenUSD
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/base/tf/token.h>
