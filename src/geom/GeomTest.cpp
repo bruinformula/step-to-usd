@@ -1,4 +1,5 @@
 #include <iostream>
+#include <optional>
 #include <vector>
 #include <iomanip>
 #include <set>
@@ -25,8 +26,63 @@
 #include <opencascade/XCAFDoc_Location.hxx>
 #include <opencascade/TDataStd_Name.hxx>
 #include <opencascade/TDF_LabelSequence.hxx>
+#include <opencascade/STEPCAFControl_Writer.hxx>
+#include <opencascade/BRep_Builder.hxx>
+#include <opencascade/TopoDS_Compound.hxx>
 
-#include "USDStepReader.h"
+#include "ArgumentHandler.h"
+#include "STEPModel.h"
+
+namespace occt = opencascade;
+
+struct GeomTestArgumentHandler : public ArgumentHandler {
+
+    std::filesystem::path inputSTEPFile;
+
+    ParseResult parse(const std::string& token, const std::string& nextToken) override {
+
+        switch (hashString(token)) {
+            case hashString("--inputSTEPFile"): {
+                if (nextToken.empty()) goto expectOption;
+                if (!inputSTEPFile.empty()) goto alreadySet;
+                inputSTEPFile = nextToken;
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--help"): {
+                std::cout << "Usage: GeomTest --inputSTEPFile <path_to_step_file>" << std::endl;
+                return EXIT;
+            }
+            default: {
+                std::cout << "Unrecognized command-line option: " << token << std::endl;
+                return FAILURE;
+            }
+        }
+
+        alreadySet: {
+            std::cerr << token << " is already set!" << std::endl;
+            return FAILURE;
+        }
+        expectOption: {
+            std::cerr << "Expected another token following command-line option: " << token << std::endl; 
+            return FAILURE;
+        }
+
+        std::cout << "Parsing token: " << token << " with next token: " << nextToken << std::endl;
+        return FAILURE;
+    }
+
+    bool verify() const override {
+        if (inputSTEPFile.empty()) {
+            std::cerr << "inputSTEPFile is not set!" << std::endl;
+            return false;
+        }
+        if (!std::filesystem::exists(inputSTEPFile)) {
+            std::cerr << "The provided input STEP file does not exist: " << inputSTEPFile << std::endl;
+            return false;
+        }
+        return true;
+    }
+};
 
 void printTransform(const gp_Trsf& trsf, const std::string& prefix = "") {
     std::cout << prefix << "Transform Matrix:\n";
@@ -57,13 +113,13 @@ void printTransform(const gp_Trsf& trsf, const std::string& prefix = "") {
 
 void printXCAFHierarchy(const TDF_Label& label, 
                         const gp_Trsf& parentTransform, 
-                        Handle(XCAFDoc_ShapeTool) shapeTool, 
+                        occt::handle<XCAFDoc_ShapeTool> shapeTool, 
                         std::set<int>& printedDefinitions, 
                         int indent = 0
 ) {
     std::string indentStr(indent, ' ');
     
-    Handle(TDataStd_Name) name;
+    occt::handle<TDataStd_Name> name;
     std::string labelName = "UNAMED!";
     if (label.FindAttribute(TDataStd_Name::GetID(), name)) {
         TCollection_ExtendedString extName = name->Get();
@@ -107,6 +163,7 @@ void printXCAFHierarchy(const TDF_Label& label,
     };
     
     constexpr bool debug = false; 
+
     if (debug) {
         if (!isIdentity(localTransform)) {
             std::cout << indentStr << "Local Transform:\n";
@@ -191,7 +248,7 @@ void countEntities(
     const TDF_Label& label, 
     bool isInstance, 
     EntityCounts& counts, 
-    Handle(XCAFDoc_ShapeTool) shapeTool, 
+    occt::handle<XCAFDoc_ShapeTool>& shapeTool, 
     std::set<int>& countedDefinitions
 ) {
     if (!shapeTool->IsShape(label)) {
@@ -266,7 +323,7 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    USDStepReaderArgumentHandler inputArgs;
+    GeomTestArgumentHandler inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
@@ -290,41 +347,33 @@ int main(int argc, char** argv) {
         return 1;
     }
         
-    // The document is later populated by the reader
-    Handle(TDocStd_Document) doc = new TDocStd_Document("MDTV-XCAF");
-    STEPCAFControl_Reader reader;
+    std::optional<STEPModel> optionalModel = STEPModel::loadFromFile(inputArgs.inputSTEPFile);
     
-    IFSelect_ReturnStatus stat = reader.ReadFile(inputArgs.inputStepFile.c_str());
-    if (stat != IFSelect_RetDone) {
-        std::cerr << "Error reading STEP file\n";
+    if(!optionalModel.has_value()) {
         return 1;
     }
-    
-    if (!reader.Transfer(doc)) {
-        std::cerr << "Error transferring STEP data\n";
-        return 1;
-    }
-    
-    Handle(XCAFDoc_ShapeTool) shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
-    
+
+    STEPModel model = optionalModel.value();
+
+
     NCollection_Sequence<TDF_Label> freeShapes; // free shapes are top levels parts 
-    shapeTool->GetFreeShapes(freeShapes);
+    model.shapeTool->GetFreeShapes(freeShapes);
     
     std::set<int> countedDefinitions;  // Track unique definitions. these are assemblies and simple shapes
     EntityCounts counts;
     
     // start at the free shapes which are top level
     for (int i = 1; i <= freeShapes.Length(); i++) {
-        countEntities(freeShapes.Value(i), false, counts, shapeTool, countedDefinitions);
+        //countEntities(freeShapes.Value(i), false, counts, model.shapeTool, countedDefinitions);
     }
     
     std::cout << "Found " << freeShapes.Length() << " top-level shape\n\n";
     
-    gp_Trsf identity;
+    gp_Trsf identity;     
     std::set<int> printedDefinitions; // Track which definitions we've already printed
     
     for (int i = 1; i <= freeShapes.Length(); i++) {
-        printXCAFHierarchy(freeShapes.Value(i), identity, shapeTool, printedDefinitions);
+        //printXCAFHierarchy(freeShapes.Value(i), identity, model.shapeTool, printedDefinitions);
     }
 
     std::cout << "\n\n" << "SUMMARY" << "\n";

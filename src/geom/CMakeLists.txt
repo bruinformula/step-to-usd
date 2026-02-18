@@ -2,7 +2,9 @@ find_package(gmsh REQUIRED)
 find_package(pxr REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 
-add_executable(GeomTest "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+#GeomTest
+
+add_executable(GeomTest "${CMAKE_CURRENT_SOURCE_DIR}/GeomTest.cpp")
 
 target_include_directories(GeomTest BEFORE PRIVATE ${pxr_INCLUDES})
 target_include_directories(GeomTest BEFORE PRIVATE ${gmsh_INCLUDES})
