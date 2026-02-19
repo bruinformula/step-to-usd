@@ -5,8 +5,6 @@
 #include <set>
 #include <cmath>
 
-#include <gmsh.h>
-
 #include <opencascade/TopoDS_Shape.hxx>
 #include <opencascade/TopoDS.hxx>
 #include <opencascade/TopLoc_Location.hxx>
@@ -355,35 +353,12 @@ int main(int argc, char** argv) {
 
     STEPModel model = optionalModel.value();
 
+    model.buildInstanceTree();
 
-    NCollection_Sequence<TDF_Label> freeShapes; // free shapes are top levels parts 
-    model.shapeTool->GetFreeShapes(freeShapes);
-    
-    std::set<int> countedDefinitions;  // Track unique definitions. these are assemblies and simple shapes
-    EntityCounts counts;
-    
-    // start at the free shapes which are top level
-    for (int i = 1; i <= freeShapes.Length(); i++) {
-        //countEntities(freeShapes.Value(i), false, counts, model.shapeTool, countedDefinitions);
-    }
-    
-    std::cout << "Found " << freeShapes.Length() << " top-level shape\n\n";
-    
-    gp_Trsf identity;     
-    std::set<int> printedDefinitions; // Track which definitions we've already printed
-    
-    for (int i = 1; i <= freeShapes.Length(); i++) {
-        //printXCAFHierarchy(freeShapes.Value(i), identity, model.shapeTool, printedDefinitions);
-    }
+    model.printInstanceTree();
+    model.printDefinitionShapes();
 
-    std::cout << "\n\n" << "SUMMARY" << "\n";
-    std::cout << "Top-level shapes: " << freeShapes.Length() << "\n";
-    std::cout << "Assemblies - unique definitions: " << counts.numAssemblies << "\n";
-    std::cout << "Components - total instances: " << counts.numComponents << "\n";
-    std::cout << "  - With non-identity transforms: " << counts.numWithTransforms << "\n";
-    std::cout << "  - With identity transforms: " << (counts.numComponents - counts.numWithTransforms) << "\n";
-    std::cout << "Simple shapes - unique geometry definitions: " << counts.numSimpleShapes << "\n";
-    std::cout << "\n";
+    model.writeMeshTest();
 
     return 0;
 }
