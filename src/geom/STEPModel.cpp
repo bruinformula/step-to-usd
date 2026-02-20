@@ -18,6 +18,9 @@
 #include <opencascade/TopExp_Explorer.hxx>
 #include <opencascade/TopoDS.hxx>
 #include <opencascade/Poly_Triangulation.hxx>
+#include <opencascade/XCAFDoc_ColorTool.hxx>
+#include <opencascade/XCAFDoc_MaterialTool.hxx>
+
 #include <OSD_Parallel.hxx>
 
 #pragma push_macro("Handle")
@@ -38,8 +41,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "STEPModel.h"
 #include "XCAFUtils.h"
+#include "STEPModel.h"
 
 std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
     try {
@@ -81,7 +84,9 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
         }
 
         auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
-        return STEPModel(app, doc, shapeTool);
+        auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
+        auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
+        return STEPModel(app, doc, shapeTool, colorTool, materialTool);
 
     } catch (const Standard_Failure& e) {
         std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
@@ -291,6 +296,8 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
 
     std::vector<SdfPath> paths(instances.size());
     for (size_t i = 0; i < instances.size(); i++) {
+        const PartInstance& inst = instances[i];
+
         SdfPath parentPath;
         
         if (instances[i].parentIdx == -1) {
@@ -299,11 +306,9 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             parentPath = paths[instances[i].parentIdx];
         }
 
-        std::string name = getLabelName(instances[i].definitionLabel);
-        int count = nameCounts[name]++;
+        int count = nameCounts[inst.name]++;
 
-        std::string finalName = sanitizeUSDName(name, count);
-        //std::cout << finalName <<std::endl;
+        std::string finalName = sanitizeUSDName(inst.name, count);
 
         paths[i] = parentPath.AppendChild(TfToken(finalName));
     }
@@ -339,6 +344,16 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             }
 
             meshPrim.GetPrim().GetReferences().AddInternalReference(it->second);
+            if (inst.color.has_value()) {
+                pxr::VtArray<pxr::GfVec3f> displayColor = {{
+                    static_cast<float>(inst.color.value().Red()),
+                    static_cast<float>(inst.color.value().Green()),
+                    static_cast<float>(inst.color.value().Blue())
+                }};
+                meshPrim.GetDisplayColorAttr().Set(displayColor);
+            }
+
+            meshPrim.GetPrim().SetDisplayName(inst.name);
         }
     }
 
@@ -425,6 +440,32 @@ void STEPModel::fillLeaf(
 ) {
     int myIdx = cursor++;
 
+    instances[myIdx].name = getLabelName(defLabel);
+
+    Quantity_Color color(0.8, 0.8, 0.8, Quantity_TOC_RGB);
+    
+    Handle(TCollection_HAsciiString) aName;
+    Handle(TCollection_HAsciiString) aDescription;
+    Standard_Real                    aDensity;
+    Handle(TCollection_HAsciiString) aDensName;
+    Handle(TCollection_HAsciiString) aDensValType;
+
+    if (materialTool->GetMaterial(defLabel, aName, aDescription, aDensity, aDensName, aDensValType)) {
+        aName->Print(std::cout);
+        aDescription->Print(std::cout);
+        aDensName->Print(std::cout);
+        aDensValType->Print(std::cout);
+    }
+
+    //std::cout << instances[myIdx].materialName <<std::endl;
+
+    bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color) || colorTool->GetColor(defLabel, XCAFDoc_ColorGen, color);
+    if (hasColor) {
+        instances[myIdx].color = color;
+    } else {
+        instances[myIdx].color = std::nullopt;
+    }
+
     instances[myIdx].type             = InstanceType::Leaf;
     instances[myIdx].definitionLabel  = defLabel;
     instances[myIdx].localTransform   = localTrsf;
@@ -449,6 +490,9 @@ void STEPModel::fillAssembly(
     int& cursor
 ) {
     int myIdx = cursor++;
+
+    instances[myIdx].name = getLabelName(defLabel);
+    instances[myIdx].color = std::nullopt;
 
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(defLabel, components);

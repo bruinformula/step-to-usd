@@ -11,6 +11,8 @@
 #include <opencascade/TDocStd_Document.hxx>
 #include <opencascade/TopoDS_Shape.hxx>
 #include <opencascade/XCAFDoc_ShapeTool.hxx>
+#include <opencascade/Quantity_Array1OfColor.hxx>
+#include <opencascade/XCAFDoc_DocumentTool.hxx>
 
 #pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle as a macro
 #undef Handle
@@ -71,6 +73,10 @@ struct PartInstance {
     int firstChildIdx;   // first child index, children occupy contiguous range in instances[]
     int childCount;
     int depth;
+
+    std::string name;
+    std::optional<Quantity_Color> color;
+    ///std::string materialName;
 };
 
 struct STEPModel {
@@ -78,8 +84,10 @@ struct STEPModel {
     STEPModel(
         occt::handle<TDocStd_Application> a,
         occt::handle<TDocStd_Document>    d,
-        occt::handle<XCAFDoc_ShapeTool>   st
-    ) : app(a), doc(d), shapeTool(st) {}
+        occt::handle<XCAFDoc_ShapeTool>   st,
+        occt::handle<XCAFDoc_ColorTool>    ct,
+        occt::handle<XCAFDoc_MaterialTool>   mt
+    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt) {}
 
     static std::optional<STEPModel> loadFromFile(const fs::path& stepPath);
 
@@ -93,6 +101,8 @@ struct STEPModel {
     occt::handle<TDocStd_Application> app;
     occt::handle<TDocStd_Document> doc;
     occt::handle<XCAFDoc_ShapeTool> shapeTool;
+    occt::handle<XCAFDoc_ColorTool> colorTool;
+    occt::handle<XCAFDoc_MaterialTool> materialTool;
 
     std::vector<PartInstance> instances;        // flat pre-order instance tree
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
