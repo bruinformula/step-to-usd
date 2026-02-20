@@ -1,4 +1,5 @@
 #include <cassert>
+#include <chrono>
 
 #include <opencascade/BRepBuilderAPI_Transform.hxx>
 #include <opencascade/BinXCAFDrivers.hxx>
@@ -8,7 +9,7 @@
 #include <opencascade/XCAFDoc_DocumentTool.hxx>
 #include <opencascade/XCAFDoc_ShapeTool.hxx>
 #include <opencascade/TDF_Label.hxx>
-#include <opencascade/TDataStd_Name.hxx>
+#include <opencascade/TDF_LabelMap.hxx>
 #include <opencascade/TopLoc_Location.hxx>
 #include <opencascade/gp_Trsf.hxx>
 #include <opencascade/BRepMesh_IncrementalMesh.hxx>
@@ -19,7 +20,7 @@
 #include <opencascade/Poly_Triangulation.hxx>
 #include <OSD_Parallel.hxx>
 
-#pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle
+#pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/usd/sdf/layer.h>
@@ -38,6 +39,7 @@
 #pragma pop_macro("Handle")
 
 #include "STEPModel.h"
+#include "XCAFUtils.h"
 
 std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
     try {
@@ -51,12 +53,10 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
 
         occt::handle<TDocStd_Document> doc;
 
-        // xbf files are a binary representation of the document
-        // makes reloading much faster after the first time, but
-        // they are not human-readable and can get out of sync
-        // with the step file if the step file changes
+        // xbf is a binary XCAF cache — subsequent loads skip the STEP parser
+        // entirely. Invalidated whenever the STEP file is newer than the cache.
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
-            std::cout << "XBF doesn't exist or is out of date. Building from STEP..." << std::endl;
+            std::cout << "XBF doesn't exist or is out of date. Building from STEP...\n";
             app->NewDocument("BinXCAF", doc);
 
             STEPCAFControl_Reader reader;
@@ -69,7 +69,7 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
                 return std::nullopt;
             }
 
-            std::cout << "Saving XBF to " << xbfPath << std::endl;
+            std::cout << "Saving XBF to " << xbfPath << "\n";
             if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
                 std::cerr << "Warning: failed to save XBF cache\n";
         } else {
@@ -99,26 +99,25 @@ void STEPModel::buildInstanceTree() {
     NCollection_Sequence<TDF_Label> freeShapes;
     shapeTool->GetFreeShapes(freeShapes);
 
-    // Pass 1: count total nodes in the tree so we can reserve exactly
-    // the right amount and assign contiguous child slots up front
+    // Pass 1: count the total node count so we can resize instances[] once
+    // and use direct index writes in pass 2
     int numNodes = 0;
-    for (int i = 1; i <= freeShapes.Length(); i++)
+    for (int i = 1; i <= freeShapes.Length(); i++) {
         numNodes += countNodes(freeShapes.Value(i));
+    }
 
     instances.resize(numNodes);
 
-    // Pass 2: fill instances[] in pre-order using a write cursor.
-    // Each assembly claims a contiguous block for its children before
-    // recursing, so [firstChildIdx, firstChildIdx + childCount) is
-    // always a valid contiguous range.
-    int cursor = 0; // next free slot in instances[]
-
+    // Pass 2: pre-order fill — each assembly claims its slot then immediately
+    // records firstChildIdx = cursor before recursing, so children are written
+    // contiguously after it.
+    int cursor = 0;
     gp_Trsf identity;
-    for (int i = 1; i <= freeShapes.Length(); i++)
+    for (int i = 1; i <= freeShapes.Length(); i++) {
         fillNode(freeShapes.Value(i), identity, -1, 0, cursor);
+    }
 
-    // cursor should have consumed exactly numNodes slots
-    assert(cursor == numNodes);
+    assert(cursor == numNodes); // should hit all the nodes we counted in pass 1
 
     int leaves = 0, assemblies = 0;
     for (const auto& n : instances) {
@@ -137,45 +136,52 @@ void STEPModel::debugPrintInstances() const {
         std::string type = (inst.type == InstanceType::Assembly) ? "ASM" : "LEAF";
         gp_XYZ lt = inst.localTransform.TranslationPart();
         std::cout << "[" << i << "] " << type
-                    << " parent="     << inst.parentIdx
-                    << " firstChild=" << inst.firstChildIdx
-                    << " childCount=" << inst.childCount
-                    << " depth="      << inst.depth
-                    << " defTag="     << inst.definitionTag
-                    << " localT=("    << lt.X() << "," << lt.Y() << "," << lt.Z() << ")"
-                    << "\n";
+                  << " parent="     << inst.parentIdx
+                  << " firstChild=" << inst.firstChildIdx
+                  << " childCount=" << inst.childCount
+                  << " depth="      << inst.depth
+                  << " localT=("    << lt.X() << "," << lt.Y() << "," << lt.Z() << ")"
+                  << "\n";
     }
-}
-
-const TopoDS_Shape& STEPModel::getDefinitionShape(const PartInstance& inst) const {
-    return definitionShapes.at(inst.definitionTag);
 }
 
 void STEPModel::writeUSD(const fs::path& outputPath) const {
     using namespace pxr;
+    using Clock = std::chrono::high_resolution_clock;
+    using Seconds = std::chrono::duration<double>;
 
+    auto totalStart = Clock::now();
     TfErrorMark mark;
-    
+
     struct TessResult {
         VtArray<GfVec3f> points;
-        VtArray<int>     faceVertexCounts;
-        VtArray<int>     faceVertexIndices;
-        bool             valid = false;
+        VtArray<int> faceVertexCounts;
+        VtArray<int> faceVertexIndices;
+        bool valid = false;
     };
 
-    std::vector<TessResult> tessResults(instances.size());
+    std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(
+        definitionShapes.begin(),
+        definitionShapes.end()
+    );
 
-    // Step 1: tessellate all leaves in parallel — pure OCC, no USD
-    // USD composes the transform hierarchy itself via local xform ops.
+    std::vector<TessResult> tessResults(defs.size());
 
-    OSD_Parallel::For(0, (int)instances.size(), [&](int i) {
-        const PartInstance& inst = instances[i];
-        if (inst.type != InstanceType::Leaf) return;
+    LabelMap<int> labelToDefIdx;
+    for (int i = 0; i < (int)defs.size(); i++) {
+        labelToDefIdx[defs[i].first] = i;
+    }
 
-        const TopoDS_Shape& defShape = getDefinitionShape(inst); // Copy BRepMesh_IncrementalMesh is not thread-safe
+    auto tessStart = Clock::now();
+
+    OSD_Parallel::For(0, (int)defs.size(), [&](int i) {
+        const TopoDS_Shape& defShape = defs[i].second;
+        if (defShape.IsNull()) return;
+
+        // Copy before tessellating — BRepMesh writes into the TShape node
+        // which is shared across all handles pointing at the same definition
         BRepBuilderAPI_Transform copier(defShape, gp_Trsf(), true);
         TopoDS_Shape localShape = copier.Shape();
-
         BRepMesh_IncrementalMesh(localShape, 0.1).Perform();
 
         TessResult& result = tessResults[i];
@@ -212,11 +218,15 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         }
 
         result.valid = !result.points.empty();
-        if (!result.valid)
-            std::cerr << "[" << i << "] Warning: tessellation produced no geometry\n";
+        if (!result.valid) {
+            std::cerr << "  Warning: def " << i << " produced no geometry\n";
+        } else { 
+            //std::cout << "  Def " << i << ": " << result.points.size() << " verts, " << result.faceVertexCounts.size() << " faces\n";
+        }
     });
 
-    // USD Compose Stuff 
+    std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
+
     UsdStageRefPtr stage = UsdStage::CreateNew(outputPath.string());
     if (!stage) {
         std::cerr << "Failed to create stage at " << outputPath << "\n";
@@ -231,79 +241,129 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         return;
     }
 
-    // pre-order guarantees parent path is filled before child. otherwise USD will complain
+    if (!UsdGeomXform::Define(stage, SdfPath("/Prototypes"))) {
+        std::cerr << "Failed to define /Prototypes\n";
+        return;
+    }
+
+    // Define and immediately populate each prototype — no deferred writes,
+    // no SdfChangeBlock. Geometry must be in the layer before references
+    // to it are wired up in the instance hierarchy below.
+    LabelMap<SdfPath> prototypePaths;
+    for (int i = 0; i < (int)defs.size(); i++) {
+        const TessResult& r = tessResults[i];
+        if (!r.valid) continue;
+
+        std::string name = "Def_" + std::to_string(i);
+
+        SdfPath protoPath = SdfPath("/Prototypes")
+            .AppendChild(TfToken(name));
+
+        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath);
+        if (!proto) {
+            std::cerr << "Failed to define prototype at " << protoPath << "\n";
+            continue;
+        }
+
+        proto.GetPointsAttr().Set(r.points);
+        proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
+        proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+        proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+
+        prototypePaths[defs[i].first] = protoPath;
+
+        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
+    }
+
+    std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
+
+    // Hide /Prototypes from renderers
+    // USD will complain and not define prims under an inactive parent
+    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
+    if (prototypeRoot.IsValid())
+        prototypeRoot.SetActive(false);
+
+    // pre-order guarantees parent path is always assigned before we 
+    // reach any of its children or USD will omplain about missing 
+    // parent prims when we try to define them
+
+    std::unordered_map<std::string, int> nameCounts;
+
     std::vector<SdfPath> paths(instances.size());
     for (size_t i = 0; i < instances.size(); i++) {
-        SdfPath parentPath = (instances[i].parentIdx == -1)
-            ? SdfPath("/Assembly")
-            : paths[instances[i].parentIdx];
-        paths[i] = parentPath.AppendChild(TfToken("Node_" + std::to_string(i)));
-    }
-
-    // Parents must exist in the stage before children can be defined
-    for (size_t i = 0; i < instances.size(); i++) {
-        if (instances[i].type == InstanceType::Assembly) {
-            if (!UsdGeomXform::Define(stage, paths[i]))
-                std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
+        SdfPath parentPath;
+        
+        if (instances[i].parentIdx == -1) {
+            parentPath = SdfPath("/Assembly");
         } else {
-            if (!UsdGeomMesh::Define(stage, paths[i]))
-                std::cerr << "[" << i << "] Failed to define Mesh at " << paths[i] << "\n";
+            parentPath = paths[instances[i].parentIdx];
         }
+
+        std::string name = getLabelName(instances[i].definitionLabel);
+        int count = nameCounts[name]++;
+
+        std::string finalName = sanitizeUSDName(name, count);
+        //std::cout << finalName <<std::endl;
+
+        paths[i] = parentPath.AppendChild(TfToken(finalName));
     }
 
-    // All prims already exist so GetPrimAtPath is safe
-    { // SdfChangeBlock 
-        SdfChangeBlock block;
+    // Define all xform nodes, wire references, and author transforms
+    for (size_t i = 0; i < instances.size(); i++) {
+        const PartInstance& inst = instances[i];
 
-        for (size_t i = 0; i < instances.size(); i++) {
-            const PartInstance& inst = instances[i];
+        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
+        if (!xform) {
+            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
+            continue;
+        }
 
-            UsdPrim prim = stage->GetPrimAtPath(paths[i]);
-            if (!prim.IsValid()) {
-                std::cerr << "[" << i << "] Prim missing at " << paths[i] << "\n";
+        // USD composes the full world transform later
+        xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
+
+        if (inst.type == InstanceType::Leaf) {
+            auto it = prototypePaths.find(inst.definitionLabel);
+            if (it == prototypePaths.end()) {
+                std::cerr << "[" << i << "] No prototype for leaf\n";
                 continue;
             }
 
-            if (inst.type == InstanceType::Assembly) {
-                UsdGeomXform(prim).AddTransformOp()
-                    .Set(trsfToGfMatrix(inst.localTransform));
-
-            } else {
-                const TessResult& r = tessResults[i];
-                if (!r.valid) continue;
-
-                // Local transform positions the mesh within its parent assembly.
-                UsdGeomMesh mesh(prim);
-                mesh.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
-
-                mesh.GetPointsAttr().Set(r.points);
-                mesh.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-                mesh.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-                mesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+            // Child mesh prim pulls geometry from the prototype via reference.
+            // there is the Def_X in Prototypes
+            // Assembly Node references /Prototypes/Def_X
+            SdfPath meshPath = paths[i].AppendChild(TfToken("mesh"));
+            UsdGeomMesh meshPrim = UsdGeomMesh::Define(stage, meshPath);
+            if (!meshPrim) {
+                std::cerr << "[" << i << "] Failed to define mesh at " << meshPath << "\n";
+                continue;
             }
+
+            meshPrim.GetPrim().GetReferences().AddInternalReference(it->second);
         }
-    } // SdfChangeBlock 
+    }
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)
             std::cerr << "USD: " << error.GetCommentary() << "\n";
     }
 
+    auto saveStart = Clock::now();
     stage->GetRootLayer()->Save();
+
+    std::cout << "Layer save time:    " << Seconds(Clock::now() - saveStart).count() << " s\n";
+    std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
     std::cout << "Saved USD to " << outputPath << "\n";
 }
 
-// Counting
 int STEPModel::countNodes(const TDF_Label& label) {
     if (!shapeTool->IsShape(label)) return 0;
 
-    if (shapeTool->IsComponent(label)) { // components are instances
+    if (shapeTool->IsComponent(label)) {
         TDF_Label defLabel;
         if (!shapeTool->GetReferredShape(label, defLabel)) return 0;
-
-        if (shapeTool->IsSimpleShape(defLabel))  return 1; // just the leaf
+        if (shapeTool->IsSimpleShape(defLabel))  return 1;
         if (shapeTool->IsAssembly(defLabel))     return 1 + countAssemblyChildren(defLabel);
-        return 1; // defensive: treat unknown as leaf
+        return 1;
     }
 
     if (shapeTool->IsAssembly(label))    return 1 + countAssemblyChildren(label);
@@ -320,7 +380,6 @@ int STEPModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
     return total;
 }
 
-// Filling
 void STEPModel::fillNode(
     const TDF_Label& label,
     const gp_Trsf& parentWorld,
@@ -330,11 +389,12 @@ void STEPModel::fillNode(
 ) {
     if (!shapeTool->IsShape(label)) return;
 
-    // localTransform is just this label's own location, nothing accumulated
-    // parentWorld is only used here to pass down to children
-    TopLoc_Location loc       = shapeTool->GetLocation(label);
-    gp_Trsf         localTrsf = loc.Transformation();
-    gp_Trsf         world     = parentWorld * localTrsf; // for children only
+    // Extract just this label's own location
+    // world is computed here purely so children can extract their own localTrsf
+    // correctly relative to their parent; it is never stored.
+    TopLoc_Location loc = shapeTool->GetLocation(label);
+    gp_Trsf localTrsf = loc.Transformation();
+    gp_Trsf world = parentWorld * localTrsf;
 
     if (shapeTool->IsComponent(label)) {
         TDF_Label defLabel;
@@ -345,7 +405,7 @@ void STEPModel::fillNode(
         } else if (shapeTool->IsAssembly(defLabel)) {
             fillAssembly(defLabel, localTrsf, world, parentIdx, depth, cursor);
         } else {
-            fillLeaf(defLabel, localTrsf, parentIdx, depth, cursor); // defensive
+            fillLeaf(defLabel, localTrsf, parentIdx, depth, cursor);
         }
 
     } else if (shapeTool->IsAssembly(label)) {
@@ -365,50 +425,50 @@ void STEPModel::fillLeaf(
 ) {
     int myIdx = cursor++;
 
-    instances[myIdx].type           = InstanceType::Leaf;
-    instances[myIdx].definitionTag  = defLabel.Tag();
-    instances[myIdx].localTransform = localTrsf;
-    instances[myIdx].parentIdx      = parentIdx;
-    instances[myIdx].firstChildIdx  = -1;
-    instances[myIdx].childCount     = 0;
-    instances[myIdx].depth          = depth;
+    instances[myIdx].type             = InstanceType::Leaf;
+    instances[myIdx].definitionLabel  = defLabel;
+    instances[myIdx].localTransform   = localTrsf;
+    instances[myIdx].parentIdx        = parentIdx;
+    instances[myIdx].firstChildIdx    = -1;
+    instances[myIdx].childCount       = 0;
+    instances[myIdx].depth            = depth;
 
-    if (definitionShapes.find(defLabel.Tag()) == definitionShapes.end())
-        definitionShapes[defLabel.Tag()] = shapeTool->GetShape(defLabel);
+    // Only store the shape the first time we see this definition label.
+    // Subsequent instances of the same part share this entry.
+    if (definitionShapes.find(defLabel) == definitionShapes.end()) {
+        definitionShapes[defLabel] = shapeTool->GetShape(defLabel);
+    }
 }
 
 void STEPModel::fillAssembly(
     const TDF_Label& defLabel,
     const gp_Trsf& localTrsf,
-    const gp_Trsf& world, // passed to children so they can compute their local
+    const gp_Trsf& world,
     int parentIdx,
     int depth,
     int& cursor
 ) {
-    int myIdx = cursor++; // claim this node's slot
+    int myIdx = cursor++;
 
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(defLabel, components);
 
-    // Count direct children 
-    // This is not full subtree yet — just immediate components
     int validChildren = 0;
     for (int i = 1; i <= components.Length(); i++) {
-        if (countNodes(components.Value(i)) > 0) {
+        if (countNodes(components.Value(i)) > 0) 
             validChildren++;
-        }
     }
-
-    // Children will occupy [cursor, cursor + subtreeSize). cursor starts at the first child slot
+    // Record firstChildIdx before recursing — cursor is at the first child slot
+    // right now, and recursion will fill slots contiguously from here
     int firstChild = (validChildren > 0) ? cursor : -1;
 
-    instances[myIdx].type           = InstanceType::Assembly;
-    instances[myIdx].definitionTag  = defLabel.Tag();
-    instances[myIdx].localTransform = localTrsf;
-    instances[myIdx].parentIdx      = parentIdx;
-    instances[myIdx].firstChildIdx  = firstChild;
-    instances[myIdx].childCount     = validChildren;
-    instances[myIdx].depth          = depth;
+    instances[myIdx].type             = InstanceType::Assembly;
+    instances[myIdx].definitionLabel  = defLabel;
+    instances[myIdx].localTransform   = localTrsf;
+    instances[myIdx].parentIdx        = parentIdx;
+    instances[myIdx].firstChildIdx    = firstChild;
+    instances[myIdx].childCount       = validChildren;
+    instances[myIdx].depth            = depth;
 
     for (int i = 1; i <= components.Length(); i++)
         fillNode(components.Value(i), world, myIdx, depth + 1, cursor);

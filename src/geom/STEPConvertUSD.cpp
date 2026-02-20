@@ -94,6 +94,8 @@ int main(int argc, char** argv) {
         std::cerr << "Input argument verification failed." << std::endl;
         return 1;
     }
+
+    auto start = std::chrono::high_resolution_clock::now();
         
     std::optional<STEPModel> optionalModel = STEPModel::loadFromFile(inputArgs.inputSTEPFile);
     
@@ -110,6 +112,9 @@ int main(int argc, char** argv) {
 
     //model.writeMeshTest(inputArgs.outputDir);
     model.writeUSD(inputArgs.outputDir / "model.usda");
+    auto end = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;
 
     return 0;
 }
