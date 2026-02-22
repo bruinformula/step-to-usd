@@ -5,11 +5,14 @@
 #include <opencascade/TDF_Label.hxx>
 #include <opencascade/TDataStd_Name.hxx>
 #include <opencascade/gp_Trsf.hxx>
+#include <opencascade/TopoDS_Face.hxx>
+#include <opencascade/Poly_Triangulation.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/vec3f.h>
 
 #pragma pop_macro("Handle")
 
@@ -17,7 +20,7 @@ namespace occt = opencascade;
 
 // rotation block: transposed relative to OCC Value(row,col) convention
 // translation: from TranslationPart() into the last row
-inline pxr::GfMatrix4d trsfToGfMatrix(const gp_Trsf& t) {
+static pxr::GfMatrix4d trsfToGfMatrix(const gp_Trsf& t) {
     gp_XYZ trans = t.TranslationPart();
     auto clean = [](double v) { return std::abs(v) < 1e-10 ? 0.0 : v; };
     return pxr::GfMatrix4d(
@@ -28,7 +31,7 @@ inline pxr::GfMatrix4d trsfToGfMatrix(const gp_Trsf& t) {
     );
 }
 
-inline std::string getLabelName(const TDF_Label& label) {
+static std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;
     if (!label.FindAttribute(TDataStd_Name::GetID(), nameAttr)) 
         return "";
@@ -42,7 +45,7 @@ inline std::string getLabelName(const TDF_Label& label) {
     return result;
 }
 
-inline std::string sanitizeUSDName(const std::string_view& name, int idx) {
+static std::string sanitizeUSDName(const std::string_view& name, int idx) {
     if (name.empty()) return "Node_" + std::to_string(idx);
 
     std::string result;

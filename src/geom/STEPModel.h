@@ -80,6 +80,13 @@ struct PartInstance {
 };
 
 struct STEPModel {
+    struct TessResult {
+        pxr::VtArray<pxr::GfVec3f> points;
+        pxr::VtArray<pxr::GfVec3f> normals;
+        pxr::VtArray<int> faceVertexCounts;
+        pxr::VtArray<int> faceVertexIndices;
+        bool valid = false;
+    };
 
     STEPModel(
         occt::handle<TDocStd_Application> a,
@@ -94,8 +101,7 @@ struct STEPModel {
     void buildInstanceTree();
     void debugPrintInstances() const;
 
-    const TopoDS_Shape& getDefinitionShape(const PartInstance& inst) const;
-
+    TessResult tesselatePart(const TopoDS_Shape& shape) const;
     void writeUSD(const fs::path& outputPath) const;
 
     occt::handle<TDocStd_Application> app;
