@@ -400,19 +400,6 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         if (tri.IsNull()) continue;
 
         gp_Trsf trsf = loc.Transformation();
-        bool reversed = (face.Orientation() == TopAbs_REVERSED);
-
-        BRepAdaptor_Surface adapter(face);
-
-        float uMin = adapter.FirstUParameter();
-        float uMax = adapter.LastUParameter();
-        float vMin = adapter.FirstVParameter();
-        float vMax = adapter.LastVParameter();
-
-        bool hasUV = tri->HasUVNodes();
-
-        GeomAdaptor_Surface adapterSurface = adapter.Surface();
-        occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface();
 
         // Assign canonical indices to interior nodes
         result.points.reserve(tri->NbNodes());
@@ -434,6 +421,20 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         result.faceVertexIndices.reserve(3 * tri->NbTriangles());
         result.normals.reserve(3 * tri->NbTriangles());
 
+        bool reversed = (face.Orientation() == TopAbs_REVERSED);
+
+        BRepAdaptor_Surface adapter(face);
+
+        float uMin = adapter.FirstUParameter();
+        float uMax = adapter.LastUParameter();
+        float vMin = adapter.FirstVParameter();
+        float vMax = adapter.LastVParameter();
+
+        bool hasUV = tri->HasUVNodes();
+
+        GeomAdaptor_Surface adapterSurface = adapter.Surface();
+        occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface();
+
         for (int j = 1; j <= tri->NbTriangles(); j++) {
             int n1, n2, n3;
             tri->Triangle(j).Get(n1, n2, n3);
@@ -449,7 +450,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
 
             // there is one normal per face-vertex, sampled from this face's surface
             for (int localIdx : {n1, n2, n3}) {
-                float u = 0.f, v = 0.f;
+                float u = 0.0f, v = 0.0f;
                 if (hasUV) {
                     gp_Pnt2d uv = tri->UVNode(localIdx);
                     u = std::clamp(static_cast<float>(uv.X()), uMin, uMax);
@@ -490,6 +491,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 }
 
                 result.normals.push_back(normal);
+                result.perSurfaceUVs.push_back(GfVec2f(u / uMax, v / vMax));
             }
         }
     }
@@ -573,8 +575,6 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             continue;
         }
 
-        UsdGeomPrimvarsAPI api(proto);
-
         proto.GetPointsAttr().Set(r.points);
         proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
         proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
@@ -582,12 +582,22 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
         proto.GetNormalsAttr().Set(r.normals);
 
+        UsdGeomPrimvarsAPI api(proto);
+
+        UsdGeomPrimvar primUV = api.CreatePrimvar(
+            TfToken("st"),
+            SdfValueTypeNames->TexCoord2fArray,
+            UsdGeomTokens->faceVarying
+        );
+
+
         UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
             TfToken("surfaceID"),
             SdfValueTypeNames->IntArray,
             UsdGeomTokens->uniform
         );
 
+        primUV.Set(r.perSurfaceUVs);
         primSurfaceID.Set(r.topoFaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
 
         prototypePaths[defs[i].first] = protoPath;
