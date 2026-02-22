@@ -109,9 +109,9 @@ int main(int argc, char** argv) {
 
     //model.printInstanceTree();
     //model.printDefinitionShapes();
-
     //model.writeMeshTest(inputArgs.outputDir);
-    model.writeUSD(inputArgs.outputDir / "model.usda");
+
+    model.writeUSD(inputArgs.outputDir / "model.usdc");
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;

@@ -22,6 +22,8 @@
 #include <opencascade/XCAFDoc_MaterialTool.hxx>
 #include <opencascade/BRepAdaptor_Surface.hxx>
 #include <opencascade/GeomLProp_SLProps.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 
 #include <OSD_Parallel.hxx>
 
@@ -35,6 +37,7 @@
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/matrix4d.h>
@@ -308,24 +311,98 @@ void STEPModel::debugPrintInstances() const {
 
 STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) const {
     using namespace pxr;
-    // Copy before tessellating — BRepMesh writes into the TShape node
-    // which is shared across all handles pointing at the same definition
+
     BRepBuilderAPI_Transform copier(defShape, gp_Trsf(), true);
     TopoDS_Shape localShape = copier.Shape();
-    BRepMesh_IncrementalMesh(localShape, 0.1).Perform();
+    constexpr float deflection = 0.1f;
+    BRepMesh_IncrementalMesh(localShape, deflection).Perform();
 
     TessResult result;
-    int vertexOffset = 0;
+    // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
+    // positions remain welded via topology
 
-    for (TopExp_Explorer exp(localShape, TopAbs_FACE); exp.More(); exp.Next()) {
-        const TopoDS_Face& face = TopoDS::Face(exp.Current());
+    using TriNodeKey = std::pair<const Poly_Triangulation*, int>;
+    struct PairHash {
+        size_t operator()(const TriNodeKey& k) const {
+            return std::hash<const void*>{}(k.first) ^ (std::hash<int>{}(k.second) << 16);
+        }
+    };
+    std::unordered_map<TriNodeKey, int, PairHash> nodeToCanonical;
+
+    // edge walk to unify boundary nodes
+    for (TopExp_Explorer edgeExp(localShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
+        if (BRep_Tool::Degenerated(edge)) continue;
+
+        struct FacePoly { 
+            occt::handle<Poly_Triangulation> tri;
+            occt::handle<Poly_PolygonOnTriangulation> poly;
+            TopLoc_Location loc;
+        };
+
+        std::vector<FacePoly> facePolys;
+
+        // get the faces that contain this edge
+        for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+            const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
+            TopLoc_Location loc;
+            occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
+            if (tri.IsNull()) continue;
+
+            TopLoc_Location edgeLoc;
+            occt::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, edgeLoc);
+            if (poly.IsNull()) continue;
+
+            facePolys.push_back({tri, poly, loc});
+        }
+
+        if (facePolys.empty()) continue; // exist early if this edge has no valid faces
+
+        const auto& canonical = facePolys[0]; // need a starting point for welding
+        int nNodes = canonical.poly->NbNodes();
+
+        result.points.reserve(nNodes);
+        for (int k = 1; k <= nNodes; k++) {
+            int canonicalNode = canonical.poly->Node(k);
+            TriNodeKey canonKey{canonical.tri.get(), canonicalNode};
+
+            int outIdx;
+            auto it = nodeToCanonical.find(canonKey);
+            if (it != nodeToCanonical.end()) {
+                outIdx = it->second;
+            } else { // if the node doesn't exist add it 
+                gp_Pnt p = canonical.tri->Node(canonicalNode).Transformed(canonical.loc.Transformation());
+                outIdx = static_cast<int>(result.points.size());
+                result.points.push_back(GfVec3f(
+                    static_cast<float>(p.X()),
+                    static_cast<float>(p.Y()),
+                    static_cast<float>(p.Z())
+                ));
+                nodeToCanonical[canonKey] = outIdx;
+            }
+
+            for (size_t fi = 1; fi < facePolys.size(); fi++) {
+                int otherNode = facePolys[fi].poly->Node(k);
+                nodeToCanonical[{facePolys[fi].tri.get(), otherNode}] = outIdx;
+            }
+        }
+    }
+
+    // weld positions, emit faceVarying normals
+    TopTools_IndexedMapOfShape faceMap;
+    TopExp::MapShapes(localShape, TopAbs_FACE, faceMap);
+
+    for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
+        int faceIndex = faceMap.FindIndex(face);
         TopLoc_Location loc;
         occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
 
         gp_Trsf trsf = loc.Transformation();
+        bool reversed = (face.Orientation() == TopAbs_REVERSED);
 
-        BRepAdaptor_Surface adapter = BRepAdaptor_Surface(face);
+        BRepAdaptor_Surface adapter(face);
 
         float uMin = adapter.FirstUParameter();
         float uMax = adapter.LastUParameter();
@@ -333,101 +410,95 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         float vMax = adapter.LastVParameter();
 
         bool hasUV = tri->HasUVNodes();
-        bool hasNormals = tri->HasNormals();
 
-        //std::cout << "Has Normals: " << hasNormals << "\nHas UV: " << hasUV << "\n";
+        GeomAdaptor_Surface adapterSurface = adapter.Surface();
+        occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface();
 
+        // Assign canonical indices to interior nodes
+        result.points.reserve(tri->NbNodes());
         for (int j = 1; j <= tri->NbNodes(); j++) {
+            TriNodeKey key{tri.get(), j};
+            if (nodeToCanonical.count(key)) continue; // already assigned in the edge walk
+
             gp_Pnt p = tri->Node(j).Transformed(trsf);
+            int idx = static_cast<int>(result.points.size());
             result.points.push_back(GfVec3f(
                 static_cast<float>(p.X()),
                 static_cast<float>(p.Y()),
                 static_cast<float>(p.Z())
             ));
+            nodeToCanonical[key] = idx;
         }
+
+        result.faceVertexCounts.reserve(tri->NbTriangles());
+        result.faceVertexIndices.reserve(3 * tri->NbTriangles());
+        result.normals.reserve(3 * tri->NbTriangles());
 
         for (int j = 1; j <= tri->NbTriangles(); j++) {
             int n1, n2, n3;
             tri->Triangle(j).Get(n1, n2, n3);
-            if (face.Orientation() == TopAbs_REVERSED) 
+            if (reversed) 
                 std::swap(n2, n3);
 
             result.faceVertexCounts.push_back(3);
-            result.faceVertexIndices.push_back(vertexOffset + n1 - 1);
-            result.faceVertexIndices.push_back(vertexOffset + n2 - 1);
-            result.faceVertexIndices.push_back(vertexOffset + n3 - 1);
+            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n1}]);
+            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n2}]);
+            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n3}]);
 
-            // Normals
-            for (int idx : {n1, n2, n3}) {
-                gp_Pnt2d uv = tri->UVNode(idx);
+            result.topoFaceIDs.push_back(faceIndex); // add the faceID of of topo
 
-                float u;
-                float v;
-
+            // there is one normal per face-vertex, sampled from this face's surface
+            for (int localIdx : {n1, n2, n3}) {
+                float u = 0.f, v = 0.f;
                 if (hasUV) {
-                    u = static_cast<float>(uv.X());
-                    v = static_cast<float>(uv.Y());
-
-                    u = fmax(uMin, fmin(uMax, u));
-                    v = fmax(vMin, fmin(vMax, v));
-                } else {
-                    u = 0.0f;
-                    v = 0.0f;
+                    gp_Pnt2d uv = tri->UVNode(localIdx);
+                    u = std::clamp(static_cast<float>(uv.X()), uMin, uMax);
+                    v = std::clamp(static_cast<float>(uv.Y()), vMin, vMax);
                 }
 
-                GeomAdaptor_Surface adapterSurface = adapter.Surface();
-                occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface(); // the .Surface().Surface() what even is this 
-
-                GeomLProp_SLProps props = GeomLProp_SLProps(geomSurface, u, v, 1, 1e-6);
-
-                //std::cout << props.D1U().X() << " " << props.D1U().Y() << " " << props.D1U().Z() << "\n";
-                //std::cout << props.D1V().X() << " " << props.D1V().Y() << " " << props.D1V().Z() << "\n";
-
-                GfVec3f normal;
+                GeomLProp_SLProps props(geomSurface, u, v, 1, 1e-6);
+                GfVec3f normal(0.0f, 0.0f, 1.0f);
                 if (props.IsNormalDefined()) {
                     gp_Vec n = props.Normal();
-
-                    GfVec3f rawNormal(
+                    GfVec3f raw(
                         static_cast<float>(n.X()),
                         static_cast<float>(n.Y()),
                         static_cast<float>(n.Z())
                     );
-
-                    float length = rawNormal.GetLength();
-
-                    if (length > 1e-10) {
-                        normal = rawNormal / length;
-                    } else {
-                        normal = GfVec3f(0.0f, 0.0f, 1.0f);
+                    float len = raw.GetLength();
+                    if (len > 1e-10f) {
+                        normal = raw / len;
                     }
-
                 } else {
-                    normal = GfVec3f(0.0f, 0.0f, 1.0f);
+                    gp_Pnt p1 = tri->Node(n1).Transformed(trsf);
+                    gp_Pnt p2 = tri->Node(n2).Transformed(trsf);
+                    gp_Pnt p3 = tri->Node(n3).Transformed(trsf);
+                    gp_Vec e1(p1, p2), e2(p1, p3);
+                    gp_Vec faceNormal = e1.Crossed(e2);
+                    if (faceNormal.Magnitude() > 1e-10) {
+                        faceNormal.Normalize();
+                    }
+                    normal = GfVec3f(
+                        static_cast<float>(faceNormal.X()),
+                        static_cast<float>(faceNormal.Y()),
+                        static_cast<float>(faceNormal.Z())
+                    );
                 }
 
-                if (face.Orientation() == TopAbs_REVERSED) {
+                if (reversed) {
                     normal = -normal;
                 }
 
                 result.normals.push_back(normal);
-
             }
-
         }
-
-        vertexOffset += tri->NbNodes();
     }
 
     result.valid = !result.points.empty();
-    if (!result.valid) {
+    if (!result.valid)
         std::cerr << "  Warning: def produced no geometry\n";
-    } else { 
-        //std::cout << "  Def " << i << ": " << result.points.size() << " verts, " << result.faceVertexCounts.size() << " faces\n";
-    }
     return result;
 }
-
-
 
 void STEPModel::writeUSD(const fs::path& outputPath) const {
     using namespace pxr;
@@ -455,7 +526,11 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         const TopoDS_Shape& defShape = defs[i].second;
         if (defShape.IsNull()) return;
 
-        tessResults[i] = tesselatePart(defShape);
+        try {
+            tessResults[i] = tesselatePart(defShape);
+        } catch (const Standard_Failure& e) {
+            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
+        }
     });
 
     std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
@@ -498,12 +573,22 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             continue;
         }
 
+        UsdGeomPrimvarsAPI api(proto);
+
         proto.GetPointsAttr().Set(r.points);
         proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
         proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
         proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
         proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
         proto.GetNormalsAttr().Set(r.normals);
+
+        UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
+            TfToken("surfaceID"),
+            SdfValueTypeNames->IntArray,
+            UsdGeomTokens->uniform
+        );
+
+        primSurfaceID.Set(r.topoFaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
 
         prototypePaths[defs[i].first] = protoPath;
 

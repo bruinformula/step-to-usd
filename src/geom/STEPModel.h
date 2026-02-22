@@ -85,6 +85,8 @@ struct STEPModel {
         pxr::VtArray<pxr::GfVec3f> normals;
         pxr::VtArray<int> faceVertexCounts;
         pxr::VtArray<int> faceVertexIndices;
+        pxr::VtArray<int> topoFaceIDs;
+        pxr::VtArray<bool> hasUVs;
         bool valid = false;
     };
 
@@ -100,7 +102,7 @@ struct STEPModel {
 
     void buildInstanceTree();
     void debugPrintInstances() const;
-
+    
     TessResult tesselatePart(const TopoDS_Shape& shape) const;
     void writeUSD(const fs::path& outputPath) const;
 
