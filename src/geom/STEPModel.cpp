@@ -26,6 +26,8 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 
 #include <OSD_Parallel.hxx>
+#include <unordered_map>
+#include <utility>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -38,6 +40,8 @@
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdGeom/basisCurves.h>
+
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/matrix4d.h>
@@ -314,7 +318,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
 
     BRepBuilderAPI_Transform copier(defShape, gp_Trsf(), true);
     TopoDS_Shape localShape = copier.Shape();
-    constexpr float deflection = 0.1f;
+    constexpr float deflection = 1.5f;
     BRepMesh_IncrementalMesh(localShape, deflection).Perform();
 
     TessResult result;
@@ -327,22 +331,38 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             return std::hash<const void*>{}(k.first) ^ (std::hash<int>{}(k.second) << 16);
         }
     };
+
+    using Edge = std::pair<int,int>;
+    struct EdgeHash {
+        size_t operator()(const Edge& e) const {
+            auto [a, b] = e.first < e.second 
+                ? std::make_pair(e.first, e.second) 
+                : std::make_pair(e.second, e.first);
+            return std::hash<int>{}(a) ^ (std::hash<int>{}(b) << 16);
+        }
+    };
+
     std::unordered_map<TriNodeKey, int, PairHash> nodeToCanonical;
+    std::unordered_set<Edge, EdgeHash> curveEdges;
+    std::unordered_set<int> boundaryNodes;
 
     // edge walk to unify boundary nodes
+    TopTools_IndexedMapOfShape faceMap;
+    TopExp::MapShapes(localShape, TopAbs_FACE, faceMap);
+    
     for (TopExp_Explorer edgeExp(localShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
         if (BRep_Tool::Degenerated(edge)) continue;
 
-        struct FacePoly { 
+        struct FacePoly {
             occt::handle<Poly_Triangulation> tri;
             occt::handle<Poly_PolygonOnTriangulation> poly;
             TopLoc_Location loc;
+            int surfaceIndex;
         };
 
         std::vector<FacePoly> facePolys;
 
-        // get the faces that contain this edge
         for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
             const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
             TopLoc_Location loc;
@@ -353,24 +373,34 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             occt::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, edgeLoc);
             if (poly.IsNull()) continue;
 
-            facePolys.push_back({tri, poly, loc});
+            int surfaceIndex = faceMap.FindIndex(face);
+            facePolys.push_back({tri, poly, loc, surfaceIndex});
         }
 
-        if (facePolys.empty()) continue; // exist early if this edge has no valid faces
+        if (facePolys.empty()) continue;
 
-        const auto& canonical = facePolys[0]; // need a starting point for welding
-        int nNodes = canonical.poly->NbNodes();
+        // check if this edge is a boundary between different surfaces
+        bool isSurfaceBoundary = false;
+        for (size_t fi = 1; fi < facePolys.size(); fi++) {
+            if (facePolys[fi].surfaceIndex != facePolys[0].surfaceIndex) {
+                isSurfaceBoundary = true;
+                break;
+            }
+        }
 
-        result.points.reserve(nNodes);
-        for (int k = 1; k <= nNodes; k++) {
+        const FacePoly& canonical = facePolys[0];
+        int numNodes = canonical.poly->NbNodes();
+
+        result.points.reserve(numNodes);
+        for (int k = 1; k <= numNodes; k++) {
             int canonicalNode = canonical.poly->Node(k);
-            TriNodeKey canonKey{canonical.tri.get(), canonicalNode};
+            TriNodeKey canonKey = {canonical.tri.get(), canonicalNode};
 
             int outIdx;
             auto it = nodeToCanonical.find(canonKey);
             if (it != nodeToCanonical.end()) {
                 outIdx = it->second;
-            } else { // if the node doesn't exist add it 
+            } else {
                 gp_Pnt p = canonical.tri->Node(canonicalNode).Transformed(canonical.loc.Transformation());
                 outIdx = static_cast<int>(result.points.size());
                 result.points.push_back(GfVec3f(
@@ -379,33 +409,46 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                     static_cast<float>(p.Z())
                 ));
                 nodeToCanonical[canonKey] = outIdx;
+                boundaryNodes.insert(outIdx);
             }
 
             for (size_t fi = 1; fi < facePolys.size(); fi++) {
                 int otherNode = facePolys[fi].poly->Node(k);
-                nodeToCanonical[{facePolys[fi].tri.get(), otherNode}] = outIdx;
+                TriNodeKey key = {facePolys[fi].tri.get(), otherNode};
+                nodeToCanonical[key] = outIdx;
+            }
+
+            // emit curve edges between consecutive boundary nodes on this edge
+            if (isSurfaceBoundary && k > 1) {
+                int prevNode = canonical.poly->Node(k - 1);
+                TriNodeKey prevKey = {canonical.tri.get(), prevNode};
+                auto prevIt = nodeToCanonical.find(prevKey);
+                if (prevIt != nodeToCanonical.end()) {
+                    Edge e = std::make_pair(prevIt->second, outIdx);
+                    if (curveEdges.insert(e).second) {
+                        result.curvePoints.push_back(result.points[prevIt->second]);
+                        result.curvePoints.push_back(result.points[outIdx]);
+                        result.curveCounts.push_back(2);
+                    }
+                }
             }
         }
     }
 
     // weld positions, emit faceVarying normals
-    TopTools_IndexedMapOfShape faceMap;
-    TopExp::MapShapes(localShape, TopAbs_FACE, faceMap);
 
     for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
-        int faceIndex = faceMap.FindIndex(face);
+        int surfaceIndex = faceMap.FindIndex(face);
         TopLoc_Location loc;
         occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
 
         gp_Trsf trsf = loc.Transformation();
 
-        // Assign canonical indices to interior nodes
-        result.points.reserve(tri->NbNodes());
         for (int j = 1; j <= tri->NbNodes(); j++) {
-            TriNodeKey key{tri.get(), j};
-            if (nodeToCanonical.count(key)) continue; // already assigned in the edge walk
+            TriNodeKey key = {tri.get(), j};
+            if (nodeToCanonical.count(key)) continue;
 
             gp_Pnt p = tri->Node(j).Transformed(trsf);
             int idx = static_cast<int>(result.points.size());
@@ -441,12 +484,16 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             if (reversed) 
                 std::swap(n2, n3);
 
-            result.faceVertexCounts.push_back(3);
-            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n1}]);
-            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n2}]);
-            result.faceVertexIndices.push_back(nodeToCanonical[{tri.get(), n3}]);
+            int i1 = nodeToCanonical[{tri.get(), n1}];
+            int i2 = nodeToCanonical[{tri.get(), n2}];
+            int i3 = nodeToCanonical[{tri.get(), n3}];
 
-            result.topoFaceIDs.push_back(faceIndex); // add the faceID of of topo
+            result.faceVertexCounts.push_back(3);
+            result.faceVertexIndices.push_back(i1);
+            result.faceVertexIndices.push_back(i2);
+            result.faceVertexIndices.push_back(i3);
+
+            result.surfaceIDs.push_back(surfaceIndex);
 
             // there is one normal per face-vertex, sampled from this face's surface
             for (int localIdx : {n1, n2, n3}) {
@@ -555,21 +602,26 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         std::cerr << "Failed to define /Prototypes\n";
         return;
     }
+        if (!UsdGeomXform::Define(stage, SdfPath("/Wireframe"))) {
+        std::cerr << "Failed to define /Wireframe\n";
+        return;
+    }
 
-    // Define and immediately populate each prototype — no deferred writes,
-    // no SdfChangeBlock. Geometry must be in the layer before references
-    // to it are wired up in the instance hierarchy below.
     LabelMap<SdfPath> prototypePaths;
+    LabelMap<SdfPath> prototypeCurvePaths;
+
     for (int i = 0; i < (int)defs.size(); i++) {
         const TessResult& r = tessResults[i];
         if (!r.valid) continue;
 
         std::string name = "Def_" + std::to_string(i);
 
-        SdfPath protoPath = SdfPath("/Prototypes")
-            .AppendChild(TfToken(name));
+        SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
+        SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));        
 
         UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath);
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, curvePath);
+
         if (!proto) {
             std::cerr << "Failed to define prototype at " << protoPath << "\n";
             continue;
@@ -590,17 +642,40 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             UsdGeomTokens->faceVarying
         );
 
-
         UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
             TfToken("surfaceID"),
             SdfValueTypeNames->IntArray,
             UsdGeomTokens->uniform
         );
 
+        UsdGeomPrimvar primIsSurfaceEdge = api.CreatePrimvar(
+            TfToken("isSurfaceEdge"),
+            SdfValueTypeNames->BoolArray,
+            UsdGeomTokens->vertex
+        );
+
         primUV.Set(r.perSurfaceUVs);
-        primSurfaceID.Set(r.topoFaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
+        primSurfaceID.Set(r.surfaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
+        primIsSurfaceEdge.Set(r.isSurfaceEdge);
+
+        if (!r.curveCounts.empty()) {
+            SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));
+            curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+            //curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            curves.GetPointsAttr().Set(r.curvePoints);
+            curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
+
+            VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
+            curves.CreateWidthsAttr().Set(widths);
+
+            VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
+            curves.GetDisplayColorAttr().Set(color);
+        }
 
         prototypePaths[defs[i].first] = protoPath;
+        prototypeCurvePaths[defs[i].first] = curvePath;
 
         //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
     }
@@ -612,6 +687,10 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
     UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
     if (prototypeRoot.IsValid())
         prototypeRoot.SetActive(false);
+
+    UsdPrim wireframeRoot = stage->GetPrimAtPath(SdfPath("/Wireframe"));
+    if (wireframeRoot.IsValid())
+        wireframeRoot.SetActive(false);
 
     // pre-order guarantees parent path is always assigned before we 
     // reach any of its children or USD will omplain about missing 
@@ -652,25 +731,23 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
 
         if (inst.type == InstanceType::Leaf) {
-            auto it = prototypePaths.find(inst.definitionLabel);
-            if (it == prototypePaths.end()) {
+            auto meshIter = prototypePaths.find(inst.definitionLabel);
+            if (meshIter == prototypePaths.end()) {
                 std::cerr << "[" << i << "] No prototype for leaf\n";
                 continue;
             }
 
-            // Child mesh prim pulls geometry from the prototype via reference.
-            // there is the Def_X in Prototypes
-            // Assembly Node references /Prototypes/Def_X
             SdfPath meshPath = paths[i].AppendChild(TfToken("mesh"));
             UsdGeomMesh meshPrim = UsdGeomMesh::Define(stage, meshPath);
             if (!meshPrim) {
                 std::cerr << "[" << i << "] Failed to define mesh at " << meshPath << "\n";
                 continue;
             }
+            meshPrim.GetPrim().GetReferences().AddInternalReference(meshIter->second);
+            meshPrim.GetPrim().SetDisplayName(inst.name + "_mesh");
 
-            meshPrim.GetPrim().GetReferences().AddInternalReference(it->second);
             if (inst.color.has_value()) {
-                pxr::VtArray<pxr::GfVec3f> displayColor = {{
+                VtArray<GfVec3f> displayColor = {{
                     static_cast<float>(inst.color.value().Red()),
                     static_cast<float>(inst.color.value().Green()),
                     static_cast<float>(inst.color.value().Blue())
@@ -678,7 +755,15 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
                 meshPrim.GetDisplayColorAttr().Set(displayColor);
             }
 
-            meshPrim.GetPrim().SetDisplayName(inst.name);
+            auto curveIter = prototypeCurvePaths.find(inst.definitionLabel);
+            if (curveIter != prototypeCurvePaths.end()) {
+                SdfPath curvePath = paths[i].AppendChild(TfToken("wire"));
+                UsdGeomBasisCurves curvePrim = UsdGeomBasisCurves::Define(stage, curvePath);
+                curvePrim.GetPrim().GetReferences().AddInternalReference(curveIter->second);
+
+                curvePrim.GetPrim().SetDisplayName(inst.name + "_wire");
+                curvePrim.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.2, 0.6, 0.9}});
+            }
         }
     }
 

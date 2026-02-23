@@ -83,11 +83,16 @@ struct STEPModel {
     struct TessResult {
         pxr::VtArray<pxr::GfVec3f> points;
         pxr::VtArray<pxr::GfVec3f> normals;
-        pxr::VtArray<pxr::GfVec2f> perSurfaceUVs;
         pxr::VtArray<int> faceVertexCounts;
         pxr::VtArray<int> faceVertexIndices;
-        pxr::VtArray<int> topoFaceIDs;
-        pxr::VtArray<bool> hasUVs;
+
+        pxr::VtArray<pxr::GfVec2f> perSurfaceUVs;
+        pxr::VtArray<int> surfaceIDs;
+        pxr::VtArray<bool> isSurfaceEdge;
+
+        pxr::VtArray<pxr::GfVec3f> curvePoints;
+        pxr::VtArray<int> curveCounts;
+
         bool valid = false;
     };
 
