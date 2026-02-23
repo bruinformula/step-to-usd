@@ -22,8 +22,10 @@
 #include <opencascade/XCAFDoc_MaterialTool.hxx>
 #include <opencascade/BRepAdaptor_Surface.hxx>
 #include <opencascade/GeomLProp_SLProps.hxx>
-#include <TopExp.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <opencascade/BRepBndLib.hxx>
+#include <opencascade/TopExp.hxx>
+#include <opencascade/TopTools_IndexedMapOfShape.hxx>
+#include <opencascade/IMeshTools_Parameters.hxx>
 
 #include <OSD_Parallel.hxx>
 #include <unordered_map>
@@ -315,12 +317,33 @@ void STEPModel::debugPrintInstances() const {
 
 STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) const {
     using namespace pxr;
+    using Clock = std::chrono::high_resolution_clock;
+    using Seconds = std::chrono::duration<double>;
 
-    BRepBuilderAPI_Transform copier(defShape, gp_Trsf(), true);
-    TopoDS_Shape localShape = copier.Shape();
-    constexpr float deflection = 1.5f;
-    BRepMesh_IncrementalMesh(localShape, deflection).Perform();
+    auto tesselateStart = Clock::now();
 
+    Bnd_Box bbox;
+    BRepBndLib::Add(defShape, bbox);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+
+    double diagonal = std::sqrt(
+        std::pow(xmax - xmin, 2) + 
+        std::pow(ymax - ymin, 2) + 
+        std::pow(zmax - zmin, 2)
+    );
+
+    float deflection = static_cast<float>(diagonal * 0.01);
+    IMeshTools_Parameters meshParams;
+    meshParams.Deflection = deflection;
+    meshParams.Angle = 0.5; // in radians
+    //meshParams.InParallel = false; // we handle parallelism at the outer level
+    meshParams.MinSize = deflection * 0.1;
+    BRepMesh_IncrementalMesh mesher(defShape, meshParams);
+    mesher.Perform();
+    
+    auto meshEnd = Clock::now();
+    //std::cout << "  Mesh time: " << Seconds(meshEnd - tesselateStart).count() << " s\n";
     TessResult result;
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
     // positions remain welded via topology
@@ -345,14 +368,21 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
     std::unordered_map<TriNodeKey, int, PairHash> nodeToCanonical;
     std::unordered_set<Edge, EdgeHash> curveEdges;
     std::unordered_set<int> boundaryNodes;
-
     // edge walk to unify boundary nodes
     TopTools_IndexedMapOfShape faceMap;
-    TopExp::MapShapes(localShape, TopAbs_FACE, faceMap);
+    TopExp::MapShapes(defShape, TopAbs_FACE, faceMap);
     
-    for (TopExp_Explorer edgeExp(localShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+    TopTools_IndexedDataMapOfShapeListOfShape edgeToFaces;
+    TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
+
+    for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
         if (BRep_Tool::Degenerated(edge)) continue;
+
+        int edgeIdx = edgeToFaces.FindIndex(edge);
+        if (edgeIdx == 0) continue;
+        
+        const TopTools_ListOfShape& adjFaces = edgeToFaces.FindFromIndex(edgeIdx);
 
         struct FacePoly {
             occt::handle<Poly_Triangulation> tri;
@@ -363,8 +393,8 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
 
         std::vector<FacePoly> facePolys;
 
-        for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
-            const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
+        for (TopTools_ListIteratorOfListOfShape iter(adjFaces); iter.More(); iter.Next()) {
+            const TopoDS_Face& face = TopoDS::Face(iter.Value());
             TopLoc_Location loc;
             occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
             if (tri.IsNull()) continue;
@@ -435,9 +465,27 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         }
     }
 
-    // weld positions, emit faceVarying normals
+    auto edgeWalkEnd = Clock::now();
+    //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
 
-    for (TopExp_Explorer faceExp(localShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+    int totalTris = 0, totalNodes = 0;
+    for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+        const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
+        TopLoc_Location loc;
+        auto tri = BRep_Tool::Triangulation(face, loc);
+        if (tri.IsNull()) continue;
+        totalTris += tri->NbTriangles();
+        totalNodes += tri->NbNodes();
+    }
+
+    result.faceVertexCounts.reserve(totalTris);
+    result.faceVertexIndices.reserve(totalTris * 3);
+    result.normals.reserve(totalTris * 3);
+    result.surfaceIDs.reserve(totalTris);
+    result.perSurfaceUVs.reserve(totalTris * 3);
+
+    // weld positions, emit faceVarying normals
+    for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
         int surfaceIndex = faceMap.FindIndex(face);
         TopLoc_Location loc;
@@ -459,10 +507,6 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             ));
             nodeToCanonical[key] = idx;
         }
-
-        result.faceVertexCounts.reserve(tri->NbTriangles());
-        result.faceVertexIndices.reserve(3 * tri->NbTriangles());
-        result.normals.reserve(3 * tri->NbTriangles());
 
         bool reversed = (face.Orientation() == TopAbs_REVERSED);
 
@@ -487,17 +531,19 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             int i1 = nodeToCanonical[{tri.get(), n1}];
             int i2 = nodeToCanonical[{tri.get(), n2}];
             int i3 = nodeToCanonical[{tri.get(), n3}];
-
+            
             result.faceVertexCounts.push_back(3);
             result.faceVertexIndices.push_back(i1);
             result.faceVertexIndices.push_back(i2);
             result.faceVertexIndices.push_back(i3);
-
-            result.surfaceIDs.push_back(surfaceIndex);
-
+            
+            result.surfaceIDs.push_back(surfaceIndex); 
+            
             // there is one normal per face-vertex, sampled from this face's surface
             for (int localIdx : {n1, n2, n3}) {
+                GfVec3f normal(0.0f, 0.0f, 1.0f);
                 float u = 0.0f, v = 0.0f;
+
                 if (hasUV) {
                     gp_Pnt2d uv = tri->UVNode(localIdx);
                     u = std::clamp(static_cast<float>(uv.X()), uMin, uMax);
@@ -505,8 +551,10 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 }
 
                 GeomLProp_SLProps props(geomSurface, u, v, 1, 1e-6);
-                GfVec3f normal(0.0f, 0.0f, 1.0f);
-                if (props.IsNormalDefined()) {
+
+                constexpr bool useParametricNormals = true;
+
+                if (useParametricNormals && props.IsNormalDefined()) {
                     gp_Vec n = props.Normal();
                     GfVec3f raw(
                         static_cast<float>(n.X()),
@@ -542,6 +590,12 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             }
         }
     }
+
+    auto faceProcessEnd = Clock::now();
+    //std::cout << "  Face processing time: " << Seconds(faceProcessEnd - edgeWalkEnd).count() << " s\n";
+
+    auto tesselateEnd = Clock::now();
+    //std::cout << "  Total tesselatePart time: " << Seconds(tesselateEnd - tesselateStart).count() << " s\n";
 
     result.valid = !result.points.empty();
     if (!result.valid)
