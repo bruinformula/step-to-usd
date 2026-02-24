@@ -1,5 +1,7 @@
 #include <cassert>
 #include <chrono>
+#include <unordered_map>
+#include <utility>
 
 #include <opencascade/BRepBuilderAPI_Transform.hxx>
 #include <opencascade/BinXCAFDrivers.hxx>
@@ -28,10 +30,19 @@
 #include <opencascade/IMeshTools_Parameters.hxx>
 #include <opencascade/BRepAdaptor_Curve.hxx>
 #include <opencascade/GCPnts_QuasiUniformDeflection.hxx>
-
-#include <OSD_Parallel.hxx>
-#include <unordered_map>
-#include <utility>
+#include <opencascade/XSControl_WorkSession.hxx>
+#include <opencascade/XSControl_TransferReader.hxx>
+#include <opencascade/StepRepr_PropertyDefinition.hxx>
+#include <opencascade/TransferBRep_ShapeBinder.hxx>
+#include <opencascade/Transfer_TransientProcess.hxx>
+#include <opencascade/IFSelect_WorkSession.hxx>
+#include <opencascade/StepShape_ShapeDefinitionRepresentation.hxx>
+#include <opencascade/StepRepr_Representation.hxx>
+#include <opencascade/Interface_Static.hxx>
+#include <opencascade/Interface_Graph.hxx>
+#include <opencascade/Interface_EntityIterator.hxx>
+#include <opencascade/TDF_Tool.hxx>
+#include <opencascade/OSD_Parallel.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -69,12 +80,12 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
         xbfPath.replace_extension("xbf");
 
         occt::handle<TDocStd_Document> doc;
+        app->NewDocument("BinXCAF", doc);
 
         // xbf is a binary XCAF cache — subsequent loads skip the STEP parser
         // entirely. Invalidated whenever the STEP file is newer than the cache.
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
             std::cout << "XBF doesn't exist or is out of date. Building from STEP...\n";
-            app->NewDocument("BinXCAF", doc);
 
             STEPCAFControl_Reader reader;
             if (reader.ReadFile(stepPath.c_str()) != IFSelect_RetDone) {
@@ -100,6 +111,7 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
         auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
         auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
+
         return STEPModel(app, doc, shapeTool, colorTool, materialTool);
 
     } catch (const Standard_Failure& e) {
@@ -225,11 +237,11 @@ void STEPModel::fillLeaf(
 
     Quantity_Color color(0.8, 0.8, 0.8, Quantity_TOC_RGB);
     
-    Handle(TCollection_HAsciiString) aName;
-    Handle(TCollection_HAsciiString) aDescription;
-    Standard_Real                    aDensity;
-    Handle(TCollection_HAsciiString) aDensName;
-    Handle(TCollection_HAsciiString) aDensValType;
+    occt::handle<TCollection_HAsciiString> aName;
+    occt::handle<TCollection_HAsciiString> aDescription;
+    Standard_Real                          aDensity;
+    occt::handle<TCollection_HAsciiString> aDensName;
+    occt::handle<TCollection_HAsciiString> aDensValType;
 
     if (materialTool->GetMaterial(defLabel, aName, aDescription, aDensity, aDensName, aDensValType)) {
         aName->Print(std::cout);
@@ -316,8 +328,7 @@ void STEPModel::debugPrintInstances() const {
 }
 
 // USD
-
-STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) const {
+bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
@@ -335,18 +346,20 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         std::pow(zmax - zmin, 2)
     );
 
-    float deflection = static_cast<float>(diagonal * 0.01);
+    if (params.lodCullingMinimumSize && diagonal < *params.lodCullingMinimumSize) {
+        return false;
+    }
+
     IMeshTools_Parameters meshParams;
-    meshParams.Deflection = deflection;
-    meshParams.Angle = 0.5; // in radians
+    meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
+    meshParams.Angle = params.meshAngularDeflection; // in radians
     //meshParams.InParallel = false; // we handle parallelism at the outer level
-    meshParams.MinSize = deflection * 0.1;
+    meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     BRepMesh_IncrementalMesh mesher(defShape, meshParams);
     mesher.Perform();
-    
+
     auto meshEnd = Clock::now();
     //std::cout << "  Mesh time: " << Seconds(meshEnd - tesselateStart).count() << " s\n";
-    TessResult result;
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
     // positions remain welded via topology
 
@@ -373,7 +386,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
     // edge walk to unify boundary nodes
     TopTools_IndexedMapOfShape faceMap;
     TopExp::MapShapes(defShape, TopAbs_FACE, faceMap);
-    
+
     TopTools_IndexedDataMapOfShapeListOfShape edgeToFaces;
     TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
@@ -383,7 +396,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
 
         int edgeIdx = edgeToFaces.FindIndex(edge);
         if (edgeIdx == 0) continue;
-        
+
         const TopTools_ListOfShape& adjFaces = edgeToFaces.FindFromIndex(edgeIdx);
 
         struct FacePoly {
@@ -412,7 +425,6 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
 
         if (facePolys.empty()) continue;
 
-        // check if this edge is a boundary between different surfaces
         bool isSurfaceBoundary = false;
         for (size_t fi = 1; fi < facePolys.size(); fi++) {
             if (facePolys[fi].surfaceIndex != facePolys[0].surfaceIndex) {
@@ -420,26 +432,14 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 break;
             }
         }
-        
+
         int continuity = 0;
         if (facePolys.size() >= 2) {
             GeomAbs_Shape continuityType = BRep_Tool::Continuity(
-                edge, 
-                facePolys[0].face, 
+                edge,
+                facePolys[0].face,
                 facePolys[1].face
             );
-            /*
-            switch (continuity) {
-                case GeomAbs_C0: std::cout << "  C0 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                case GeomAbs_G1: std::cout << "  G1 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                case GeomAbs_C1: std::cout << "  C1 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                case GeomAbs_G2: std::cout << "  G2 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                case GeomAbs_C2: std::cout << "  C2 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                case GeomAbs_CN: std::cout << "  CN edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-                default: std::cout << "  Unknown continuity edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
-            }
-            */
-            
             switch (continuityType) {
                 case GeomAbs_C0: continuity = 1; break;
                 case GeomAbs_G1: continuity = 2; break;
@@ -450,11 +450,18 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 default: break;
             }
         }
-        
+
         const FacePoly& canonical = facePolys[0];
         int numNodes = canonical.poly->NbNodes();
 
         result.points.reserve(numNodes);
+
+        // collect canonical output indices in order so Linear mode can
+        // reference the already-welded mesh vertices directly
+        std::vector<int> edgeOutIndices;
+        if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
+            edgeOutIndices.reserve(numNodes);
+
         for (int k = 1; k <= numNodes; k++) {
             int canonicalNode = canonical.poly->Node(k);
             TriNodeKey canonKey = {canonical.tri.get(), canonicalNode};
@@ -481,29 +488,50 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 nodeToCanonical[key] = outIdx;
             }
 
-            // emit curve edges between consecutive boundary nodes on this edge
-            if (isSurfaceBoundary) {
+            if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
+                edgeOutIndices.push_back(outIdx);
+        }
+
+        if (isSurfaceBoundary && params.wireframeMode != WireframeMode::None) {
+            if (params.wireframeMode == WireframeMode::Linear) {
+                if (edgeOutIndices.size() >= 2) {
+                    for (int idx : edgeOutIndices)
+                        result.curvePoints.push_back(result.points[idx]);
+                    result.curveCounts.push_back(static_cast<int>(edgeOutIndices.size()));
+                    result.curveContinuity.push_back(continuity);
+                }
+            } else {
+                // ResampledLinear and CatmullRom both sample from the curve
                 BRepAdaptor_Curve adaptor(edge);
-                constexpr float deflection = 0.1f; // TODO: make this different 
-                GCPnts_QuasiUniformDeflection sampler(adaptor, deflection, adaptor.FirstParameter(), adaptor.LastParameter());
+                GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframeDeflection, adaptor.FirstParameter(), adaptor.LastParameter());
 
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
-                    
-                    // Add phantom start for Catmull-Rom interpolation
-                    gp_Pnt p0 = sampler.Value(1);
-                    result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
 
-                    for (int i = 1; i <= n; ++i) {
-                        gp_Pnt p = sampler.Value(i);
-                        result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                    if (params.wireframeMode == WireframeMode::CatmullRom) {
+                        // Add phantom start for Catmull-Rom interpolation
+                        gp_Pnt p0 = sampler.Value(1);
+                        result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+
+                        for (int i = 1; i <= n; ++i) {
+                            gp_Pnt p = sampler.Value(i);
+                            result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                        }
+
+                        // Add phantom end
+                        gp_Pnt pN = sampler.Value(n);
+                        result.curvePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+
+                        result.curveCounts.push_back(n + 2);
+                    } else {
+                        // ResampledLinear
+                        for (int i = 1; i <= n; ++i) {
+                            gp_Pnt p = sampler.Value(i);
+                            result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                        }
+                        result.curveCounts.push_back(n);
                     }
 
-                    // Add phantom end
-                    gp_Pnt pN = sampler.Value(n);
-                    result.curvePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
-
-                    result.curveCounts.push_back(n + 2);
                     result.curveContinuity.push_back(continuity);
                 }
             }
@@ -575,20 +603,20 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         for (int j = 1; j <= tri->NbTriangles(); j++) {
             int n1, n2, n3;
             tri->Triangle(j).Get(n1, n2, n3);
-            if (reversed) 
+            if (reversed)
                 std::swap(n2, n3);
 
             int i1 = nodeToCanonical[{tri.get(), n1}];
             int i2 = nodeToCanonical[{tri.get(), n2}];
             int i3 = nodeToCanonical[{tri.get(), n3}];
-            
+
             result.faceVertexCounts.push_back(3);
             result.faceVertexIndices.push_back(i1);
             result.faceVertexIndices.push_back(i2);
             result.faceVertexIndices.push_back(i3);
-            
-            result.surfaceIDs.push_back(surfaceIndex); 
-            
+
+            result.surfaceIDs.push_back(surfaceIndex);
+
             // there is one normal per face-vertex, sampled from this face's surface
             for (int localIdx : {n1, n2, n3}) {
                 GfVec3f normal(0.0f, 0.0f, 1.0f);
@@ -636,7 +664,10 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 }
 
                 result.normals.push_back(normal);
-                result.perSurfaceUVs.push_back(GfVec2f(u / uMax, v / vMax));
+                result.perSurfaceUVs.push_back(GfVec2f(
+                    uMax != 0.0f ? u / uMax : 0.0f,
+                    vMax != 0.0f ? v / vMax : 0.0f
+                ));
             }
         }
     }
@@ -647,13 +678,15 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
     auto tesselateEnd = Clock::now();
     //std::cout << "  Total tesselatePart time: " << Seconds(tesselateEnd - tesselateStart).count() << " s\n";
 
-    result.valid = !result.points.empty();
-    if (!result.valid)
+    if (result.points.empty()) {
         std::cerr << "  Warning: def produced no geometry\n";
-    return result;
+        return false;
+    }
+
+    return true;
 }
 
-void STEPModel::writeUSD(const fs::path& outputPath) const {
+void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
@@ -680,7 +713,9 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         if (defShape.IsNull()) return;
 
         try {
-            tessResults[i] = tesselatePart(defShape);
+            TessResult result;
+            if (tesselatePart(result, defShape, params))
+                tessResults[i] = std::move(result);
         } catch (const Standard_Failure& e) {
             std::cerr << "OCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
         }
@@ -708,7 +743,7 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         std::cerr << "Failed to define /Prototypes\n";
         return;
     }
-        if (!UsdGeomXform::Define(stage, SdfPath("/Wireframe"))) {
+    if (!UsdGeomXform::Define(stage, SdfPath("/Wireframe"))) {
         std::cerr << "Failed to define /Wireframe\n";
         return;
     }
@@ -718,12 +753,12 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
 
     for (int i = 0; i < (int)defs.size(); i++) {
         const TessResult& r = tessResults[i];
-        if (!r.valid) continue;
+        if (r.points.empty()) continue;
 
         std::string name = "Def_" + std::to_string(i);
 
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
-        SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));        
+        SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));
 
         UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath);
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, curvePath);
@@ -754,42 +789,46 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
             UsdGeomTokens->uniform
         );
 
-        UsdGeomPrimvar primIsSurfaceEdge = api.CreatePrimvar(
-            TfToken("isSurfaceEdge"),
+        UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
+            TfToken("isBoundaryVertex"),
             SdfValueTypeNames->BoolArray,
             UsdGeomTokens->vertex
         );
 
         primUV.Set(r.perSurfaceUVs);
-        primSurfaceID.Set(r.surfaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
-        primIsSurfaceEdge.Set(r.isBoundaryVertex);
+        primSurfaceID.Set(r.surfaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines
+        primIsBoundaryVertex.Set(r.isBoundaryVertex);
 
         if (!r.curveCounts.empty()) {
-            SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));
-            curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-            curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic); 
+            if (params.wireframeMode == WireframeMode::CatmullRom) {
+                curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                // Linear and ResampledLinear both produce polylines
+                curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
             curves.GetPointsAttr().Set(r.curvePoints);
             curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
 
-            VtArray<float> widths(r.curvePoints.size(), 10.0f); // constant widths option
+            VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
             curves.CreateWidthsAttr().Set(widths);
 
             VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
             curves.GetDisplayColorAttr().Set(color);
 
-            UsdGeomPrimvarsAPI api(proto);
-            UsdGeomPrimvar primContinuityType = api.CreatePrimvar(
+            UsdGeomPrimvarsAPI curveAPI(curves);
+            UsdGeomPrimvar primContinuityType = curveAPI.CreatePrimvar(
                 TfToken("continuityType"),
                 SdfValueTypeNames->IntArray,
-                UsdGeomTokens->faceVarying
+                UsdGeomTokens->uniform
             );
-
             primContinuityType.Set(r.curveContinuity);
+
+            prototypeCurvePaths[defs[i].first] = curvePath;
         }
 
         prototypePaths[defs[i].first] = protoPath;
-        prototypeCurvePaths[defs[i].first] = curvePath;
 
         //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
     }
@@ -817,7 +856,7 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
         const PartInstance& inst = instances[i];
 
         SdfPath parentPath;
-        
+
         if (instances[i].parentIdx == -1) {
             parentPath = SdfPath("/Assembly");
         } else {

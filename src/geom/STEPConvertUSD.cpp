@@ -111,7 +111,9 @@ int main(int argc, char** argv) {
     //model.printDefinitionShapes();
     //model.writeMeshTest(inputArgs.outputDir);
 
-    model.writeUSD(inputArgs.outputDir / "model.usdc");
+    STEPModel::TessParams params = {};
+    model.writeUSD(inputArgs.outputDir / "model.usdc", params);
+    
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;

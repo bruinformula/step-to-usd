@@ -79,7 +79,15 @@ struct PartInstance {
     ///std::string materialName;
 };
 
+enum class WireframeMode {
+    None,
+    Linear,          // polyline using the tessellated mesh boundary vertices directly
+    ResampledLinear, // polyline resampled from the underlying curve geometry
+    CatmullRom,      // cubic Catmull-Rom resampled from the underlying curve geometry
+};
+
 struct STEPModel {
+
     struct TessResult {
         pxr::VtArray<pxr::GfVec3f> points;
         pxr::VtArray<pxr::GfVec3f> normals;
@@ -94,8 +102,17 @@ struct STEPModel {
         pxr::VtArray<pxr::GfVec3f> curvePoints;
         pxr::VtArray<int> curveCounts;
         pxr::VtArray<int> curveContinuity;
+    };
 
-        bool valid = false;
+    struct TessParams {
+        std::optional<float> lodCullingMinimumSize = std::nullopt; // in the units of the model along the diagonal
+
+        float meshLinearDeflection = 0.05f; // as a fraction of the diagonal of the bounding box
+        float meshAngularDeflection = 0.35f;
+        float meshMinSize = 0.1f; // as a fraction of the linear deflection
+
+        float wireframeDeflection = 1.0f;
+        WireframeMode wireframeMode = WireframeMode::Linear;
     };
 
     STEPModel(
@@ -111,8 +128,8 @@ struct STEPModel {
     void buildInstanceTree();
     void debugPrintInstances() const;
     
-    TessResult tesselatePart(const TopoDS_Shape& shape) const;
-    void writeUSD(const fs::path& outputPath) const;
+    bool tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const;
+    void writeUSD(const fs::path& outputPath, const TessParams& params) const;
 
     occt::handle<TDocStd_Application> app;
     occt::handle<TDocStd_Document> doc;
