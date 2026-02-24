@@ -26,6 +26,8 @@
 #include <opencascade/TopExp.hxx>
 #include <opencascade/TopTools_IndexedMapOfShape.hxx>
 #include <opencascade/IMeshTools_Parameters.hxx>
+#include <opencascade/BRepAdaptor_Curve.hxx>
+#include <opencascade/GCPnts_QuasiUniformDeflection.hxx>
 
 #include <OSD_Parallel.hxx>
 #include <unordered_map>
@@ -385,6 +387,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
         const TopTools_ListOfShape& adjFaces = edgeToFaces.FindFromIndex(edgeIdx);
 
         struct FacePoly {
+            TopoDS_Face face;
             occt::handle<Poly_Triangulation> tri;
             occt::handle<Poly_PolygonOnTriangulation> poly;
             TopLoc_Location loc;
@@ -404,7 +407,7 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             if (poly.IsNull()) continue;
 
             int surfaceIndex = faceMap.FindIndex(face);
-            facePolys.push_back({tri, poly, loc, surfaceIndex});
+            facePolys.push_back({face, tri, poly, loc, surfaceIndex});
         }
 
         if (facePolys.empty()) continue;
@@ -417,7 +420,37 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
                 break;
             }
         }
-
+        
+        int continuity = 0;
+        if (facePolys.size() >= 2) {
+            GeomAbs_Shape continuityType = BRep_Tool::Continuity(
+                edge, 
+                facePolys[0].face, 
+                facePolys[1].face
+            );
+            /*
+            switch (continuity) {
+                case GeomAbs_C0: std::cout << "  C0 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                case GeomAbs_G1: std::cout << "  G1 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                case GeomAbs_C1: std::cout << "  C1 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                case GeomAbs_G2: std::cout << "  G2 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                case GeomAbs_C2: std::cout << "  C2 edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                case GeomAbs_CN: std::cout << "  CN edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+                default: std::cout << "  Unknown continuity edge between faces " << facePolys[0].surfaceIndex << " and " << facePolys[1].surfaceIndex << "\n"; break;
+            }
+            */
+            
+            switch (continuityType) {
+                case GeomAbs_C0: continuity = 1; break;
+                case GeomAbs_G1: continuity = 2; break;
+                case GeomAbs_C1: continuity = 3; break;
+                case GeomAbs_G2: continuity = 4; break;
+                case GeomAbs_C2: continuity = 5; break;
+                case GeomAbs_CN: continuity = 6; break;
+                default: break;
+            }
+        }
+        
         const FacePoly& canonical = facePolys[0];
         int numNodes = canonical.poly->NbNodes();
 
@@ -449,20 +482,37 @@ STEPModel::TessResult STEPModel::tesselatePart(const TopoDS_Shape& defShape) con
             }
 
             // emit curve edges between consecutive boundary nodes on this edge
-            if (isSurfaceBoundary && k > 1) {
-                int prevNode = canonical.poly->Node(k - 1);
-                TriNodeKey prevKey = {canonical.tri.get(), prevNode};
-                auto prevIt = nodeToCanonical.find(prevKey);
-                if (prevIt != nodeToCanonical.end()) {
-                    Edge e = std::make_pair(prevIt->second, outIdx);
-                    if (curveEdges.insert(e).second) {
-                        result.curvePoints.push_back(result.points[prevIt->second]);
-                        result.curvePoints.push_back(result.points[outIdx]);
-                        result.curveCounts.push_back(2);
+            if (isSurfaceBoundary) {
+                BRepAdaptor_Curve adaptor(edge);
+                constexpr float deflection = 0.1f; // TODO: make this different 
+                GCPnts_QuasiUniformDeflection sampler(adaptor, deflection, adaptor.FirstParameter(), adaptor.LastParameter());
+
+                if (sampler.IsDone() && sampler.NbPoints() >= 2) {
+                    int n = sampler.NbPoints();
+                    
+                    // Add phantom start for Catmull-Rom interpolation
+                    gp_Pnt p0 = sampler.Value(1);
+                    result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+
+                    for (int i = 1; i <= n; ++i) {
+                        gp_Pnt p = sampler.Value(i);
+                        result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
                     }
+
+                    // Add phantom end
+                    gp_Pnt pN = sampler.Value(n);
+                    result.curvePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+
+                    result.curveCounts.push_back(n + 2);
+                    result.curveContinuity.push_back(continuity);
                 }
             }
         }
+    }
+
+    result.isBoundaryVertex.resize(result.points.size(), false);
+    for (int idx : boundaryNodes) {
+        result.isBoundaryVertex[idx] = true;
     }
 
     auto edgeWalkEnd = Clock::now();
@@ -647,10 +697,12 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
     UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
     stage->SetMetadata(TfToken("metersPerUnit"), 0.001);
 
-    if (!UsdGeomXform::Define(stage, SdfPath("/Assembly"))) {
+    UsdGeomXform assembly = UsdGeomXform::Define(stage, SdfPath("/Assembly"));
+    if (!assembly) {
         std::cerr << "Failed to define root /Assembly\n";
         return;
     }
+    stage->SetDefaultPrim(assembly.GetPrim());
 
     if (!UsdGeomXform::Define(stage, SdfPath("/Prototypes"))) {
         std::cerr << "Failed to define /Prototypes\n";
@@ -710,22 +762,30 @@ void STEPModel::writeUSD(const fs::path& outputPath) const {
 
         primUV.Set(r.perSurfaceUVs);
         primSurfaceID.Set(r.surfaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines 
-        primIsSurfaceEdge.Set(r.isSurfaceEdge);
+        primIsSurfaceEdge.Set(r.isBoundaryVertex);
 
         if (!r.curveCounts.empty()) {
             SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));
-            curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
             curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-            //curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic); 
             curves.GetPointsAttr().Set(r.curvePoints);
             curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
 
-            VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
+            VtArray<float> widths(r.curvePoints.size(), 10.0f); // constant widths option
             curves.CreateWidthsAttr().Set(widths);
 
             VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
             curves.GetDisplayColorAttr().Set(color);
+
+            UsdGeomPrimvarsAPI api(proto);
+            UsdGeomPrimvar primContinuityType = api.CreatePrimvar(
+                TfToken("continuityType"),
+                SdfValueTypeNames->IntArray,
+                UsdGeomTokens->faceVarying
+            );
+
+            primContinuityType.Set(r.curveContinuity);
         }
 
         prototypePaths[defs[i].first] = protoPath;

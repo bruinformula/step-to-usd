@@ -88,10 +88,12 @@ struct STEPModel {
 
         pxr::VtArray<pxr::GfVec2f> perSurfaceUVs;
         pxr::VtArray<int> surfaceIDs;
-        pxr::VtArray<bool> isSurfaceEdge;
+        pxr::VtArray<bool> isBoundaryVertex;
 
+        // Curves 
         pxr::VtArray<pxr::GfVec3f> curvePoints;
         pxr::VtArray<int> curveCounts;
+        pxr::VtArray<int> curveContinuity;
 
         bool valid = false;
     };
