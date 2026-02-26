@@ -1,7 +1,5 @@
-find_package(gmsh REQUIRED)
 find_package(pxr REQUIRED)
 find_package(OpenCASCADE REQUIRED)
-find_package(CGAL REQUIRED)
 
 #STEPConvertUSD
 
@@ -17,13 +15,6 @@ target_link_libraries(STEPConvertUSD PRIVATE
     usdGeom
     sdf
     tf
-)
-target_link_libraries(STEPConvertUSD PRIVATE
-    gmsh::shared
-)
-
-target_link_libraries(STEPConvertUSD PRIVATE 
-    CGAL::CGAL
 )
 
 target_include_directories(STEPConvertUSD PRIVATE ${OpenCASCADE_INCLUDE_DIR})

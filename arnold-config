@@ -4,13 +4,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 echo "Script directory: $SCRIPT_DIR"
 
-export PXR_MTLX_STDLIB_SEARCH_PATHS="$SCRIPT_DIR/test/usd/testlib"
+#required to run testing 
+export PXR_MTLX_STDLIB_SEARCH_PATHS="$SCRIPT_DIR/test/usd/testlib:$PXR_MTLX_STDLIB_SEARCH_PATHS"
+export PXR_MTLX_STDLIB_SEARCH_PATHS="$SCRIPT_DIR/test/arnold_plugin:$PXR_MTLX_STDLIB_SEARCH_PATHS"
 export ARNOLD_PLUGIN_PATH="$:$SCRIPT_DIR/build/autolib_arnold_plugin:$ARNOLD_PLUGIN_PATH"
-
-
-#OSO_PLUGIN_PATH="$SCRIPT_DIR/oso"
-#OSL_INCLUDE_PATH="$SCRIPT_DIR/include"
-#export HDARNOLD_osl_includepath="$OSL_INCLUDE_PATH:$HDARNOLD_osl_includepath"
-#export ARNOLD_PLUGIN_PATH="$OSO_PLUGIN_PATH:$ARNOLD_PLUGIN_PATH"
-
-#export MULTI_USD_VERSION="25.5"
