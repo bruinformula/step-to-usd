@@ -743,10 +743,6 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
         std::cerr << "Failed to define /Prototypes\n";
         return;
     }
-    if (!UsdGeomXform::Define(stage, SdfPath("/Wireframe"))) {
-        std::cerr << "Failed to define /Wireframe\n";
-        return;
-    }
 
     LabelMap<SdfPath> prototypePaths;
     LabelMap<SdfPath> prototypeCurvePaths;
@@ -758,10 +754,10 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
         std::string name = "Def_" + std::to_string(i);
 
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
-        SdfPath curvePath = SdfPath("/Wireframe").AppendChild(TfToken(name));
+        UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
 
-        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath);
-        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, curvePath);
+        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
 
         if (!proto) {
             std::cerr << "Failed to define prototype at " << protoPath << "\n";
@@ -825,7 +821,7 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
             );
             primContinuityType.Set(r.curveContinuity);
 
-            prototypeCurvePaths[defs[i].first] = curvePath;
+            prototypeCurvePaths[defs[i].first] = curves.GetPath();
         }
 
         prototypePaths[defs[i].first] = protoPath;
@@ -883,39 +879,36 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
         // USD composes the full world transform later
         xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
 
-        if (inst.type == InstanceType::Leaf) {
-            auto meshIter = prototypePaths.find(inst.definitionLabel);
-            if (meshIter == prototypePaths.end()) {
-                std::cerr << "[" << i << "] No prototype for leaf\n";
-                continue;
-            }
+        // pre compute which instances have children
+        std::vector<bool> hasChildren(instances.size(), false);
+        for (size_t i = 0; i < instances.size(); i++) {
+            if (instances[i].parentIdx != -1)
+                hasChildren[instances[i].parentIdx] = true;
+        }
 
-            SdfPath meshPath = paths[i].AppendChild(TfToken("mesh"));
-            UsdGeomMesh meshPrim = UsdGeomMesh::Define(stage, meshPath);
-            if (!meshPrim) {
-                std::cerr << "[" << i << "] Failed to define mesh at " << meshPath << "\n";
-                continue;
+        if (inst.type == InstanceType::Leaf) {
+            auto protoIter = prototypePaths.find(inst.definitionLabel);
+            if (protoIter == prototypePaths.end()) continue;
+
+            xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
+            
+            if (!hasChildren[i]) {
+                xform.GetPrim().SetInstanceable(true);
             }
-            meshPrim.GetPrim().GetReferences().AddInternalReference(meshIter->second);
-            meshPrim.GetPrim().SetDisplayName(inst.name + "_mesh");
 
             if (inst.color.has_value()) {
                 VtArray<GfVec3f> displayColor = {{
-                    static_cast<float>(inst.color.value().Red()),
-                    static_cast<float>(inst.color.value().Green()),
-                    static_cast<float>(inst.color.value().Blue())
+                    static_cast<float>(inst.color->Red()),
+                    static_cast<float>(inst.color->Green()),
+                    static_cast<float>(inst.color->Blue())
                 }};
-                meshPrim.GetDisplayColorAttr().Set(displayColor);
-            }
 
-            auto curveIter = prototypeCurvePaths.find(inst.definitionLabel);
-            if (curveIter != prototypeCurvePaths.end()) {
-                SdfPath curvePath = paths[i].AppendChild(TfToken("wire"));
-                UsdGeomBasisCurves curvePrim = UsdGeomBasisCurves::Define(stage, curvePath);
-                curvePrim.GetPrim().GetReferences().AddInternalReference(curveIter->second);
-
-                curvePrim.GetPrim().SetDisplayName(inst.name + "_wire");
-                curvePrim.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.2, 0.6, 0.9}});
+                UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
+                    TfToken("primvars:displayColor"),
+                    SdfValueTypeNames->Color3fArray,
+                    /*custom=*/false
+                );
+                colorAttr.Set(displayColor);
             }
         }
     }
