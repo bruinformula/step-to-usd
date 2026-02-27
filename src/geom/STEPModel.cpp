@@ -62,6 +62,7 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/token.h>
+#include <pxr/usd/usd/modelAPI.h>
 
 #pragma pop_macro("Handle")
 
@@ -381,14 +382,23 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     };
 
     std::unordered_map<TriNodeKey, int, PairHash> nodeToCanonical;
-    std::unordered_set<Edge, EdgeHash> curveEdges;
+    std::unordered_set<TriNodeKey, PairHash> boundaryKeys;
     std::unordered_set<int> boundaryNodes;
+
     // edge walk to unify boundary nodes
     TopTools_IndexedMapOfShape faceMap;
     TopExp::MapShapes(defShape, TopAbs_FACE, faceMap);
 
     TopTools_IndexedDataMapOfShapeListOfShape edgeToFaces;
     TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
+
+    // Per-edge data deferred for Linear mode. 
+    struct DeferredLinearCurve {
+        std::vector<TriNodeKey> keys;
+        int continuity;
+    };
+    
+    std::vector<DeferredLinearCurve> deferredLinearCurves;
 
     for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
@@ -454,52 +464,31 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         const FacePoly& canonical = facePolys[0];
         int numNodes = canonical.poly->NbNodes();
 
-        result.points.reserve(numNodes);
-
-        // collect canonical output indices in order so Linear mode can
-        // reference the already-welded mesh vertices directly
-        std::vector<int> edgeOutIndices;
+        std::vector<TriNodeKey> edgeCanonicalKeys;
         if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
-            edgeOutIndices.reserve(numNodes);
+            edgeCanonicalKeys.reserve(numNodes);
 
         for (int k = 1; k <= numNodes; k++) {
             int canonicalNode = canonical.poly->Node(k);
             TriNodeKey canonKey = {canonical.tri.get(), canonicalNode};
 
-            int outIdx;
-            auto it = nodeToCanonical.find(canonKey);
-            if (it != nodeToCanonical.end()) {
-                outIdx = it->second;
-            } else {
-                gp_Pnt p = canonical.tri->Node(canonicalNode).Transformed(canonical.loc.Transformation());
-                outIdx = static_cast<int>(result.points.size());
-                result.points.push_back(GfVec3f(
-                    static_cast<float>(p.X()),
-                    static_cast<float>(p.Y()),
-                    static_cast<float>(p.Z())
-                ));
-                nodeToCanonical[canonKey] = outIdx;
-                boundaryNodes.insert(outIdx);
-            }
+            // Output indices are assigned later in the face loop.
+            boundaryKeys.insert(canonKey);
 
             for (size_t fi = 1; fi < facePolys.size(); fi++) {
                 int otherNode = facePolys[fi].poly->Node(k);
-                TriNodeKey key = {facePolys[fi].tri.get(), otherNode};
-                nodeToCanonical[key] = outIdx;
+                TriNodeKey otherKey = {facePolys[fi].tri.get(), otherNode};
+                boundaryKeys.insert(otherKey);
             }
 
             if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
-                edgeOutIndices.push_back(outIdx);
+                edgeCanonicalKeys.push_back(canonKey);
         }
 
         if (isSurfaceBoundary && params.wireframeMode != WireframeMode::None) {
             if (params.wireframeMode == WireframeMode::Linear) {
-                if (edgeOutIndices.size() >= 2) {
-                    for (int idx : edgeOutIndices)
-                        result.curvePoints.push_back(result.points[idx]);
-                    result.curveCounts.push_back(static_cast<int>(edgeOutIndices.size()));
-                    result.curveContinuity.push_back(continuity);
-                }
+                if (edgeCanonicalKeys.size() >= 2)
+                    deferredLinearCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
                 // ResampledLinear and CatmullRom both sample from the curve
                 BRepAdaptor_Curve adaptor(edge);
@@ -538,11 +527,6 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         }
     }
 
-    result.isBoundaryVertex.resize(result.points.size(), false);
-    for (int idx : boundaryNodes) {
-        result.isBoundaryVertex[idx] = true;
-    }
-
     auto edgeWalkEnd = Clock::now();
     //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
 
@@ -562,7 +546,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     result.surfaceIDs.reserve(totalTris);
     result.perSurfaceUVs.reserve(totalTris * 3);
 
-    // weld positions, emit faceVarying normals
+    // weld positions, emit faceVarying normals.
     for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
         int surfaceIndex = faceMap.FindIndex(face);
@@ -584,6 +568,9 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                 static_cast<float>(p.Z())
             ));
             nodeToCanonical[key] = idx;
+
+            if (boundaryKeys.count(key))
+                boundaryNodes.insert(idx);
         }
 
         bool reversed = (face.Orientation() == TopAbs_REVERSED);
@@ -669,6 +656,26 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                     vMax != 0.0f ? v / vMax : 0.0f
                 ));
             }
+        }
+    }
+
+    result.isBoundaryVertex.resize(result.points.size(), false);
+    for (int idx : boundaryNodes)
+        result.isBoundaryVertex[idx] = true;
+
+    for (const DeferredLinearCurve& deferred : deferredLinearCurves) {
+        std::vector<int> resolved;
+        resolved.reserve(deferred.keys.size());
+        for (const TriNodeKey& key : deferred.keys) {
+            auto it = nodeToCanonical.find(key);
+            if (it != nodeToCanonical.end())
+                resolved.push_back(it->second);
+        }
+        if (resolved.size() >= 2) {
+            for (int idx : resolved)
+                result.curvePoints.push_back(result.points[idx]);
+            result.curveCounts.push_back(static_cast<int>(resolved.size()));
+            result.curveContinuity.push_back(deferred.continuity);
         }
     }
 
@@ -891,6 +898,7 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
             if (protoIter == prototypePaths.end()) continue;
 
             xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
+            UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
             
             if (!hasChildren[i]) {
                 xform.GetPrim().SetInstanceable(true);
@@ -906,10 +914,12 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
                 UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
                     TfToken("primvars:displayColor"),
                     SdfValueTypeNames->Color3fArray,
-                    /*custom=*/false
+                    false
                 );
                 colorAttr.Set(displayColor);
             }
+        } else {
+            UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
         }
     }
 

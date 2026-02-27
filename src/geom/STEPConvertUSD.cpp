@@ -8,7 +8,7 @@
 struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputSTEPFile;
-    std::filesystem::path outputDir;
+    std::filesystem::path outputFile;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -19,14 +19,14 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
                 inputSTEPFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--outputDir"): {
+            case hashString("--outputFile"): {
                 if (nextToken.empty()) goto expectOption;
-                if (!outputDir.empty()) goto alreadySet;
-                outputDir = nextToken;
+                if (!outputFile.empty()) goto alreadySet;
+                outputFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
-                std::cout << "Usage: STEPConvertUSD --inputSTEPFile <path_to_step_file>" << std::endl;
+                std::cout << "Usage: STEPConvertUSD --inputSTEPFile <path_to_step_file> --outputFile <path_to_output_file>" << std::endl;
                 return EXIT;
             }
             default: {
@@ -57,10 +57,12 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
             std::cerr << "The provided input STEP file does not exist: " << inputSTEPFile << std::endl;
             return false;
         }
-        if (outputDir.empty()) {
-            std::cerr << "outputDir is not set!" << std::endl;
+
+        if (outputFile.empty()) {
+            std::cerr << "outputFile is not set!" << std::endl;
             return false;
         }
+
         return true;
     }
 };
@@ -106,13 +108,13 @@ int main(int argc, char** argv) {
     STEPModel model = optionalModel.value();
 
     model.buildInstanceTree();
-
+    
     //model.printInstanceTree();
     //model.printDefinitionShapes();
     //model.writeMeshTest(inputArgs.outputDir);
 
     STEPModel::TessParams params = {};
-    model.writeUSD(inputArgs.outputDir / "model.usdc", params);
+    model.writeUSD(inputArgs.outputFile, params);
     
     auto end = std::chrono::high_resolution_clock::now();
 

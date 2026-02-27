@@ -126,6 +126,7 @@ struct STEPModel {
     static std::optional<STEPModel> loadFromFile(const fs::path& stepPath);
 
     void buildInstanceTree();
+
     void debugPrintInstances() const;
     
     bool tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const;
