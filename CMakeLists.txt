@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_AUTOLIB_MTL "Build lookdev tools" ON)
+option(BUILD_AUTOLIB_MTL_ARNOLD_BSDFS "Build arnold BSDFs" ON)
 option(BUILD_AUTOLIB_GEOM "Build geometry tools" ON)
 
 if (NOT CMAKE_BUILD_TYPE)

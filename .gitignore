@@ -7,4 +7,3 @@ build/
 autolib/
 **/*.xbf
 **/*.stl
-out.exr
