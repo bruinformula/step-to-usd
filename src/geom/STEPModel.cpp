@@ -354,12 +354,21 @@ static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
 
     // Scale so patches roughly tile a unit square
     float invSqrtN = 1.0f / std::sqrt((float)std::max(n, 1));
-    for (int i = 0; i < n; i++) { tileWidths[i] *= invSqrtN; tileHeights[i] *= invSqrtN; }
+    for (int i = 0; i < n; i++) { 
+        tileWidths[i] *= invSqrtN; 
+        tileHeights[i] *= invSqrtN; 
+    }
 
     // sorting
     std::vector<int> order(n);
     std::iota(order.begin(), order.end(), 0); // fills an array 0,1,2,3...
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return tileHeights[a] > tileHeights[b]; });
+    std::sort(
+        order.begin(), 
+        order.end(), 
+        [&](int a, int b) { 
+            return tileHeights[a] > tileHeights[b]; 
+        }
+    );
 
     constexpr float padding = 0.001f;
     std::vector<GfVec4f> placements(n); // (x, y, w, h)
