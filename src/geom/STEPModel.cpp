@@ -328,6 +328,76 @@ void STEPModel::debugPrintInstances() const {
     }
 }
 
+struct UVPatch {
+    std::vector<pxr::GfVec2f> uvs; // one per face-vertex, in raw param space
+    float uMin, uMax, vMin, vMax;
+};
+
+static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
+    using namespace pxr;
+    int n = (int)patches.size();
+
+    // Each patch's needs to have normalized UVs to local [0,1]
+    std::vector<float> tileWidths(n), tileHeights(n);
+    for (int i = 0; i < n; i++) {
+        float uRange = std::max(patches[i].uMax - patches[i].uMin, 1e-10f);
+        float vRange = std::max(patches[i].vMax - patches[i].vMin, 1e-10f);
+        for (auto& uv : patches[i].uvs) {
+            uv[0] = (uv[0] - patches[i].uMin) / uRange;
+            uv[1] = (uv[1] - patches[i].vMin) / vRange;
+        }
+        // Tile dims proportional to param range
+        float area = std::sqrt(uRange * vRange);
+        tileWidths[i] = uRange / area;
+        tileHeights[i] = vRange / area;
+    }
+
+    // Scale so patches roughly tile a unit square
+    float invSqrtN = 1.0f / std::sqrt((float)std::max(n, 1));
+    for (int i = 0; i < n; i++) { tileWidths[i] *= invSqrtN; tileHeights[i] *= invSqrtN; }
+
+    // sorting
+    std::vector<int> order(n);
+    std::iota(order.begin(), order.end(), 0); // fills an array 0,1,2,3...
+    std::sort(order.begin(), order.end(), [&](int a, int b) { return tileHeights[a] > tileHeights[b]; });
+
+    constexpr float padding = 0.001f;
+    std::vector<GfVec4f> placements(n); // (x, y, w, h)
+    float shelfX = 0, shelfY = 0, shelfH = 0;
+    float atlasW = 0, atlasH = 0;
+
+    for (int idx : order) {
+        if (shelfX + tileWidths[idx] > 1.0f + 1e-5f) {
+            shelfY += shelfH + padding;
+            shelfX = 0;
+            shelfH = 0;
+        }
+        placements[idx] = GfVec4f(shelfX, shelfY, tileWidths[idx], tileHeights[idx]);
+        shelfX += tileWidths[idx] + padding;
+        shelfH = std::max(shelfH, tileHeights[idx]);
+        atlasW = std::max(atlasW, shelfX);
+        atlasH = std::max(atlasH, shelfY + shelfH);
+    }
+
+    atlasW = std::max(atlasW, 1e-10f);
+    atlasH = std::max(atlasH, 1e-10f);
+
+    int totalFaceVerts = 0;
+    for (auto& p : patches) totalFaceVerts += (int)p.uvs.size();
+
+    VtArray<GfVec2f> result(totalFaceVerts);
+    int offset = 0;
+    for (int i = 0; i < n; i++) {
+        float px = placements[i][0] / atlasW;
+        float py = placements[i][1] / atlasH;
+        float pw = placements[i][2] / atlasW;
+        float ph = placements[i][3] / atlasH;
+        for (const auto& uv : patches[i].uvs)
+            result[offset++] = GfVec2f(px + uv[0] * pw, py + uv[1] * ph);
+    }
+    return result;
+}
+
 // USD
 bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
@@ -544,7 +614,8 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     result.faceVertexIndices.reserve(totalTris * 3);
     result.normals.reserve(totalTris * 3);
     result.surfaceIDs.reserve(totalTris);
-    result.perSurfaceUVs.reserve(totalTris * 3);
+    std::vector<UVPatch> uvPatches;
+    uvPatches.reserve(faceMap.Extent());
 
     // weld positions, emit faceVarying normals.
     for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
@@ -576,7 +647,6 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         bool reversed = (face.Orientation() == TopAbs_REVERSED);
 
         BRepAdaptor_Surface adapter(face);
-
         float uMin = adapter.FirstUParameter();
         float uMax = adapter.LastUParameter();
         float vMin = adapter.FirstVParameter();
@@ -587,11 +657,14 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         GeomAdaptor_Surface adapterSurface = adapter.Surface();
         occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface();
 
+        UVPatch patch;
+        patch.uMin = uMin; patch.uMax = uMax;
+        patch.vMin = vMin; patch.vMax = vMax;
+
         for (int j = 1; j <= tri->NbTriangles(); j++) {
             int n1, n2, n3;
             tri->Triangle(j).Get(n1, n2, n3);
-            if (reversed)
-                std::swap(n2, n3);
+            if (reversed) std::swap(n2, n3);
 
             int i1 = nodeToCanonical[{tri.get(), n1}];
             int i2 = nodeToCanonical[{tri.get(), n2}];
@@ -601,10 +674,8 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
             result.faceVertexIndices.push_back(i1);
             result.faceVertexIndices.push_back(i2);
             result.faceVertexIndices.push_back(i3);
-
             result.surfaceIDs.push_back(surfaceIndex);
 
-            // there is one normal per face-vertex, sampled from this face's surface
             for (int localIdx : {n1, n2, n3}) {
                 GfVec3f normal(0.0f, 0.0f, 1.0f);
                 float u = 0.0f, v = 0.0f;
@@ -627,18 +698,15 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                         static_cast<float>(n.Z())
                     );
                     float len = raw.GetLength();
-                    if (len > 1e-10f) {
-                        normal = raw / len;
-                    }
+                    if (len > 1e-10f) normal = raw / len;
                 } else {
                     gp_Pnt p1 = tri->Node(n1).Transformed(trsf);
                     gp_Pnt p2 = tri->Node(n2).Transformed(trsf);
                     gp_Pnt p3 = tri->Node(n3).Transformed(trsf);
                     gp_Vec e1(p1, p2), e2(p1, p3);
                     gp_Vec faceNormal = e1.Crossed(e2);
-                    if (faceNormal.Magnitude() > 1e-10) {
+                    if (faceNormal.Magnitude() > 1e-10)
                         faceNormal.Normalize();
-                    }
                     normal = GfVec3f(
                         static_cast<float>(faceNormal.X()),
                         static_cast<float>(faceNormal.Y()),
@@ -646,18 +714,16 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                     );
                 }
 
-                if (reversed) {
-                    normal = -normal;
-                }
+                if (reversed) normal = -normal;
 
                 result.normals.push_back(normal);
-                result.perSurfaceUVs.push_back(GfVec2f(
-                    uMax != 0.0f ? u / uMax : 0.0f,
-                    vMax != 0.0f ? v / vMax : 0.0f
-                ));
+                patch.uvs.push_back(GfVec2f(u, v)); // raw param coords, packed later
             }
         }
+        uvPatches.push_back(std::move(patch));
     }
+
+    result.perSurfaceUVs = packUVAtlas(uvPatches);
 
     result.isBoundaryVertex.resize(result.points.size(), false);
     for (int idx : boundaryNodes)
