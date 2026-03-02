@@ -609,6 +609,54 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     auto edgeWalkEnd = Clock::now();
     //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
 
+    // stetches in STEP 242 are registered as free edges in the defintion shape and inherit 
+    // the transforms with the parts that derive from them
+    if (params.sketchMode != SketchMode::None) {
+        for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+            const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
+            if (BRep_Tool::Degenerated(edge)) continue;
+
+            int edgeIdx = edgeToFaces.FindIndex(edge);
+            bool isFreeEdge = (edgeIdx == 0) || (edgeToFaces.FindFromIndex(edgeIdx).Extent() == 0);
+            if (!isFreeEdge) continue;
+
+            BRepAdaptor_Curve adaptor(edge);
+
+            double deflection = (params.sketchMode == SketchMode::Linear)
+                ? params.wireframeDeflection
+                : params.sketchDeflection;
+
+            GCPnts_QuasiUniformDeflection sampler(
+                adaptor, deflection,
+                adaptor.FirstParameter(), adaptor.LastParameter()
+            );
+            if (!sampler.IsDone() || sampler.NbPoints() < 2) continue;
+
+            int n = sampler.NbPoints();
+
+            if (params.sketchMode == SketchMode::CatmullRom) {
+                // Phantom start — duplicate first point for Catmull-Rom
+                gp_Pnt p0 = sampler.Value(1);
+                result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+                for (int si = 1; si <= n; ++si) {
+                    gp_Pnt p = sampler.Value(si);
+                    result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                }
+                // Phantom end — duplicate last point
+                gp_Pnt pN = sampler.Value(n);
+                result.sketchPoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+                result.sketchCounts.push_back(n + 2);
+            } else {
+                // Linear and ResampledLinear both produce polylines
+                for (int si = 1; si <= n; ++si) {
+                    gp_Pnt p = sampler.Value(si);
+                    result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                }
+                result.sketchCounts.push_back(n);
+            }
+        }
+    }
+
     int totalTris = 0, totalNodes = 0;
     for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
@@ -760,15 +808,18 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     auto tesselateEnd = Clock::now();
     //std::cout << "  Total tesselatePart time: " << Seconds(tesselateEnd - tesselateStart).count() << " s\n";
 
-    if (result.points.empty()) {
-        std::cerr << "  Warning: def produced no geometry\n";
+    // A definition is valid if it has mesh geometry OR sketch curves.
+    // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
+    // but do carry sketch curves, so only reject if both are absent.
+    if (result.points.empty() && result.sketchCounts.empty()) {
+        std::cerr << "  Warning: def produced no geometry or sketch curves\n";
         return false;
     }
 
     return true;
 }
 
-void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) const {
+void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
@@ -805,12 +856,6 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
 
     std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
 
-    UsdStageRefPtr stage = UsdStage::CreateNew(outputPath.string());
-    if (!stage) {
-        std::cerr << "Failed to create stage at " << outputPath << "\n";
-        return;
-    }
-
     UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
     stage->SetMetadata(TfToken("metersPerUnit"), 0.001);
 
@@ -829,9 +874,9 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
     LabelMap<SdfPath> prototypePaths;
     LabelMap<SdfPath> prototypeCurvePaths;
 
-    for (int i = 0; i < (int)defs.size(); i++) {
+    for (int i = 0; i < defs.size(); i++) {
         const TessResult& r = tessResults[i];
-        if (r.points.empty()) continue;
+        if (r.points.empty() && r.sketchCounts.empty()) continue;
 
         std::string name = "Def_" + std::to_string(i);
 
@@ -840,42 +885,45 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
 
         UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
+        UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("sketch")));
 
         if (!proto) {
             std::cerr << "Failed to define prototype at " << protoPath << "\n";
             continue;
         }
 
-        proto.GetPointsAttr().Set(r.points);
-        proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-        proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-        proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-        proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-        proto.GetNormalsAttr().Set(r.normals);
+        if (!r.points.empty()) {
+            proto.GetPointsAttr().Set(r.points);
+            proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
+            proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+            proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+            proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+            proto.GetNormalsAttr().Set(r.normals);
 
-        UsdGeomPrimvarsAPI api(proto);
+            UsdGeomPrimvarsAPI api(proto);
 
-        UsdGeomPrimvar primUV = api.CreatePrimvar(
-            TfToken("st"),
-            SdfValueTypeNames->TexCoord2fArray,
-            UsdGeomTokens->faceVarying
-        );
+            UsdGeomPrimvar primUV = api.CreatePrimvar(
+                TfToken("st"),
+                SdfValueTypeNames->TexCoord2fArray,
+                UsdGeomTokens->faceVarying
+            );
 
-        UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
-            TfToken("surfaceID"),
-            SdfValueTypeNames->IntArray,
-            UsdGeomTokens->uniform
-        );
+            UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
+                TfToken("surfaceID"),
+                SdfValueTypeNames->IntArray,
+                UsdGeomTokens->uniform
+            );
 
-        UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
-            TfToken("isBoundaryVertex"),
-            SdfValueTypeNames->BoolArray,
-            UsdGeomTokens->vertex
-        );
+            UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
+                TfToken("isBoundaryVertex"),
+                SdfValueTypeNames->BoolArray,
+                UsdGeomTokens->vertex
+            );
 
-        primUV.Set(r.perSurfaceUVs);
-        primSurfaceID.Set(r.surfaceIDs); // emit surfaceID as a uniform primvar so it can be used for CAD style surface outlines
-        primIsBoundaryVertex.Set(r.isBoundaryVertex);
+            primUV.Set(r.perSurfaceUVs);
+            primSurfaceID.Set(r.surfaceIDs);
+            primIsBoundaryVertex.Set(r.isBoundaryVertex);
+        }
 
         if (!r.curveCounts.empty()) {
             if (params.wireframeMode == WireframeMode::CatmullRom) {
@@ -904,6 +952,25 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
             primContinuityType.Set(r.curveContinuity);
 
             prototypeCurvePaths[defs[i].first] = curves.GetPath();
+        }
+
+        if (!r.sketchCounts.empty()) {
+            if (params.sketchMode == SketchMode::CatmullRom) {
+                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                // Linear and ResampledLinear both produce polylines
+                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            sketchCurves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            sketchCurves.GetPointsAttr().Set(r.sketchPoints);
+            sketchCurves.GetCurveVertexCountsAttr().Set(r.sketchCounts);
+
+            VtArray<float> sketchWidths(r.sketchPoints.size(), 0.1f);
+            sketchCurves.CreateWidthsAttr().Set(sketchWidths);
+
+            VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
+            sketchCurves.GetDisplayColorAttr().Set(sketchColor);
         }
 
         prototypePaths[defs[i].first] = protoPath;
@@ -1003,10 +1070,5 @@ void STEPModel::writeUSD(const fs::path& outputPath, const TessParams& params) c
             std::cerr << "USD: " << error.GetCommentary() << "\n";
     }
 
-    auto saveStart = Clock::now();
-    stage->GetRootLayer()->Save();
-
-    std::cout << "Layer save time:    " << Seconds(Clock::now() - saveStart).count() << " s\n";
     std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
-    std::cout << "Saved USD to " << outputPath << "\n";
 }

@@ -76,7 +76,6 @@ struct PartInstance {
 
     std::string name;
     std::optional<Quantity_Color> color;
-    ///std::string materialName;
 };
 
 enum class WireframeMode {
@@ -84,6 +83,13 @@ enum class WireframeMode {
     Linear,          // polyline using the tessellated mesh boundary vertices directly
     ResampledLinear, // polyline resampled from the underlying curve geometry
     CatmullRom,      // cubic Catmull-Rom resampled from the underlying curve geometry
+};
+
+enum class SketchMode {
+    None,
+    Linear,          // polyline sampled from the STEP curve at wireframe deflection
+    ResampledLinear, // polyline resampled with independent sketch deflection
+    CatmullRom,      // cubic Catmull-Rom with independent sketch deflection
 };
 
 struct STEPModel {
@@ -98,10 +104,14 @@ struct STEPModel {
         pxr::VtArray<int> surfaceIDs;
         pxr::VtArray<bool> isBoundaryVertex;
 
-        // Curves 
+        // Wireframe curves 
         pxr::VtArray<pxr::GfVec3f> curvePoints;
         pxr::VtArray<int> curveCounts;
         pxr::VtArray<int> curveContinuity;
+
+        // Sketch curves
+        pxr::VtArray<pxr::GfVec3f> sketchPoints;
+        pxr::VtArray<int> sketchCounts;
     };
 
     struct TessParams {
@@ -113,6 +123,9 @@ struct STEPModel {
 
         float wireframeDeflection = 1.0f;
         WireframeMode wireframeMode = WireframeMode::Linear;
+
+        float sketchDeflection = 0.5f;
+        SketchMode sketchMode = SketchMode::Linear;
     };
 
     STEPModel(
@@ -130,7 +143,7 @@ struct STEPModel {
     void debugPrintInstances() const;
     
     bool tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const;
-    void writeUSD(const fs::path& outputPath, const TessParams& params) const;
+    void populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params) const;
 
     occt::handle<TDocStd_Application> app;
     occt::handle<TDocStd_Document> doc;

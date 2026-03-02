@@ -5,10 +5,46 @@
 #include "ArgumentHandler.h"
 #include "STEPModel.h"
 
+const std::string argOptions =
+    " STEPConvertUSD -- Converts STEP files to USD\n"
+    " Options: \n"
+    "    --inputSTEPFile <path>           Path to the input STEP file to convert. \n"
+    "    --outputFile <path>              Path to the output USD file. \n"
+    "    --wireframeMode <none|linear|resampledlinear|catmullrom>  Wireframe mode for visualization (default: linear). \n"
+    "    --wireframeDeflection <float>    Deflection value for wireframe curves (default: 1.0). \n"
+    "    --sketchMode <none|linear|resampledlinear|catmullrom>     Sketch mode for visualization (default: linear). \n"
+    "    --sketchDeflection <float>       Deflection value for sketch curves (default: 0.5). \n"
+    "    --help                            Prints this message.\n";
+
+static SketchMode parseSketchMode(const std::string& s) {
+    switch (hashString(s)) {
+        case hashString("none"):            return SketchMode::None;
+        case hashString("linear"):          return SketchMode::Linear;
+        case hashString("resampledlinear"): return SketchMode::ResampledLinear;
+        case hashString("catmullrom"):      return SketchMode::CatmullRom;
+        default: return SketchMode::Linear;
+    }
+}
+
+static WireframeMode parseWireframeMode(const std::string& s) {
+    switch (hashString(s)) {
+        case hashString("none"):            return WireframeMode::None;
+        case hashString("linear"):          return WireframeMode::Linear;
+        case hashString("resampledlinear"): return WireframeMode::ResampledLinear;
+        case hashString("catmullrom"):      return WireframeMode::CatmullRom;
+        default: return WireframeMode::Linear; 
+    }
+}
+
 struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputSTEPFile;
     std::filesystem::path outputFile;
+
+    SketchMode sketchMode       = SketchMode::Linear;
+    float sketchDeflection = 0.5f;
+    WireframeMode wireframeMode    = WireframeMode::Linear;
+    float wireframeDeflection = 1.0f;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -25,8 +61,28 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
                 outputFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
+            case hashString("--wireframeMode"): {
+                if (nextToken.empty()) goto expectOption;
+                wireframeMode = parseWireframeMode(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--wireframeDeflection"): {
+                if (nextToken.empty()) goto expectOption;
+                wireframeDeflection = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--sketchMode"): {
+                if (nextToken.empty()) goto expectOption;
+                sketchMode = parseSketchMode(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--sketchDeflection"): {
+                if (nextToken.empty()) goto expectOption;
+                sketchDeflection = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
             case hashString("--help"): {
-                std::cout << "Usage: STEPConvertUSD --inputSTEPFile <path_to_step_file> --outputFile <path_to_output_file>" << std::endl;
+                std::cout << argOptions << std::endl;
                 return EXIT;
             }
             default: {
@@ -113,9 +169,20 @@ int main(int argc, char** argv) {
     //model.printDefinitionShapes();
     //model.writeMeshTest(inputArgs.outputDir);
 
+    pxr::UsdStageRefPtr stage = pxr::UsdStage::CreateNew(inputArgs.outputFile);
+    if (!stage) {
+        std::cerr << "Failed to create stage at " << inputArgs.outputFile << "\n";
+        return 1;
+    }
+
     STEPModel::TessParams params = {};
-    model.writeUSD(inputArgs.outputFile, params);
-    
+    params.wireframeMode = inputArgs.wireframeMode;
+    params.wireframeDeflection = inputArgs.wireframeDeflection;
+    params.sketchMode = inputArgs.sketchMode;
+    params.sketchDeflection = inputArgs.sketchDeflection;
+    model.populateUSD(stage, params);
+
+    stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;
