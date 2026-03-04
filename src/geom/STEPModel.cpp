@@ -57,7 +57,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
-#include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/usdGeom/imageable.h>
 
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
@@ -65,6 +65,7 @@
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usd/inherits.h>
 
 #pragma pop_macro("Handle")
 
@@ -410,39 +411,6 @@ static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
 }
 
 // USD
-
-void addVisVariantSet(
-    pxr::UsdStageRefPtr stage,
-    pxr::UsdGeomXform& protoXform,
-    const std::string& setName, // "meshVis", "wireVis", "sketchVis"
-    const std::string& childName, // "mesh",    "wire",    "sketch"
-    bool defaultOn)
-{
-    using namespace pxr;
-
-    UsdVariantSet vs = protoXform.GetPrim().GetVariantSets().AddVariantSet(setName);
-
-    vs.AddVariant("on");
-    vs.SetVariantSelection("on");
-    {
-        UsdEditContext ctx(vs.GetVariantEditContext());
-        SdfPath childPath = protoXform.GetPath().AppendChild(TfToken(childName));
-        UsdPrim child = stage->OverridePrim(childPath);
-        UsdGeomImageable(child).MakeVisible();
-    }
-
-    vs.AddVariant("off");
-    vs.SetVariantSelection("off");
-    {
-        UsdEditContext ctx(vs.GetVariantEditContext());
-        SdfPath childPath = protoXform.GetPath().AppendChild(TfToken(childName));
-        UsdPrim child = stage->OverridePrim(childPath);
-        UsdGeomImageable(child).MakeInvisible();
-    }
-
-    vs.SetVariantSelection(defaultOn ? "on" : "off");
-}
-
 bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
@@ -911,6 +879,20 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
         return;
     }
 
+    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/CADPart"));
+    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    auto makeClassChild = [&](const char* name) {
+        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
+        UsdPrim child = stage->DefinePrim(childPath);
+        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+        return child;
+    };
+    
+    makeClassChild("mesh");
+    makeClassChild("wire");
+    makeClassChild("sketch");
+
     LabelMap<SdfPath> prototypePaths;
     LabelMap<SdfPath> prototypeCurvePaths;
     std::unordered_map<std::string, int> protoNameCounts;
@@ -928,6 +910,7 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
         std::string name = sanitizeUSDName(rawName, protoCount);
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
         UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
+        protoXform.GetPrim().GetInherits().AddInherit(SdfPath("/CADPart"));
 
         UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
@@ -969,7 +952,6 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
             primUV.Set(r.perSurfaceUVs);
             primSurfaceID.Set(r.surfaceIDs);
             primIsBoundaryVertex.Set(r.isBoundaryVertex);
-            addVisVariantSet(stage, protoXform, "meshVis", "mesh", params.defaultMeshVisibility);
         }
 
         if (!r.curveCounts.empty()) {
@@ -999,7 +981,6 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
             primContinuityType.Set(r.curveContinuity);
 
             prototypeCurvePaths[defs[i].first] = curves.GetPath();
-            addVisVariantSet(stage, protoXform, "wireVis", "wire", params.defaultWireframeVisibility);
         }
 
         if (!r.sketchCounts.empty()) {
@@ -1019,7 +1000,6 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
 
             VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
             sketchCurves.GetDisplayColorAttr().Set(sketchColor);
-            addVisVariantSet(stage, protoXform, "sketchVis", "sketch", params.defaultSketchVisibility);
         }
 
         prototypePaths[defs[i].first] = protoPath;
