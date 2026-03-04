@@ -913,13 +913,19 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
 
     LabelMap<SdfPath> prototypePaths;
     LabelMap<SdfPath> prototypeCurvePaths;
+    std::unordered_map<std::string, int> protoNameCounts;
 
     for (int i = 0; i < defs.size(); i++) {
         const TessResult& r = tessResults[i];
         if (r.points.empty() && r.sketchCounts.empty()) continue;
 
-        std::string name = "Def_" + std::to_string(i);
+        std::string rawName = getLabelName(defs[i].first);
+        if (rawName.empty()) {
+            rawName = "Def_" + std::to_string(i);
+        }
 
+        int protoCount = protoNameCounts[rawName]++;
+        std::string name = sanitizeUSDName(rawName, protoCount);
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
         UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
 
