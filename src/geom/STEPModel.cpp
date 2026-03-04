@@ -50,12 +50,14 @@
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
+#include <pxr/usd/usd/variantSets.h>
 
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
@@ -408,6 +410,39 @@ static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
 }
 
 // USD
+
+void addVisVariantSet(
+    pxr::UsdStageRefPtr stage,
+    pxr::UsdGeomXform& protoXform,
+    const std::string& setName, // "meshVis", "wireVis", "sketchVis"
+    const std::string& childName, // "mesh",    "wire",    "sketch"
+    bool defaultOn)
+{
+    using namespace pxr;
+
+    UsdVariantSet vs = protoXform.GetPrim().GetVariantSets().AddVariantSet(setName);
+
+    vs.AddVariant("on");
+    vs.SetVariantSelection("on");
+    {
+        UsdEditContext ctx(vs.GetVariantEditContext());
+        SdfPath childPath = protoXform.GetPath().AppendChild(TfToken(childName));
+        UsdPrim child = stage->OverridePrim(childPath);
+        UsdGeomImageable(child).MakeVisible();
+    }
+
+    vs.AddVariant("off");
+    vs.SetVariantSelection("off");
+    {
+        UsdEditContext ctx(vs.GetVariantEditContext());
+        SdfPath childPath = protoXform.GetPath().AppendChild(TfToken(childName));
+        UsdPrim child = stage->OverridePrim(childPath);
+        UsdGeomImageable(child).MakeInvisible();
+    }
+
+    vs.SetVariantSelection(defaultOn ? "on" : "off");
+}
+
 bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
@@ -544,7 +579,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         int numNodes = canonical.poly->NbNodes();
 
         std::vector<TriNodeKey> edgeCanonicalKeys;
-        if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
+        if (isSurfaceBoundary && params.wireframeMode == CurveMode::Linear)
             edgeCanonicalKeys.reserve(numNodes);
 
         for (int k = 1; k <= numNodes; k++) {
@@ -560,12 +595,12 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                 boundaryKeys.insert(otherKey);
             }
 
-            if (isSurfaceBoundary && params.wireframeMode == WireframeMode::Linear)
+            if (isSurfaceBoundary && params.wireframeMode == CurveMode::Linear)
                 edgeCanonicalKeys.push_back(canonKey);
         }
 
-        if (isSurfaceBoundary && params.wireframeMode != WireframeMode::None) {
-            if (params.wireframeMode == WireframeMode::Linear) {
+        if (isSurfaceBoundary && params.wireframeMode != CurveMode::None) {
+            if (params.wireframeMode == CurveMode::Linear) {
                 if (edgeCanonicalKeys.size() >= 2)
                     deferredLinearCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
@@ -576,7 +611,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
 
-                    if (params.wireframeMode == WireframeMode::CatmullRom) {
+                    if (params.wireframeMode == CurveMode::CatmullRom) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
                         result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -609,9 +644,10 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     auto edgeWalkEnd = Clock::now();
     //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
 
-    // stetches in STEP 242 are registered as free edges in the defintion shape and inherit 
-    // the transforms with the parts that derive from them
-    if (params.sketchMode != SketchMode::None) {
+    // sketches in STEP 242 are registered as free edges 
+    // in the defintion shape and are not guaranteed to be connected to any faces, 
+    // so we have to do a separate edge walk to find them and sample 
+    if (params.sketchMode != CurveMode::None) {
         for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
             const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
             if (BRep_Tool::Degenerated(edge)) continue;
@@ -622,9 +658,13 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
             BRepAdaptor_Curve adaptor(edge);
 
-            double deflection = (params.sketchMode == SketchMode::Linear)
-                ? params.wireframeDeflection
-                : params.sketchDeflection;
+            double deflection;
+            
+            if (params.sketchMode == CurveMode::Linear) {
+                deflection = params.wireframeDeflection;
+            } else {
+                deflection = params.sketchDeflection;
+            }
 
             GCPnts_QuasiUniformDeflection sampler(
                 adaptor, deflection,
@@ -634,7 +674,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
             int n = sampler.NbPoints();
 
-            if (params.sketchMode == SketchMode::CatmullRom) {
+            if (params.sketchMode == CurveMode::CatmullRom) {
                 // Phantom start — duplicate first point for Catmull-Rom
                 gp_Pnt p0 = sampler.Value(1);
                 result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -923,10 +963,11 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
             primUV.Set(r.perSurfaceUVs);
             primSurfaceID.Set(r.surfaceIDs);
             primIsBoundaryVertex.Set(r.isBoundaryVertex);
+            addVisVariantSet(stage, protoXform, "meshVis", "mesh", params.defaultMeshVisibility);
         }
 
         if (!r.curveCounts.empty()) {
-            if (params.wireframeMode == WireframeMode::CatmullRom) {
+            if (params.wireframeMode == CurveMode::CatmullRom) {
                 curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {
@@ -952,10 +993,11 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
             primContinuityType.Set(r.curveContinuity);
 
             prototypeCurvePaths[defs[i].first] = curves.GetPath();
+            addVisVariantSet(stage, protoXform, "wireVis", "wire", params.defaultWireframeVisibility);
         }
 
         if (!r.sketchCounts.empty()) {
-            if (params.sketchMode == SketchMode::CatmullRom) {
+            if (params.sketchMode == CurveMode::CatmullRom) {
                 sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {
@@ -971,6 +1013,7 @@ void STEPModel::populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params)
 
             VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
             sketchCurves.GetDisplayColorAttr().Set(sketchColor);
+            addVisVariantSet(stage, protoXform, "sketchVis", "sketch", params.defaultSketchVisibility);
         }
 
         prototypePaths[defs[i].first] = protoPath;

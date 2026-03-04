@@ -16,23 +16,13 @@ const std::string argOptions =
     "    --sketchDeflection <float>       Deflection value for sketch curves (default: 0.5). \n"
     "    --help                            Prints this message.\n";
 
-static SketchMode parseSketchMode(const std::string& s) {
+static CurveMode parseCurveMode(const std::string& s) {
     switch (hashString(s)) {
-        case hashString("none"):            return SketchMode::None;
-        case hashString("linear"):          return SketchMode::Linear;
-        case hashString("resampledlinear"): return SketchMode::ResampledLinear;
-        case hashString("catmullrom"):      return SketchMode::CatmullRom;
-        default: return SketchMode::Linear;
-    }
-}
-
-static WireframeMode parseWireframeMode(const std::string& s) {
-    switch (hashString(s)) {
-        case hashString("none"):            return WireframeMode::None;
-        case hashString("linear"):          return WireframeMode::Linear;
-        case hashString("resampledlinear"): return WireframeMode::ResampledLinear;
-        case hashString("catmullrom"):      return WireframeMode::CatmullRom;
-        default: return WireframeMode::Linear; 
+        case hashString("none"):            return CurveMode::None;
+        case hashString("linear"):          return CurveMode::Linear;
+        case hashString("resampledlinear"): return CurveMode::ResampledLinear;
+        case hashString("catmullrom"):      return CurveMode::CatmullRom;
+        default: return CurveMode::Linear;
     }
 }
 
@@ -41,9 +31,9 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
     std::filesystem::path inputSTEPFile;
     std::filesystem::path outputFile;
 
-    SketchMode sketchMode       = SketchMode::Linear;
+    CurveMode sketchMode = CurveMode::Linear;
     float sketchDeflection = 0.5f;
-    WireframeMode wireframeMode    = WireframeMode::Linear;
+    CurveMode wireframeMode = CurveMode::Linear;
     float wireframeDeflection = 1.0f;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
@@ -63,7 +53,7 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
             }
             case hashString("--wireframeMode"): {
                 if (nextToken.empty()) goto expectOption;
-                wireframeMode = parseWireframeMode(nextToken);
+                wireframeMode = parseCurveMode(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--wireframeDeflection"): {
@@ -73,7 +63,7 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
             }
             case hashString("--sketchMode"): {
                 if (nextToken.empty()) goto expectOption;
-                sketchMode = parseSketchMode(nextToken);
+                sketchMode = parseCurveMode(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--sketchDeflection"): {
@@ -176,10 +166,12 @@ int main(int argc, char** argv) {
     }
 
     STEPModel::TessParams params = {};
+
     params.wireframeMode = inputArgs.wireframeMode;
     params.wireframeDeflection = inputArgs.wireframeDeflection;
     params.sketchMode = inputArgs.sketchMode;
     params.sketchDeflection = inputArgs.sketchDeflection;
+
     model.populateUSD(stage, params);
 
     stage->GetRootLayer()->Save();
