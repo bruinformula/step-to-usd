@@ -8,13 +8,20 @@
 const std::string argOptions =
     " STEPConvertUSD -- Converts STEP files to USD\n"
     " Options: \n"
-    "    --inputSTEPFile <path>           Path to the input STEP file to convert. \n"
-    "    --outputFile <path>              Path to the output USD file. \n"
-    "    --wireframeMode <none|linear|resampledlinear|catmullrom>  Wireframe mode for visualization (default: linear). \n"
-    "    --wireframeDeflection <float>    Deflection value for wireframe curves (default: 1.0). \n"
-    "    --sketchMode <none|linear|resampledlinear|catmullrom>     Sketch mode for visualization (default: linear). \n"
-    "    --sketchDeflection <float>       Deflection value for sketch curves (default: 0.5). \n"
-    "    --help                            Prints this message.\n";
+    "    --inputSTEPFile <path>                                     Path to the input STEP file to convert. \n"
+    "    --outputFile <path>                                        Path to the output USD file. \n"
+    "    --wireframeMode <none|linear|resampledlinear|catmullrom>   Wireframe mode for visualization (default: linear). \n"
+    "    --wireframeDeflection <float>                              Deflection value for wireframe curves (default: 1.0). \n"
+    "    --sketchMode <none|linear|resampledlinear|catmullrom>      Sketch mode for visualization (default: linear). \n"
+    "    --sketchDeflection <float>                                 Deflection value for sketch curves (default: 0.5). \n"
+    "    --meshLinearDeflection <float>                             Linear deflection as fraction of bbox diagonal (default: 0.05). \n"
+    "    --meshAngularDeflection <float>                            Angular deflection in radians (default: 0.35). \n"
+    "    --meshMinSize <float>                                      Minimum mesh size as fraction of linear deflection (default: 0.1). \n"
+    "    --lodCullingMinimumSize <float>                            Cull parts with bbox diagonal smaller than this value. \n"
+    "    --defaultMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
+    "    --defaultWireframeVisibility <true|false>                  Default visibility of wireframe curves (default: false). \n"
+    "    --defaultSketchVisibility <true|false>                     Default visibility of sketch curves (default: false). \n"
+    "    --help                                                     Prints this message.\n";
 
 static CurveMode parseCurveMode(const std::string& s) {
     switch (hashString(s)) {
@@ -35,6 +42,13 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
     float sketchDeflection = 0.5f;
     CurveMode wireframeMode = CurveMode::Linear;
     float wireframeDeflection = 1.0f;
+    float meshLinearDeflection = 0.05f;
+    float meshAngularDeflection = 0.35f;
+    float meshMinSize = 0.1f;
+    std::optional<float> lodCullingMinimumSize = std::nullopt;
+    bool defaultMeshVisibility = true;
+    bool defaultWireframeVisibility = false;
+    bool defaultSketchVisibility = false;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -69,6 +83,41 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
             case hashString("--sketchDeflection"): {
                 if (nextToken.empty()) goto expectOption;
                 sketchDeflection = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--meshLinearDeflection"): {
+                if (nextToken.empty()) goto expectOption;
+                meshLinearDeflection = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--meshAngularDeflection"): {
+                if (nextToken.empty()) goto expectOption;
+                meshAngularDeflection = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--meshMinSize"): {
+                if (nextToken.empty()) goto expectOption;
+                meshMinSize = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--lodCullingMinimumSize"): {
+                if (nextToken.empty()) goto expectOption;
+                lodCullingMinimumSize = std::stof(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--defaultMeshVisibility"): {
+                if (nextToken.empty()) goto expectOption;
+                defaultMeshVisibility = (nextToken == "true");
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--defaultWireframeVisibility"): {
+                if (nextToken.empty()) goto expectOption;
+                defaultWireframeVisibility = (nextToken == "true");
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--defaultSketchVisibility"): {
+                if (nextToken.empty()) goto expectOption;
+                defaultSketchVisibility = (nextToken == "true");
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
@@ -171,6 +220,13 @@ int main(int argc, char** argv) {
     params.wireframeDeflection = inputArgs.wireframeDeflection;
     params.sketchMode = inputArgs.sketchMode;
     params.sketchDeflection = inputArgs.sketchDeflection;
+    params.meshLinearDeflection = inputArgs.meshLinearDeflection;
+    params.meshAngularDeflection = inputArgs.meshAngularDeflection;
+    params.meshMinSize = inputArgs.meshMinSize;
+    params.lodCullingMinimumSize = inputArgs.lodCullingMinimumSize;
+    params.defaultMeshVisibility = inputArgs.defaultMeshVisibility;
+    params.defaultWireframeVisibility = inputArgs.defaultWireframeVisibility;
+    params.defaultSketchVisibility = inputArgs.defaultSketchVisibility;
 
     model.populateUSD(stage, params);
 
