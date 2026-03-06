@@ -123,7 +123,15 @@ struct STEPModel {
         bool defaultMeshVisibility = true;
         bool defaultWireframeVisibility = false;
         bool defaultSketchVisibility = false;
-    
+    };
+
+    struct VariantParams {
+        TessParams tessParams;
+        std::string variantName;
+        std::string variantSetName;
+        std::filesystem::path outpath;  
+        std::filesystem::path refpath;
+        bool overwrite = false;
     };
 
     STEPModel(
@@ -142,6 +150,7 @@ struct STEPModel {
     
     bool tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const;
     void populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params) const;
+    void populateVariantUSD(pxr::UsdStageRefPtr stage, const std::vector<VariantParams>& variantParams) const;
 
     occt::handle<TDocStd_Application> app;
     occt::handle<TDocStd_Document> doc;
@@ -180,4 +189,11 @@ private:
         int              depth,
         int&             cursor
     );
+
+    std::vector<pxr::SdfPath> computeInstancePaths() const;
+    void writeInstanceXforms(
+        pxr::UsdStageRefPtr stage,
+        const std::vector<pxr::SdfPath>& paths,
+        const LabelMap<pxr::SdfPath>& prototypePaths
+    ) const;
 };

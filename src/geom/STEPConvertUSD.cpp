@@ -21,6 +21,7 @@ const std::string argOptions =
     "    --defaultMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
     "    --defaultWireframeVisibility <true|false>                  Default visibility of wireframe curves (default: false). \n"
     "    --defaultSketchVisibility <true|false>                     Default visibility of sketch curves (default: false). \n"
+
     "    --help                                                     Prints this message.\n";
 
 static CurveMode parseCurveMode(const std::string& s) {
@@ -38,17 +39,7 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
     std::filesystem::path inputSTEPFile;
     std::filesystem::path outputFile;
 
-    CurveMode sketchMode = CurveMode::Linear;
-    float sketchDeflection = 0.5f;
-    CurveMode wireframeMode = CurveMode::Linear;
-    float wireframeDeflection = 1.0f;
-    float meshLinearDeflection = 0.05f;
-    float meshAngularDeflection = 0.35f;
-    float meshMinSize = 0.1f;
-    std::optional<float> lodCullingMinimumSize = std::nullopt;
-    bool defaultMeshVisibility = true;
-    bool defaultWireframeVisibility = false;
-    bool defaultSketchVisibility = false;
+    STEPModel::TessParams tessParams;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -67,57 +58,57 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
             }
             case hashString("--wireframeMode"): {
                 if (nextToken.empty()) goto expectOption;
-                wireframeMode = parseCurveMode(nextToken);
+                tessParams.wireframeMode = parseCurveMode(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--wireframeDeflection"): {
                 if (nextToken.empty()) goto expectOption;
-                wireframeDeflection = std::stof(nextToken);
+                tessParams.wireframeDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--sketchMode"): {
                 if (nextToken.empty()) goto expectOption;
-                sketchMode = parseCurveMode(nextToken);
+                tessParams.sketchMode = parseCurveMode(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--sketchDeflection"): {
                 if (nextToken.empty()) goto expectOption;
-                sketchDeflection = std::stof(nextToken);
+                tessParams.sketchDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--meshLinearDeflection"): {
                 if (nextToken.empty()) goto expectOption;
-                meshLinearDeflection = std::stof(nextToken);
+                tessParams.meshLinearDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--meshAngularDeflection"): {
                 if (nextToken.empty()) goto expectOption;
-                meshAngularDeflection = std::stof(nextToken);
+                tessParams.meshAngularDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--meshMinSize"): {
                 if (nextToken.empty()) goto expectOption;
-                meshMinSize = std::stof(nextToken);
+                tessParams.meshMinSize = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--lodCullingMinimumSize"): {
                 if (nextToken.empty()) goto expectOption;
-                lodCullingMinimumSize = std::stof(nextToken);
+                tessParams.lodCullingMinimumSize = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--defaultMeshVisibility"): {
                 if (nextToken.empty()) goto expectOption;
-                defaultMeshVisibility = (nextToken == "true");
+                tessParams.defaultMeshVisibility = (nextToken == "true");
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--defaultWireframeVisibility"): {
                 if (nextToken.empty()) goto expectOption;
-                defaultWireframeVisibility = (nextToken == "true");
+                tessParams.defaultWireframeVisibility = (nextToken == "true");
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--defaultSketchVisibility"): {
                 if (nextToken.empty()) goto expectOption;
-                defaultSketchVisibility = (nextToken == "true");
+                tessParams.defaultSketchVisibility = (nextToken == "true");
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
@@ -214,21 +205,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    STEPModel::TessParams params = {};
-
-    params.wireframeMode = inputArgs.wireframeMode;
-    params.wireframeDeflection = inputArgs.wireframeDeflection;
-    params.sketchMode = inputArgs.sketchMode;
-    params.sketchDeflection = inputArgs.sketchDeflection;
-    params.meshLinearDeflection = inputArgs.meshLinearDeflection;
-    params.meshAngularDeflection = inputArgs.meshAngularDeflection;
-    params.meshMinSize = inputArgs.meshMinSize;
-    params.lodCullingMinimumSize = inputArgs.lodCullingMinimumSize;
-    params.defaultMeshVisibility = inputArgs.defaultMeshVisibility;
-    params.defaultWireframeVisibility = inputArgs.defaultWireframeVisibility;
-    params.defaultSketchVisibility = inputArgs.defaultSketchVisibility;
-
-    model.populateUSD(stage, params);
+    model.populateUSD(stage, inputArgs.tessParams);
 
     stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();
