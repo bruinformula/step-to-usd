@@ -8,9 +8,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(BUILD_AUTOLIB_MTL "Build lookdev tools" ON)
-option(BUILD_AUTOLIB_MTL_ARNOLD_BSDFS "Build arnold BSDFs" ON)
-option(BUILD_AUTOLIB_GEOM "Build geometry tools" ON)
+option(BUILD_AUTOLIB_MTL "Build lookdev tools. Requires MaterialX, OSL, and OpenImageIO" ON)
+option(BUILD_AUTOLIB_MTL_ARNOLD_BSDFS "Build arnold BSDFs. Requires Arnold-SDK" ON)
+option(BUILD_AUTOLIB_GEOM "Build geometry tools. Requires Usd and OpenCascade" ON)
+option(BUILD_AUTOLIB_SIM "Build simulation tools. Requires Usd and Chrono" ON)
+
 
 if (NOT CMAKE_BUILD_TYPE)
     set (CMAKE_BUILD_TYPE "Release")

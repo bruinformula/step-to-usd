@@ -3,13 +3,13 @@
 #include <vector>
 
 #include "ArgumentHandler.h"
-#include "STEPModel.h"
+#include "StepModel.h"
 
 const std::string argOptions =
-    " STEPConvertUSD -- Converts STEP files to USD\n"
+    " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
-    "    --inputSTEPFile <path>                                     Path to the input STEP file to convert. \n"
-    "    --outputFile <path>                                        Path to the output USD file. \n"
+    "    --inputStepFile <path>                                     Path to the input Step file to convert. \n"
+    "    --outputFile <path>                                        Path to the output Usd file. \n"
     "    --wireframeMode <none|linear|resampledlinear|catmullrom>   Wireframe mode for visualization (default: linear). \n"
     "    --wireframeDeflection <float>                              Deflection value for wireframe curves (default: 1.0). \n"
     "    --sketchMode <none|linear|resampledlinear|catmullrom>      Sketch mode for visualization (default: linear). \n"
@@ -34,20 +34,20 @@ static CurveMode parseCurveMode(const std::string& s) {
     }
 }
 
-struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
+struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 
-    std::filesystem::path inputSTEPFile;
+    std::filesystem::path inputStepFile;
     std::filesystem::path outputFile;
 
-    STEPModel::TessParams tessParams;
+    StepModel::TessParams tessParams;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
         switch (hashString(token)) {
-            case hashString("--inputSTEPFile"): {
+            case hashString("--inputStepFile"): {
                 if (nextToken.empty()) goto expectOption;
-                if (!inputSTEPFile.empty()) goto alreadySet;
-                inputSTEPFile = nextToken;
+                if (!inputStepFile.empty()) goto alreadySet;
+                inputStepFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--outputFile"): {
@@ -135,12 +135,12 @@ struct STEPConvertUSDArgumentHandler : public ArgumentHandler {
     }
 
     bool verify() const override {
-        if (inputSTEPFile.empty()) {
-            std::cerr << "inputSTEPFile is not set!" << std::endl;
+        if (inputStepFile.empty()) {
+            std::cerr << "inputStepFile is not set!" << std::endl;
             return false;
         }
-        if (!std::filesystem::exists(inputSTEPFile)) {
-            std::cerr << "The provided input STEP file does not exist: " << inputSTEPFile << std::endl;
+        if (!std::filesystem::exists(inputStepFile)) {
+            std::cerr << "The provided input Step file does not exist: " << inputStepFile << std::endl;
             return false;
         }
 
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    STEPConvertUSDArgumentHandler inputArgs;
+    StepConvertUsdArgumentHandler inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
@@ -185,13 +185,13 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
         
-    std::optional<STEPModel> optionalModel = STEPModel::loadFromFile(inputArgs.inputSTEPFile);
+    std::optional<StepModel> optionalModel = StepModel::loadFromFile(inputArgs.inputStepFile);
     
     if(!optionalModel.has_value()) {
         return 1;
     }
 
-    STEPModel model = optionalModel.value();
+    StepModel model = optionalModel.value();
 
     model.buildInstanceTree();
     
@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    model.populateUSD(stage, inputArgs.tessParams);
+    model.populateUsd(stage, inputArgs.tessParams);
 
     stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();

@@ -85,7 +85,7 @@ enum class CurveMode {
     CatmullRom,      // cubic Catmull-Rom resampled from the underlying curve geometry
 };
 
-struct STEPModel {
+struct StepModel {
 
     struct TessResult {
         pxr::VtArray<pxr::GfVec3f> points;
@@ -134,7 +134,7 @@ struct STEPModel {
         bool overwrite = false;
     };
 
-    STEPModel(
+    StepModel(
         occt::handle<TDocStd_Application> a,
         occt::handle<TDocStd_Document>    d,
         occt::handle<XCAFDoc_ShapeTool>   st,
@@ -142,15 +142,15 @@ struct STEPModel {
         occt::handle<XCAFDoc_MaterialTool>   mt
     ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt) {}
 
-    static std::optional<STEPModel> loadFromFile(const fs::path& stepPath);
+    static std::optional<StepModel> loadFromFile(const fs::path& stepPath);
 
     void buildInstanceTree();
 
     void debugPrintInstances() const;
     
     bool tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const;
-    void populateUSD(pxr::UsdStageRefPtr stage, const TessParams& params) const;
-    void populateVariantUSD(pxr::UsdStageRefPtr stage, const std::vector<VariantParams>& variantParams) const;
+    void populateUsd(pxr::UsdStageRefPtr stage, const TessParams& params) const;
+    void populateVariantUsd(pxr::UsdStageRefPtr stage, const std::vector<VariantParams>& variantParams) const;
 
     occt::handle<TDocStd_Application> app;
     occt::handle<TDocStd_Document> doc;

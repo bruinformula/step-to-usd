@@ -72,10 +72,10 @@
 #pragma pop_macro("Handle")
 
 #include "XCAFUtils.h"
-#include "STEPModel.h"
+#include "StepModel.h"
 
 // Init
-std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
+std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
     try {
         OSD_Parallel::SetUseOcctThreads(true);
 
@@ -88,18 +88,18 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
         occt::handle<TDocStd_Document> doc;
         app->NewDocument("BinXCAF", doc);
 
-        // xbf is a binary XCAF cache — subsequent loads skip the STEP parser
-        // entirely. Invalidated whenever the STEP file is newer than the cache.
+        // xbf is a binary XCAF cache — subsequent loads skip the Step parser
+        // entirely. Invalidated whenever the Step file is newer than the cache.
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
-            std::cout << "XBF doesn't exist or is out of date. Building from STEP...\n";
+            std::cout << "XBF doesn't exist or is out of date. Building from Step...\n";
 
             STEPCAFControl_Reader reader;
             if (reader.ReadFile(stepPath.c_str()) != IFSelect_RetDone) {
-                std::cerr << "Error reading STEP file\n";
+                std::cerr << "Error reading Step file\n";
                 return std::nullopt;
             }
             if (!reader.Transfer(doc)) {
-                std::cerr << "Error transferring STEP data\n";
+                std::cerr << "Error transferring Step data\n";
                 return std::nullopt;
             }
 
@@ -118,7 +118,7 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
         auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
 
-        return STEPModel(app, doc, shapeTool, colorTool, materialTool);
+        return StepModel(app, doc, shapeTool, colorTool, materialTool);
 
     } catch (const Standard_Failure& e) {
         std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
@@ -129,7 +129,7 @@ std::optional<STEPModel> STEPModel::loadFromFile(const fs::path& stepPath) {
     }
 }
 
-void STEPModel::buildInstanceTree() {
+void StepModel::buildInstanceTree() {
     instances.clear();
     definitionShapes.clear();
 
@@ -168,7 +168,7 @@ void STEPModel::buildInstanceTree() {
 }
 
 // Counting
-int STEPModel::countNodes(const TDF_Label& label) {
+int StepModel::countNodes(const TDF_Label& label) {
     if (!shapeTool->IsShape(label)) return 0;
 
     if (shapeTool->IsComponent(label)) {
@@ -184,7 +184,7 @@ int STEPModel::countNodes(const TDF_Label& label) {
     return 0;
 }
 
-int STEPModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
+int StepModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(assemblyDef, components);
     int total = 0;
@@ -194,7 +194,7 @@ int STEPModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
 }
 
 // Filling
-void STEPModel::fillNode(
+void StepModel::fillNode(
     const TDF_Label& label,
     const gp_Trsf& parentWorld,
     int parentIdx,
@@ -230,7 +230,7 @@ void STEPModel::fillNode(
     }
 }
 
-void STEPModel::fillLeaf(
+void StepModel::fillLeaf(
     const TDF_Label& defLabel,
     const gp_Trsf& localTrsf,
     int parentIdx,
@@ -280,7 +280,7 @@ void STEPModel::fillLeaf(
     }
 }
 
-void STEPModel::fillAssembly(
+void StepModel::fillAssembly(
     const TDF_Label& defLabel,
     const gp_Trsf& localTrsf,
     const gp_Trsf& world,
@@ -318,7 +318,7 @@ void STEPModel::fillAssembly(
 }
 
 // Debug 
-void STEPModel::debugPrintInstances() const {
+void StepModel::debugPrintInstances() const {
     for (size_t i = 0; i < instances.size(); i++) {
         const PartInstance& inst = instances[i];
         std::string type = (inst.type == InstanceType::Assembly) ? "ASM" : "LEAF";
@@ -413,8 +413,8 @@ static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
     return result;
 }
 
-// USD
-bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
+// Usd
+bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
@@ -633,7 +633,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     auto edgeWalkEnd = Clock::now();
     //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
 
-    // sketches in STEP 242 are registered as free edges 
+    // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
     if (params.sketchMode != CurveMode::None) {
@@ -848,7 +848,7 @@ bool STEPModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     return true;
 }
 
-static bool initUSDStage(pxr::UsdStageRefPtr stage) {
+static bool initUsdStage(pxr::UsdStageRefPtr stage) {
     using namespace pxr;
 
     UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
@@ -886,7 +886,7 @@ static bool initUSDStage(pxr::UsdStageRefPtr stage) {
 static bool writePrototypeGeometry(
     pxr::UsdStageRefPtr stage,
     const pxr::SdfPath& protoPath,
-    const STEPModel::TessResult& r,
+    const StepModel::TessResult& r,
     CurveMode wireframeMode,
     CurveMode sketchMode
 ) {
@@ -986,7 +986,7 @@ static bool writePrototypeGeometry(
     return true;
 }
 
-void STEPModel::populateUSD(
+void StepModel::populateUsd(
     pxr::UsdStageRefPtr stage, 
     const TessParams& params
 ) const {
@@ -1021,7 +1021,7 @@ void STEPModel::populateUSD(
 
     std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
 
-    if (!initUSDStage(stage))
+    if (!initUsdStage(stage))
         return;
 
     LabelMap<SdfPath> prototypePaths;
@@ -1037,7 +1037,7 @@ void STEPModel::populateUSD(
         }
 
         int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUSDName(rawName, protoCount);
+        std::string name = sanitizeUsdName(rawName, protoCount);
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
         if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode))
@@ -1051,7 +1051,7 @@ void STEPModel::populateUSD(
     std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
 
     // Hide /Prototypes from renderers
-    // USD will complain and not define prims under an inactive parent
+    // Usd will complain and not define prims under an inactive parent
     UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
     if (prototypeRoot.IsValid())
         prototypeRoot.SetActive(false);
@@ -1065,13 +1065,13 @@ void STEPModel::populateUSD(
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)
-            std::cerr << "USD: " << error.GetCommentary() << "\n";
+            std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
 
     std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
 }
 
-void STEPModel::populateVariantUSD(
+void StepModel::populateVariantUsd(
     pxr::UsdStageRefPtr stage, 
     const std::vector<VariantParams>& variantParams
 ) const {
@@ -1117,7 +1117,7 @@ void STEPModel::populateVariantUSD(
 
     std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
 
-    if (!initUSDStage(stage))
+    if (!initUsdStage(stage))
         return;
 
     UsdGeomXform prototypes = UsdGeomXform(stage->GetPrimAtPath(SdfPath("/Prototypes")));
@@ -1166,7 +1166,7 @@ void STEPModel::populateVariantUSD(
             }
 
             int protoCount = protoNameCounts[rawName]++;
-            std::string name = sanitizeUSDName(rawName, protoCount);
+            std::string name = sanitizeUsdName(rawName, protoCount);
             SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
             if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode))
@@ -1194,7 +1194,7 @@ void STEPModel::populateVariantUSD(
     std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
 
     // Hide /Prototypes from renderers
-    // USD will complain and not define prims under an inactive parent
+    // Usd will complain and not define prims under an inactive parent
     UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
     if (prototypeRoot.IsValid())
         prototypeRoot.SetActive(false);
@@ -1208,20 +1208,20 @@ void STEPModel::populateVariantUSD(
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)
-            std::cerr << "USD: " << error.GetCommentary() << "\n";
+            std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
 
     std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
 }
 
-std::vector<pxr::SdfPath> STEPModel::computeInstancePaths() const {
+std::vector<pxr::SdfPath> StepModel::computeInstancePaths() const {
     using namespace pxr;
 
     std::unordered_map<std::string, int> nameCounts;
     std::vector<SdfPath> paths(instances.size());
 
     // pre-order guarantees parent path is always assigned before we 
-    // reach any of its children or USD will omplain about missing 
+    // reach any of its children or Usd will omplain about missing 
     // parent prims when we try to define them
     for (size_t i = 0; i < instances.size(); i++) {
         const PartInstance& inst = instances[i];
@@ -1234,14 +1234,14 @@ std::vector<pxr::SdfPath> STEPModel::computeInstancePaths() const {
         }
 
         int count = nameCounts[inst.name]++;
-        std::string finalName = sanitizeUSDName(inst.name, count);
+        std::string finalName = sanitizeUsdName(inst.name, count);
         paths[i] = parentPath.AppendChild(TfToken(finalName));
     }
 
     return paths;
 }
 
-void STEPModel::writeInstanceXforms(
+void StepModel::writeInstanceXforms(
     pxr::UsdStageRefPtr stage,
     const std::vector<pxr::SdfPath>& paths,
     const LabelMap<pxr::SdfPath>& prototypePaths
@@ -1265,7 +1265,7 @@ void STEPModel::writeInstanceXforms(
             continue;
         }
 
-        // USD composes the full world transform later
+        // Usd composes the full world transform later
         xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
 
         if (inst.type == InstanceType::Leaf) {

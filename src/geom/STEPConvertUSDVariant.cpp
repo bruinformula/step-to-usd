@@ -3,13 +3,13 @@
 #include <vector>
 
 #include "ArgumentHandler.h"
-#include "STEPModel.h"
+#include "StepModel.h"
 
 const std::string argOptions =
-    " STEPConvertUSD -- Converts STEP files to USD\n"
+    " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
-    "    --inputSTEPFile <path>                                     Path to the input STEP file to convert. \n"
-    "    --outputFile <path>                                        Path to the output USD file. \n"
+    "    --inputStepFile <path>                                     Path to the input Step file to convert. \n"
+    "    --outputFile <path>                                        Path to the output Usd file. \n"
     "    --config <path>                                            Path to a configuration file. \n"
     "    --help                                                     Prints this message.\n";
 
@@ -23,9 +23,9 @@ static CurveMode parseCurveMode(const std::string& s) {
     }
 }
 
-struct STEPConvertUSDVariantArgumentHandler : public ArgumentHandler {
+struct StepConvertUsdVariantArgumentHandler : public ArgumentHandler {
 
-    std::filesystem::path inputSTEPFile;
+    std::filesystem::path inputStepFile;
     std::filesystem::path outputFile;
 
     std::vector<std::filesystem::path> configFiles;
@@ -33,10 +33,10 @@ struct STEPConvertUSDVariantArgumentHandler : public ArgumentHandler {
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
         switch (hashString(token)) {
-            case hashString("--inputSTEPFile"): {
+            case hashString("--inputStepFile"): {
                 if (nextToken.empty()) goto expectOption;
-                if (!inputSTEPFile.empty()) goto alreadySet;
-                inputSTEPFile = nextToken;
+                if (!inputStepFile.empty()) goto alreadySet;
+                inputStepFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--outputFile"): {
@@ -74,12 +74,12 @@ struct STEPConvertUSDVariantArgumentHandler : public ArgumentHandler {
     }
 
     bool verify() const override {
-        if (inputSTEPFile.empty()) {
-            std::cerr << "inputSTEPFile is not set!" << std::endl;
+        if (inputStepFile.empty()) {
+            std::cerr << "inputStepFile is not set!" << std::endl;
             return false;
         }
-        if (!std::filesystem::exists(inputSTEPFile)) {
-            std::cerr << "The provided input STEP file does not exist: " << inputSTEPFile << std::endl;
+        if (!std::filesystem::exists(inputStepFile)) {
+            std::cerr << "The provided input Step file does not exist: " << inputStepFile << std::endl;
             return false;
         }
 
@@ -98,7 +98,7 @@ std::string trim(const std::string& s) {
     return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
-std::optional<STEPModel::VariantParams> parseConfigFile(const std::filesystem::path& configFilePath) {
+std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::path& configFilePath) {
     if (!std::filesystem::exists(configFilePath)) {
         std::cerr << "Config file does not exist: " << configFilePath << std::endl;
         return std::nullopt;
@@ -112,7 +112,7 @@ std::optional<STEPModel::VariantParams> parseConfigFile(const std::filesystem::p
 
     std::string line;
 
-    STEPModel::VariantParams variantParams;
+    StepModel::VariantParams variantParams;
     while (std::getline(configFile, line)) {
         // Strip comment
         auto commentPos = line.find('#');
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    STEPConvertUSDVariantArgumentHandler inputArgs;
+    StepConvertUsdVariantArgumentHandler inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
@@ -214,18 +214,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<STEPModel::VariantParams> variantParams;
+    std::vector<StepModel::VariantParams> variantParams;
 
     const std::filesystem::path& basePath = inputArgs.outputFile.parent_path();
 
     for (const auto& config : inputArgs.configFiles) {
-        std::optional<STEPModel::VariantParams> params = parseConfigFile(config);
+        std::optional<StepModel::VariantParams> params = parseConfigFile(config);
         if (!params.has_value()) {
             std::cerr << "Failed to parse config file: " << config << std::endl;
             return 1;
         }
 
-        params->refpath = params->outpath;  // keep the config-relative path for USD reference
+        params->refpath = params->outpath;  // keep the config-relative path for Usd reference
         params->outpath = basePath / params->outpath;
 
         variantParams.push_back(params.value());
@@ -233,13 +233,13 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
         
-    std::optional<STEPModel> optionalModel = STEPModel::loadFromFile(inputArgs.inputSTEPFile);
+    std::optional<StepModel> optionalModel = StepModel::loadFromFile(inputArgs.inputStepFile);
     
     if(!optionalModel.has_value()) {
         return 1;
     }
 
-    STEPModel model = optionalModel.value();
+    StepModel model = optionalModel.value();
 
     model.buildInstanceTree();
 
@@ -249,9 +249,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    STEPModel::TessParams params = {};
+    StepModel::TessParams params = {};
 
-    model.populateVariantUSD(stage, variantParams);
+    model.populateVariantUsd(stage, variantParams);
 
     stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();

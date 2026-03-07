@@ -45,7 +45,7 @@ static std::string getLabelName(const TDF_Label& label) {
     return result;
 }
 
-static std::string sanitizeUSDName(const std::string_view& name, int idx) {
+static std::string sanitizeUsdName(const std::string_view& name, int idx) {
     if (name.empty()) return "Node_" + std::to_string(idx);
 
     std::string result;
@@ -56,7 +56,7 @@ static std::string sanitizeUSDName(const std::string_view& name, int idx) {
         else result += '_'; // replace hyphens, spaces, dots, etc.
     }
 
-    // USD prim names must start with a letter or underscore
+    // Usd prim names must start with a letter or underscore
     if (!result.empty() && std::isdigit(result[0]))
         result = "_" + result;
 
