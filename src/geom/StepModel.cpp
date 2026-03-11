@@ -121,7 +121,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         return StepModel(app, doc, shapeTool, colorTool, materialTool);
 
     } catch (const Standard_Failure& e) {
-        std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
+        std::cerr << "OCC exception: " << e.what() << "\n";
         return std::nullopt;
     } catch (const std::exception& e) {
         std::cerr << "std exception: " << e.what() << "\n";
@@ -245,7 +245,7 @@ void StepModel::fillLeaf(
     
     occt::handle<TCollection_HAsciiString> aName;
     occt::handle<TCollection_HAsciiString> aDescription;
-    Standard_Real                          aDensity;
+    double                                 aDensity;
     occt::handle<TCollection_HAsciiString> aDensName;
     occt::handle<TCollection_HAsciiString> aDensValType;
 
@@ -481,10 +481,10 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     };
 
     // edge walk to unify boundary nodes
-    TopTools_IndexedMapOfShape faceMap;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faceMap;
     TopExp::MapShapes(defShape, TopAbs_FACE, faceMap);
 
-    TopTools_IndexedDataMapOfShapeListOfShape edgeToFaces;
+    NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeToFaces;
     TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
     // Per-edge data deferred for Linear mode. 
@@ -502,7 +502,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         int edgeIdx = edgeToFaces.FindIndex(edge);
         if (edgeIdx == 0) continue;
 
-        const TopTools_ListOfShape& adjFaces = edgeToFaces.FindFromIndex(edgeIdx);
+        const NCollection_List<TopoDS_Shape>& adjFaces = edgeToFaces.FindFromIndex(edgeIdx);
 
         struct FacePoly {
             TopoDS_Face face;
@@ -514,7 +514,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
         std::vector<FacePoly> facePolys;
 
-        for (TopTools_ListIteratorOfListOfShape iter(adjFaces); iter.More(); iter.Next()) {
+        for (NCollection_List<TopoDS_Shape>::Iterator iter(adjFaces); iter.More(); iter.Next()) {
             const TopoDS_Face& face = TopoDS::Face(iter.Value());
             TopLoc_Location loc;
             occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
@@ -1015,7 +1015,7 @@ void StepModel::populateUsd(
             if (tesselatePart(result, defShape, params))
                 tessResults[i] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
+            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.what() << "\n";
         }
     });
 
@@ -1111,7 +1111,7 @@ void StepModel::populateVariantUsd(
             if (tesselatePart(result, defShape, params.tessParams))
                 tessVariantResults[variantIdx * (int)defs.size() + baseIdx] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.GetMessageString() << "\n";
+            std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.what() << "\n";
         }
     });
 

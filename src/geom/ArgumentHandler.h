@@ -1,6 +1,7 @@
 #pragma once 
 
 #include <string>
+#include <cstdint>
 
 constexpr uint32_t hashString(std::string_view s) {
     uint32_t h = 2166136261u;

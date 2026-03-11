@@ -39,7 +39,7 @@ static std::string getLabelName(const TDF_Label& label) {
     const TCollection_ExtendedString& ext = nameAttr->Get();
     std::string result;
     for (int i = 1; i <= ext.Length(); i++) {
-        Standard_ExtCharacter c = ext.Value(i);
+        char16_t c = ext.Value(i);
         if (c < 128) result += static_cast<char>(c);
     }
     return result;
