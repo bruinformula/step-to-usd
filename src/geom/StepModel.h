@@ -97,6 +97,14 @@ struct StepModel {
         pxr::VtArray<int> surfaceIDs;
         pxr::VtArray<bool> isBoundaryVertex;
 
+        struct SurfaceIDBounds {
+            int startIdx;
+            int endIdx;
+            int surfaceID;
+        };
+
+        std::vector<SurfaceIDBounds> surfaceIDBounds; // start, end index for a particular face id 
+
         // Wireframe curves 
         pxr::VtArray<pxr::GfVec3f> curvePoints;
         pxr::VtArray<int> curveCounts;

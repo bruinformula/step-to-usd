@@ -60,6 +60,7 @@
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdGeom/subset.h>
 
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
@@ -121,7 +122,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         return StepModel(app, doc, shapeTool, colorTool, materialTool);
 
     } catch (const Standard_Failure& e) {
-        std::cerr << "OCC exception: " << e.what() << "\n";
+        std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
         return std::nullopt;
     } catch (const std::exception& e) {
         std::cerr << "std exception: " << e.what() << "\n";
@@ -702,6 +703,9 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     result.surfaceIDs.reserve(totalTris);
     std::vector<UVPatch> uvPatches;
     uvPatches.reserve(faceMap.Extent());
+    result.surfaceIDBounds.reserve(faceMap.Extent());
+
+    int surfaceBoundIdx = 0; // used to track 'global' idx for geom subsets 
 
     // weld positions, emit faceVarying normals.
     for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
@@ -710,6 +714,10 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         TopLoc_Location loc;
         occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
+
+        TessResult::SurfaceIDBounds surfaceBounds = { surfaceBoundIdx, surfaceBoundIdx + tri->NbTriangles(), surfaceIndex };
+        result.surfaceIDBounds.push_back(surfaceBounds);
+        surfaceBoundIdx += tri->NbTriangles();
 
         gp_Trsf trsf = loc.Transformation();
 
@@ -912,6 +920,22 @@ static bool writePrototypeGeometry(
         proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
         proto.GetNormalsAttr().Set(r.normals);
 
+        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+            int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
+            
+            VtIntArray indices(count);
+            std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
+
+            UsdGeomSubset::CreateGeomSubset(
+                proto,
+                TfToken("surfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)),
+                UsdGeomTokens->face,
+                indices,
+                TfToken("materialBind"),
+                UsdGeomTokens->nonOverlapping 
+            );
+        }
+
         UsdGeomPrimvarsAPI api(proto);
 
         UsdGeomPrimvar primUV = api.CreatePrimvar(
@@ -1015,7 +1039,7 @@ void StepModel::populateUsd(
             if (tesselatePart(result, defShape, params))
                 tessResults[i] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.what() << "\n";
+            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
         }
     });
 
@@ -1111,7 +1135,7 @@ void StepModel::populateVariantUsd(
             if (tesselatePart(result, defShape, params.tessParams))
                 tessVariantResults[variantIdx * (int)defs.size() + baseIdx] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.what() << "\n";
+            std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.GetMessageString() << "\n";
         }
     });
 
