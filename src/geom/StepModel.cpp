@@ -42,6 +42,8 @@
 #include <opencascade/Interface_Static.hxx>
 #include <opencascade/Interface_Graph.hxx>
 #include <opencascade/Interface_EntityIterator.hxx>
+#include <opencascade/BRepExtrema_SelfIntersection.hxx>
+#include <opencascade/BRepTools.hxx>
 #include <opencascade/TDF_Tool.hxx>
 #include <opencascade/OSD_Parallel.hxx>
 
@@ -440,16 +442,39 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     IMeshTools_Parameters meshParams;
     meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
     meshParams.Angle = params.meshAngularDeflection; // in radians
-    //meshParams.InParallel = false; // we handle parallelism at the outer level
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     BRepMesh_IncrementalMesh mesher(defShape, meshParams);
     mesher.Perform();
 
+    int maxPasses = 5;
+    IMeshTools_Parameters repairParams = meshParams;
+
+    // repeat check for self-intersections 
+    // if fail, refine the mesh until there are none 
+    // or we hit the max pass count.
+
+    for (int pass = 0; pass < maxPasses; ++pass) {
+        BRepExtrema_SelfIntersection checker(defShape, 1e-6);
+        checker.Perform();
+
+        if (!checker.IsDone()) break;
+
+        const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
+
+        if (overlaps.IsEmpty()) break;
+
+        repairParams.Deflection *= 0.5;
+        repairParams.Angle *= 0.5;
+
+        BRepTools::Clean(defShape); 
+        BRepMesh_IncrementalMesh(defShape, repairParams).Perform();
+    }
+
     auto meshEnd = Clock::now();
     //std::cout << "  Mesh time: " << Seconds(meshEnd - tesselateStart).count() << " s\n";
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
-    // positions remain welded via topology
 
+    // positions remain welded via topology
     using TriNodeKey = std::pair<const Poly_Triangulation*, int>;
     struct PairHash {
         size_t operator()(const TriNodeKey& k) const {
