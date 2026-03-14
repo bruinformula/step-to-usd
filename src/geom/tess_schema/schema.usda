@@ -1,0 +1,57 @@
+#usda 1.0
+(
+    subLayers = [
+        @usd/schema.usda@
+    ]
+)
+
+over "GLOBAL" (
+    customData = {
+        string libraryName      = "tessSchemas"
+        string libraryPath      = "."
+        string libraryPrefix    = "Tess"
+    }
+) {}
+
+class "TessParamsAPI" (
+    inherits = </APISchemaBase>
+    doc = "Step tessellation quality parameters. Inheritable — child prims that don't author a value resolve the nearest authored ancestor."
+    customData = {
+        token apiSchemaType = "singleApply"
+    }
+) {
+    float tess:linearDeflection = 1.0 (
+        doc = "Linear deflection as a fraction of bounding box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float tess:angularDeflection = 0.5 (
+        doc = "Angular deflection in radians."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float tess:minSize = 0.1 (
+        doc = "Minimum mesh element size as a fraction of linearDeflection."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float tess:wireframeDeflection = 0.01 (
+        doc = "Sampling deflection for wireframe edge curves."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float tess:sketchDeflection = 0.005 (
+        doc = "Sampling deflection for sketch/free-edge curves."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float tess:lodCullingMinimumSize = -1.0 (
+        doc = "Parts whose bounding diagonal is smaller than this are culled. Negative means disabled."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token tess:wireframeMode = "linear" (
+        doc = "Wireframe curve mode."
+        allowedTokens = ["none", "linear", "resampledlinear", "catmullrom"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token tess:sketchMode = "none" (
+        doc = "Sketch/free-edge curve mode."
+        allowedTokens = ["none", "linear", "resampledlinear", "catmullrom"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+}

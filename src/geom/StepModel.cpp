@@ -72,6 +72,8 @@
 #include <pxr/usd/usd/modelAPI.h>
 #include <pxr/usd/usd/inherits.h>
 
+#include "tessParamsAPI.h"
+
 #pragma pop_macro("Handle")
 
 #include "XCAFUtils.h"
@@ -446,7 +448,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     BRepMesh_IncrementalMesh mesher(defShape, meshParams);
     mesher.Perform();
 
-    int maxPasses = 5;
+    int maxPasses = 3;
     IMeshTools_Parameters repairParams = meshParams;
 
     // repeat check for self-intersections 
