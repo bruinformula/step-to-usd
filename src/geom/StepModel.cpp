@@ -43,6 +43,7 @@
 #include <opencascade/Interface_Graph.hxx>
 #include <opencascade/Interface_EntityIterator.hxx>
 #include <opencascade/BRepExtrema_SelfIntersection.hxx>
+#include <opencascade/BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
 #include <opencascade/BRepTools.hxx>
 #include <opencascade/TDF_Tool.hxx>
 #include <opencascade/OSD_Parallel.hxx>
@@ -461,7 +462,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
         if (!checker.IsDone()) break;
 
-        const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
+        const NCollection_DataMap<int, TColStd_PackedMapOfInteger>& overlaps = checker.OverlapElements();
 
         if (overlaps.IsEmpty()) break;
 
