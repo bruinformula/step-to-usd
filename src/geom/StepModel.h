@@ -73,6 +73,7 @@ struct PartInstance {
     int firstChildIdx;   // first child index, children occupy contiguous range in instances[]
     int childCount;
     int depth;
+    bool visible = true;
 
     std::string name;
     std::optional<Quantity_Color> color;
@@ -147,8 +148,9 @@ struct StepModel {
         occt::handle<TDocStd_Document>    d,
         occt::handle<XCAFDoc_ShapeTool>   st,
         occt::handle<XCAFDoc_ColorTool>    ct,
-        occt::handle<XCAFDoc_MaterialTool>   mt
-    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt) {}
+        occt::handle<XCAFDoc_MaterialTool>   mt,
+        occt::handle<XCAFDoc_LayerTool>   lt
+    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt), layerTool(lt) {}
 
     static std::optional<StepModel> loadFromFile(const fs::path& stepPath);
 
@@ -165,6 +167,7 @@ struct StepModel {
     occt::handle<XCAFDoc_ShapeTool> shapeTool;
     occt::handle<XCAFDoc_ColorTool> colorTool;
     occt::handle<XCAFDoc_MaterialTool> materialTool;
+    occt::handle<XCAFDoc_LayerTool> layerTool;
 
     std::vector<PartInstance> instances;        // flat pre-order instance tree
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
@@ -172,6 +175,7 @@ struct StepModel {
 private:
     int countNodes(const TDF_Label& label);
     int countAssemblyChildren(const TDF_Label& assemblyDef);
+    bool isLabelVisible(const TDF_Label& label) const;
 
     void fillNode(
         const TDF_Label& label,

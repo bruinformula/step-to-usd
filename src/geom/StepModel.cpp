@@ -43,7 +43,7 @@
 #include <opencascade/Interface_Graph.hxx>
 #include <opencascade/Interface_EntityIterator.hxx>
 #include <opencascade/BRepExtrema_SelfIntersection.hxx>
-#include <opencascade/BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
+#include <opencascade/XCAFDoc_LayerTool.hxx>
 #include <opencascade/BRepTools.hxx>
 #include <opencascade/TDF_Tool.hxx>
 #include <opencascade/OSD_Parallel.hxx>
@@ -123,8 +123,9 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
         auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
+        auto layerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
 
-        return StepModel(app, doc, shapeTool, colorTool, materialTool);
+        return StepModel(app, doc, shapeTool, colorTool, materialTool, layerTool);
 
     } catch (const Standard_Failure& e) {
         std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
@@ -171,6 +172,22 @@ void StepModel::buildInstanceTree() {
     std::cout << "  Assemblies:          " << assemblies << "\n";
     std::cout << "  Leaves:              " << leaves     << "\n";
     std::cout << "  Unique definitions:  " << definitionShapes.size() << "\n";
+}
+
+bool StepModel::isLabelVisible(const TDF_Label& label) const {
+    if (!colorTool->IsVisible(label))
+        return false;
+
+    // Some CAD tools might export visibility as 
+    // a layer property rather than on the shape itself
+    TDF_LabelSequence layers;
+    layerTool->GetLayers(label, layers);
+    for (int li = 1; li <= layers.Length(); ++li) {
+        if (!layerTool->IsVisible(layers.Value(li)))
+            return false;
+    }
+
+    return true;
 }
 
 // Counting
@@ -262,7 +279,7 @@ void StepModel::fillLeaf(
         aDensValType->Print(std::cout);
     }
 
-    //std::cout << instances[myIdx].materialName <<std::endl;
+    //std::cout << instances[myIdx].materialName << std::endl;
 
     bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color) || colorTool->GetColor(defLabel, XCAFDoc_ColorGen, color);
     if (hasColor) {
@@ -278,6 +295,7 @@ void StepModel::fillLeaf(
     instances[myIdx].firstChildIdx    = -1;
     instances[myIdx].childCount       = 0;
     instances[myIdx].depth            = depth;
+    instances[myIdx].visible          = isLabelVisible(defLabel);
 
     // Only store the shape the first time we see this definition label.
     // Subsequent instances of the same part share this entry.
@@ -298,6 +316,7 @@ void StepModel::fillAssembly(
 
     instances[myIdx].name = getLabelName(defLabel);
     instances[myIdx].color = std::nullopt;
+    instances[myIdx].visible = isLabelVisible(defLabel);
 
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(defLabel, components);
@@ -449,20 +468,20 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     BRepMesh_IncrementalMesh mesher(defShape, meshParams);
     mesher.Perform();
 
-    int maxPasses = 3;
+    int maxPasses = 0;
     IMeshTools_Parameters repairParams = meshParams;
 
     // repeat check for self-intersections 
     // if fail, refine the mesh until there are none 
     // or we hit the max pass count.
-
+    
     for (int pass = 0; pass < maxPasses; ++pass) {
         BRepExtrema_SelfIntersection checker(defShape, 1e-6);
         checker.Perform();
 
         if (!checker.IsDone()) break;
 
-        const NCollection_DataMap<int, TColStd_PackedMapOfInteger>& overlaps = checker.OverlapElements();
+        const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
 
         if (overlaps.IsEmpty()) break;
 
@@ -472,6 +491,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         BRepTools::Clean(defShape); 
         BRepMesh_IncrementalMesh(defShape, repairParams).Perform();
     }
+    
 
     auto meshEnd = Clock::now();
     //std::cout << "  Mesh time: " << Seconds(meshEnd - tesselateStart).count() << " s\n";
@@ -1045,7 +1065,6 @@ void StepModel::populateUsd(
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
-
     auto totalStart = Clock::now();
     TfErrorMark mark;
 
@@ -1053,54 +1072,64 @@ void StepModel::populateUsd(
         definitionShapes.begin(),
         definitionShapes.end()
     );
-
     std::vector<TessResult> tessResults(defs.size());
 
     auto tessStart = Clock::now();
+    std::atomic<int> tessCompleted(0);
+    const int total = (int)defs.size();
 
-    OSD_Parallel::For(0, (int)defs.size(), [&](int i) {
+    OSD_Parallel::For(0, total, [&](int i) {
         const TopoDS_Shape& defShape = defs[i].second;
-        if (defShape.IsNull()) return;
-
+        if (defShape.IsNull()) {
+            int done = ++tessCompleted;
+            std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
+            return;
+        }
         try {
             TessResult result;
             if (tesselatePart(result, defShape, params))
                 tessResults[i] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
+            std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
         }
+        int done = ++tessCompleted;
+        std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
     });
-
-    std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
+    std::cerr << "\n";
 
     if (!initUsdStage(stage))
         return;
 
     LabelMap<SdfPath> prototypePaths;
     std::unordered_map<std::string, int> protoNameCounts;
+    const int protoTotal = (int)defs.size();
+    int protoCompleted = 0;
 
-    for (int i = 0; i < (int)defs.size(); i++) {
+    for (int i = 0; i < protoTotal; i++) {
         const TessResult& r = tessResults[i];
-        if (r.points.empty() && r.sketchCounts.empty()) continue;
+        if (r.points.empty() && r.sketchCounts.empty()) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+            continue;
+        }
 
         std::string rawName = getLabelName(defs[i].first);
         if (rawName.empty()) {
             rawName = "Def_" + std::to_string(i);
         }
-
         int protoCount = protoNameCounts[rawName]++;
         std::string name = sanitizeUsdName(rawName, protoCount);
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
-        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode))
+        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode)) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
             continue;
+        }
 
         prototypePaths[defs[i].first] = protoPath;
-
         //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
+        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
     }
-
-    std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
+    std::cerr << "\n";
 
     // Hide /Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
@@ -1119,8 +1148,6 @@ void StepModel::populateUsd(
         for (const auto& error : mark)
             std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
-
-    std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
 }
 
 void StepModel::populateVariantUsd(
@@ -1149,6 +1176,7 @@ void StepModel::populateVariantUsd(
     }
 
     auto tessStart = Clock::now();
+    std::atomic<int> tessCompleted(0);
 
     OSD_Parallel::For(0, numTessellations, [&](int i) {
         int baseIdx = i / (int)variantParams.size();
@@ -1156,7 +1184,12 @@ void StepModel::populateVariantUsd(
         const VariantParams& params = variantParams[variantIdx];
 
         const TopoDS_Shape& defShape = defs[baseIdx].second;
-        if (defShape.IsNull()) return;
+        if (defShape.IsNull()) {
+            int done = ++tessCompleted;
+            std::cerr << "\r[" << done << "/" << numTessellations
+                      << "] Tessellating..." << std::flush;
+            return;
+        }
 
         try {
             TessResult result;
@@ -1165,7 +1198,10 @@ void StepModel::populateVariantUsd(
         } catch (const Standard_Failure& e) {
             std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.GetMessageString() << "\n";
         }
+        int done = ++tessCompleted;
+        std::cerr << "\r[" << done << "/" << numTessellations << "] Tessellating..." << std::flush;
     });
+    std::cerr << "\n";
 
     std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
 
@@ -1191,6 +1227,10 @@ void StepModel::populateVariantUsd(
         int baseIdx = v * defs.size();
         protoNameCounts.clear();
 
+        std::cerr << "Writing variant [" << (v + 1) << "/"
+                  << variantParams.size() << "]: "
+                  << params.variantName << "\n";
+
         bool overwrite = true;
 
         if (fs::exists(params.outpath)) {
@@ -1208,9 +1248,16 @@ void StepModel::populateVariantUsd(
         UsdPrim lodPrototypesPrim = lodStage->DefinePrim(SdfPath("/Prototypes"));
         lodStage->SetDefaultPrim(lodPrototypesPrim);
 
+        int protoCompleted = 0;
+        const int protoTotal = (int)defs.size();
+
         for (int i = 0; i < defs.size(); i++) {
             const TessResult& r = tessVariantResults[baseIdx + i];
-            if (r.points.empty() && r.sketchCounts.empty()) continue;
+            if (r.points.empty() && r.sketchCounts.empty()) {
+                std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
+                          << "] Writing prototypes..." << std::flush;
+                continue;
+            }
 
             std::string rawName = getLabelName(defs[i].first);
             if (rawName.empty()) {
@@ -1221,13 +1268,18 @@ void StepModel::populateVariantUsd(
             std::string name = sanitizeUsdName(rawName, protoCount);
             SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
-            if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode))
+            if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode)) {
+                std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
+                          << "] Writing prototypes..." << std::flush;
                 continue;
+            }
 
             prototypePaths[defs[i].first] = protoPath;
 
             //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
+            std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
         }
+        std::cerr << "\n";
 
         lodStage->Save();
 
@@ -1237,9 +1289,7 @@ void StepModel::populateVariantUsd(
         variantSet.SetVariantSelection(params.variantName);
         {
             UsdEditContext ctx(variantSet.GetVariantEditContext());
-
             prototypes.GetPrim().GetReferences().AddReference(params.refpath.generic_string());
-
         }
     }
 
@@ -1344,6 +1394,12 @@ void StepModel::writeInstanceXforms(
                     false
                 );
                 colorAttr.Set(displayColor);
+            }
+
+            if (!inst.visible) {
+                UsdGeomImageable(xform.GetPrim())
+                    .CreateVisibilityAttr()
+                    .Set(UsdGeomTokens->invisible);
             }
         } else {
             UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
