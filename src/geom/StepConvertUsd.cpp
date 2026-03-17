@@ -207,6 +207,7 @@ int main(int argc, char** argv) {
 
     model.populateUsd(stage, inputArgs.tessParams);
 
+    std::cout << "Saving to " << inputArgs.outputFile << "...\n";
     stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();
 

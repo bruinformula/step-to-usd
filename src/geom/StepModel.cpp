@@ -56,6 +56,9 @@
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usd/inherits.h>
+
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/xform.h>
@@ -70,10 +73,7 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/usd/usd/modelAPI.h>
-#include <pxr/usd/usd/inherits.h>
 
-#include "tessParamsAPI.h"
 
 #pragma pop_macro("Handle")
 
@@ -944,29 +944,20 @@ static bool writePrototypeGeometry(
     const pxr::SdfPath& protoPath,
     const StepModel::TessResult& r,
     CurveMode wireframeMode,
-    CurveMode sketchMode
+    CurveMode sketchMode,
+    int defIdx
 ) {
     using namespace pxr;
 
     UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
     protoXform.GetPrim().GetInherits().AddInherit(SdfPath("/CADPart"));
 
-    UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
-    UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
-    UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("sketch")));
-
-    if (!proto) {
-        std::cerr << "Failed to define prototype at " << protoPath << "\n";
-        return false;
-    }
+    protoXform.GetPrim()
+        .CreateAttribute(TfToken("autolibStepExport:defIndex"), pxr::SdfValueTypeNames->Int, true)
+        .Set(defIdx);
 
     if (!r.points.empty()) {
-        proto.GetPointsAttr().Set(r.points);
-        proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-        proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-        proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-        proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-        proto.GetNormalsAttr().Set(r.normals);
+        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
 
         for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
             int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
@@ -984,78 +975,161 @@ static bool writePrototypeGeometry(
             );
         }
 
-        UsdGeomPrimvarsAPI api(proto);
+        {
+            SdfChangeBlock changeBlock;
+            proto.GetPointsAttr().Set(r.points);
+            proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
+            proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+            proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+            proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+            proto.GetNormalsAttr().Set(r.normals);
 
-        UsdGeomPrimvar primUV = api.CreatePrimvar(
-            TfToken("st"),
-            SdfValueTypeNames->TexCoord2fArray,
-            UsdGeomTokens->faceVarying
-        );
+            UsdGeomPrimvarsAPI api(proto);
 
-        UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
-            TfToken("surfaceID"),
-            SdfValueTypeNames->IntArray,
-            UsdGeomTokens->uniform
-        );
+            UsdGeomPrimvar primUV = api.CreatePrimvar(
+                TfToken("st"),
+                SdfValueTypeNames->TexCoord2fArray,
+                UsdGeomTokens->faceVarying
+            );
 
-        UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
-            TfToken("isBoundaryVertex"),
-            SdfValueTypeNames->BoolArray,
-            UsdGeomTokens->vertex
-        );
+            UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
+                TfToken("surfaceID"),
+                SdfValueTypeNames->IntArray,
+                UsdGeomTokens->uniform
+            );
 
-        primUV.Set(r.perSurfaceUVs);
-        primSurfaceID.Set(r.surfaceIDs);
-        primIsBoundaryVertex.Set(r.isBoundaryVertex);
+            UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
+                TfToken("isBoundaryVertex"),
+                SdfValueTypeNames->BoolArray,
+                UsdGeomTokens->vertex
+            );
+
+            primUV.Set(r.perSurfaceUVs);
+            primSurfaceID.Set(r.surfaceIDs);
+            primIsBoundaryVertex.Set(r.isBoundaryVertex);
+        } // SdfChangeBlock
     }
 
     if (!r.curveCounts.empty()) {
-        if (wireframeMode == CurveMode::CatmullRom) {
-            curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-            curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-        } else {
-            // Linear and ResampledLinear both produce polylines
-            curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
-        }
-        curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        curves.GetPointsAttr().Set(r.curvePoints);
-        curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
+        {
+            SdfChangeBlock changeBlock;
+            if (wireframeMode == CurveMode::CatmullRom) {
+                curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                // Linear and ResampledLinear both produce polylines
+                curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            curves.GetPointsAttr().Set(r.curvePoints);
+            curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
 
-        VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
-        curves.CreateWidthsAttr().Set(widths);
+            VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
+            curves.CreateWidthsAttr().Set(widths);
 
-        VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
-        curves.GetDisplayColorAttr().Set(color);
+            VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
+            curves.GetDisplayColorAttr().Set(color);
 
-        UsdGeomPrimvarsAPI curveAPI(curves);
-        UsdGeomPrimvar primContinuityType = curveAPI.CreatePrimvar(
-            TfToken("continuityType"),
-            SdfValueTypeNames->IntArray,
-            UsdGeomTokens->uniform
-        );
-        primContinuityType.Set(r.curveContinuity);
+            UsdGeomPrimvarsAPI curveAPI(curves);
+            UsdGeomPrimvar primContinuityType = curveAPI.CreatePrimvar(
+                TfToken("continuityType"),
+                SdfValueTypeNames->IntArray,
+                UsdGeomTokens->uniform
+            );
+            primContinuityType.Set(r.curveContinuity);
+        } // SdfChangeBlock
     }
 
     if (!r.sketchCounts.empty()) {
-        if (sketchMode == CurveMode::CatmullRom) {
-            sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-            sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-        } else {
-            // Linear and ResampledLinear both produce polylines
-            sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->linear);
-        }
-        sketchCurves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        sketchCurves.GetPointsAttr().Set(r.sketchPoints);
-        sketchCurves.GetCurveVertexCountsAttr().Set(r.sketchCounts);
+        UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("sketch")));
+        {
+            SdfChangeBlock changeBlock;
+            if (sketchMode == CurveMode::CatmullRom) {
+                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                // Linear and ResampledLinear both produce polylines
+                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            sketchCurves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            sketchCurves.GetPointsAttr().Set(r.sketchPoints);
+            sketchCurves.GetCurveVertexCountsAttr().Set(r.sketchCounts);
 
-        VtArray<float> sketchWidths(r.sketchPoints.size(), 0.1f);
-        sketchCurves.CreateWidthsAttr().Set(sketchWidths);
+            VtArray<float> sketchWidths(r.sketchPoints.size(), 0.1f);
+            sketchCurves.CreateWidthsAttr().Set(sketchWidths);
 
-        VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
-        sketchCurves.GetDisplayColorAttr().Set(sketchColor);
+            VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
+            sketchCurves.GetDisplayColorAttr().Set(sketchColor);
+        } // SdfChangeBlock
     }
 
     return true;
+}
+
+void StepModel::writeInstanceXforms(
+    pxr::UsdStageRefPtr stage, 
+    const std::vector<pxr::SdfPath>& paths, 
+    const LabelMap<pxr::SdfPath>& prototypePaths
+) const {
+    using namespace pxr;
+    // pre compute which instances have children
+    std::vector<bool> hasChildren(instances.size(), false);
+    for (size_t i = 0; i < instances.size(); i++) {
+        if (instances[i].parentIdx != -1)
+            hasChildren[instances[i].parentIdx] = true;
+    }
+    // Define all xform nodes, wire references, and author transforms
+    const int total = (int)instances.size();
+    int completed = 0;
+    for (size_t i = 0; i < instances.size(); i++) {
+        const PartInstance& inst = instances[i];
+        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
+        if (!xform) {
+            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
+            std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+            continue;
+        }
+        {
+            SdfChangeBlock changeBlock;
+            // Usd composes the full world transform later
+            xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
+            if (inst.type == InstanceType::Leaf) {
+                auto protoIter = prototypePaths.find(inst.definitionLabel);
+                if (protoIter == prototypePaths.end()) {
+                    std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+                    continue;
+                }
+                xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
+                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
+                if (!hasChildren[i]) {
+                    xform.GetPrim().SetInstanceable(true);
+                }
+                if (inst.color.has_value()) {
+                    VtArray<GfVec3f> displayColor = {{
+                        static_cast<float>(inst.color->Red()),
+                        static_cast<float>(inst.color->Green()),
+                        static_cast<float>(inst.color->Blue())
+                    }};
+                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
+                        TfToken("primvars:displayColor"),
+                        SdfValueTypeNames->Color3fArray,
+                        false
+                    );
+                    colorAttr.Set(displayColor);
+                }
+                if (!inst.visible) {
+                    UsdGeomImageable(xform.GetPrim())
+                        .CreateVisibilityAttr()
+                        .Set(UsdGeomTokens->invisible);
+                }
+            } else {
+                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
+            }
+        } // SdfChangeBlock
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+    }
+    std::cerr << "\n";
 }
 
 void StepModel::populateUsd(
@@ -1085,6 +1159,10 @@ void StepModel::populateUsd(
             std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
             return;
         }
+
+        auto partStart = Clock::now();
+        std::string partName = getLabelName(defs[i].first);
+
         try {
             TessResult result;
             if (tesselatePart(result, defShape, params))
@@ -1092,6 +1170,15 @@ void StepModel::populateUsd(
         } catch (const Standard_Failure& e) {
             std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
         }
+
+        double elapsed = Seconds(Clock::now() - partStart).count();
+        if (elapsed > 10.0) {
+            std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
+                    << "  time=" << elapsed << "s"
+                    << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
+                    << "\n";
+        }
+
         int done = ++tessCompleted;
         std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
     });
@@ -1120,7 +1207,7 @@ void StepModel::populateUsd(
         std::string name = sanitizeUsdName(rawName, protoCount);
         SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
-        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode)) {
+        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
             continue;
         }
@@ -1268,7 +1355,7 @@ void StepModel::populateVariantUsd(
             std::string name = sanitizeUsdName(rawName, protoCount);
             SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
 
-            if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode)) {
+            if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode, i)) {
                 std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
                           << "] Writing prototypes..." << std::flush;
                 continue;
@@ -1341,68 +1428,4 @@ std::vector<pxr::SdfPath> StepModel::computeInstancePaths() const {
     }
 
     return paths;
-}
-
-void StepModel::writeInstanceXforms(
-    pxr::UsdStageRefPtr stage,
-    const std::vector<pxr::SdfPath>& paths,
-    const LabelMap<pxr::SdfPath>& prototypePaths
-) const {
-    using namespace pxr;
-
-    // pre compute which instances have children
-    std::vector<bool> hasChildren(instances.size(), false);
-    for (size_t i = 0; i < instances.size(); i++) {
-        if (instances[i].parentIdx != -1)
-            hasChildren[instances[i].parentIdx] = true;
-    }
-
-    // Define all xform nodes, wire references, and author transforms
-    for (size_t i = 0; i < instances.size(); i++) {
-        const PartInstance& inst = instances[i];
-
-        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
-        if (!xform) {
-            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
-            continue;
-        }
-
-        // Usd composes the full world transform later
-        xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
-
-        if (inst.type == InstanceType::Leaf) {
-            auto protoIter = prototypePaths.find(inst.definitionLabel);
-            if (protoIter == prototypePaths.end()) continue;
-
-            xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
-            UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
-
-            if (!hasChildren[i]) {
-                xform.GetPrim().SetInstanceable(true);
-            }
-
-            if (inst.color.has_value()) {
-                VtArray<GfVec3f> displayColor = {{
-                    static_cast<float>(inst.color->Red()),
-                    static_cast<float>(inst.color->Green()),
-                    static_cast<float>(inst.color->Blue())
-                }};
-
-                UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
-                    TfToken("primvars:displayColor"),
-                    SdfValueTypeNames->Color3fArray,
-                    false
-                );
-                colorAttr.Set(displayColor);
-            }
-
-            if (!inst.visible) {
-                UsdGeomImageable(xform.GetPrim())
-                    .CreateVisibilityAttr()
-                    .Set(UsdGeomTokens->invisible);
-            }
-        } else {
-            UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
-        }
-    }
 }

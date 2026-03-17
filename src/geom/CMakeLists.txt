@@ -10,7 +10,6 @@ target_include_directories(AutolibGeom PUBLIC
     ${OpenCASCADE_INCLUDE_DIR}
 )
 target_link_libraries(AutolibGeom PUBLIC
-    tessParams
     usd
     usdGeom
     sdf
@@ -22,14 +21,18 @@ target_link_libraries(AutolibGeom PUBLIC
 add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
 target_include_directories(StepConvertUsd BEFORE PRIVATE ${pxr_INCLUDES})
 target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
-set_target_properties(StepConvertUsd PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
 
 # StepConvertUsdVariant
 add_executable(StepConvertUsdVariant "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsdVariant.cpp")
 target_include_directories(StepConvertUsdVariant BEFORE PRIVATE ${pxr_INCLUDES})
 target_link_libraries(StepConvertUsdVariant PRIVATE AutolibGeom)
-set_target_properties(StepConvertUsdVariant PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+
+add_executable(test_schema test.cpp)
+
+target_link_libraries(test_schema PRIVATE
+    autolibStepTessellation
+    tf 
+    sdf 
+    usd
 )
+ 
