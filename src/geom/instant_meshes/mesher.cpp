@@ -23,16 +23,10 @@
 #include <thread>
 #include <chrono>
 
-// Construction
-Mesher::Mesher(bool deterministic)
-    : mDeterministic(deterministic)
+Mesher::Mesher(const MeshParams &params)
+    : mParams(params)
     , mOptimizer(mRes, false)
     , mBVH(nullptr)
-    , mCreaseAngle(-1.0f)
-    , mSmoothIterations(0)
-    , mPureQuad(false)
-    , mAlignToBoundaries(false)
-    , mProgress(nullptr)
 {
 }
 
@@ -42,55 +36,7 @@ Mesher::~Mesher() {
     mRes.free();
 }
 
-// Configuration
-void Mesher::setSymmetry(int rosy, int posy) {
-    if (!((rosy == 6 && posy == 3) ||
-          (rosy == 2 && posy == 4) ||
-          (rosy == 4 && posy == 4)))
-        throw std::runtime_error("Unsupported RoSy/PoSy combination");
-
-    mOptimizer.setRoSy(rosy);
-    mOptimizer.setPoSy(posy);
-}
-
-void Mesher::setExtrinsic(bool extrinsic) {
-    mOptimizer.setExtrinsic(extrinsic);
-}
-
-void Mesher::setTargetScale(Float scale) {
-    if (!mRes.levels())
-        return;
-
-    int posy = mOptimizer.posy();
-    Float face_area = (posy == 4)
-        ? (scale * scale)
-        : (std::sqrt(3.f) / 4.f * scale * scale);
-
-    uint32_t face_count   = (uint32_t)(mMeshStats.mSurfaceArea / face_area);
-    uint32_t vertex_count = (posy == 4) ? face_count : (face_count / 2);
-    (void)vertex_count;
-
-    std::lock_guard<ordered_lock> lock(mRes.mutex());
-    mRes.setScale(scale);
-}
-
-void Mesher::setTargetVertexCount(uint32_t v) {
-    if (!mRes.levels())
-        return;
-
-    int   posy       = mOptimizer.posy();
-    int   face_count = (posy == 4) ? (int)v : (int)(v * 2);
-    Float face_area  = mMeshStats.mSurfaceArea / face_count;
-    Float scale      = (posy == 4)
-        ? std::sqrt(face_area)
-        : (2.f * std::sqrt(face_area * std::sqrt(1.f / 3.f)));
-
-    std::lock_guard<ordered_lock> lock(mRes.mutex());
-    mRes.setScale(scale);
-}
-
-// Internal
-void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, int rosy, int posy) {
+void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale) {
     bool pointcloud = (F.size() == 0);
 
     VectorXf A;
@@ -99,7 +45,6 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
     if (!pointcloud) {
         VectorXu V2E, E2E;
 
-        // Subdivide if the mesh is too coarse for the desired edge length
         if (mMeshStats.mMaximumEdgeLength * 2 > scale ||
             mMeshStats.mMaximumEdgeLength > mMeshStats.mAverageEdgeLength * 2) {
 
@@ -107,35 +52,17 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
                       << mMeshStats.mMaximumEdgeLength
                       << "), subdividing .." << std::endl;
 
-            build_dedge(
-                F, V, 
-                V2E, 
-                E2E,
-                mBoundaryVertices, 
-                mNonmanifoldVertices, 
-                mProgress
-            );
-            subdivide(
-                F, V, 
-                V2E, 
-                E2E,
-                mBoundaryVertices, 
-                mNonmanifoldVertices,
-                std::min(scale / 2.f,
-                (Float)mMeshStats.mAverageEdgeLength * 2.f),
-                mDeterministic, 
-                mProgress
-            );
-            mMeshStats = compute_mesh_stats(F, V, mDeterministic, mProgress);
+            build_dedge(F, V, V2E, E2E, mBoundaryVertices, mNonmanifoldVertices, mProgress);
+            subdivide(F, V, V2E, E2E, mBoundaryVertices, mNonmanifoldVertices,
+                      std::min(scale / 2.f, (Float)mMeshStats.mAverageEdgeLength * 2.f),
+                      mParams.deterministic, mProgress);
+            mMeshStats = compute_mesh_stats(F, V, mParams.deterministic, mProgress);
         }
 
-        // Rebuild directed edges on (possibly subdivided) mesh
         build_dedge(F, V, V2E, E2E, mBoundaryVertices, mNonmanifoldVertices, mProgress);
 
-        adj = generate_adjacency_matrix_uniform(
-            F, V2E, E2E, mNonmanifoldVertices, mProgress);
+        adj = generate_adjacency_matrix_uniform(F, V2E, E2E, mNonmanifoldVertices, mProgress);
 
-        // Normals
         MatrixXf N_crease;
         MatrixXu F_crease;
         MatrixXf V_crease;
@@ -143,37 +70,33 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
         mCreaseMap.clear();
         mCreaseSet.clear();
 
-        if (mCreaseAngle >= 0.f) {
+        if (mParams.creaseAngle >= 0.f) {
             V_crease = V;
             F_crease = F;
             generate_crease_normals(F_crease, V_crease, V2E, E2E,
                                     mBoundaryVertices, mNonmanifoldVertices,
-                                    mCreaseAngle, N_crease,
+                                    mParams.creaseAngle, N_crease,
                                     mCreaseMap, mProgress);
             N = N_crease.topLeftCorner(3, V.cols());
         } else {
-            generate_smooth_normals(F, V, V2E, E2E,
-                                    mNonmanifoldVertices, N, mProgress);
+            generate_smooth_normals(F, V, V2E, E2E, mNonmanifoldVertices, N, mProgress);
         }
 
         for (auto const &kv : mCreaseMap)
             mCreaseSet.insert(kv.second);
 
-        compute_dual_vertex_areas(F, V, V2E, E2E,
-                                  mNonmanifoldVertices, A);
+        compute_dual_vertex_areas(F, V, V2E, E2E, mNonmanifoldVertices, A);
 
         mRes.setE2E(std::move(E2E));
 
     } else {
-        // Point cloud path
         mBoundaryVertices.resize(V.cols());
         mNonmanifoldVertices.resize(V.cols());
         mBoundaryVertices.setConstant(false);
         mNonmanifoldVertices.setConstant(false);
 
         adj = generate_adjacency_matrix_pointcloud(
-            V, N, mBVH, mMeshStats,
-            10, mDeterministic, mProgress);
+            V, N, mBVH, mMeshStats, mParams.knnPoints, mParams.deterministic, mProgress);
 
         A.resize(V.cols());
         A.setConstant(1.0f);
@@ -183,6 +106,9 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
     mRes.setV(std::move(V));
     mRes.setN(std::move(N));
     mRes.setA(std::move(A));
+    if (adj == nullptr) {
+        throw std::runtime_error("Internal error: adjacency matrix is null in buildHierarchy()");
+    }
     mRes.setAdj(std::move(adj));
 
     {
@@ -190,19 +116,32 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
         mRes.setScale(scale);
     }
 
-    mRes.build(mDeterministic, mProgress);
+    try {
+        std::cerr << "[mesher] buildHierarchy: levels= " << mRes.levels()
+                  << " V.cols=" << mRes.V().cols() << " F.cols=" << mRes.F().cols() << "\n";
+        mRes.build(mParams.deterministic, mProgress);
+    } catch (const std::exception &e) {
+        std::cerr << "[mesher] exception during mRes.build(): " << e.what() << "\n";
+        throw;
+    }
     mRes.resetSolution();
 
-    // Apply boundary alignment constraints after the hierarchy is built
-    if (mAlignToBoundaries && !pointcloud) {
-        const MatrixXu &F_ref  = mRes.F();
-        const MatrixXf &V_ref  = mRes.V();
+    if (mParams.alignToBoundaries && !pointcloud) {
+        if (mRes.CQ().cols() == 0 || mRes.CQ().rows() != 3) {
+            std::cerr << "[mesher] CQ/CO not allocated; allocating constraints now" << std::endl;
+            mRes.clearConstraints();
+        }
+        const MatrixXu &F_ref   = mRes.F();
+        const MatrixXf &V_ref   = mRes.V();
         const VectorXu &E2E_ref = mRes.E2E();
-
         for (uint32_t i = 0; i < 3 * (uint32_t)F_ref.cols(); ++i) {
             if (E2E_ref[i] == INVALID) {
                 uint32_t i0 = F_ref(i % 3, i / 3);
                 uint32_t i1 = F_ref((i + 1) % 3, i / 3);
+                if (i0 >= (uint32_t)mRes.V().cols() || i1 >= (uint32_t)mRes.V().cols()) {
+                    std::cerr << "[mesher] warning: invalid vertex index in face reference: " << i0 << ", " << i1 << std::endl;
+                    continue;
+                }
                 Vector3f edge = V_ref.col(i1) - V_ref.col(i0);
                 if (edge.squaredNorm() > 0) {
                     edge.normalize();
@@ -218,53 +157,35 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale, 
     }
 }
 
-void Mesher::loadInput(const std::string &filename,
-                       Float creaseAngle,
-                       Float scale,
-                       int   face_count,
-                       int   vertex_count,
-                       int   rosy,
-                       int   posy,
-                       int   knn_points) {
-
-    mFilename = filename;
-
-    // Read 
+void Mesher::loadInput() {
     MatrixXu F;
     MatrixXf V, N;
 
-    load_mesh_or_pointcloud(filename, F, V, N, mProgress);
+    load_mesh_or_pointcloud(mParams.inputPath.string(), F, V, N, mProgress);
 
     bool pointcloud = (F.size() == 0);
 
-    // Stop any running optimiser, tear down old BVH
     {
         std::lock_guard<ordered_lock> lock(mRes.mutex());
         mOptimizer.stop();
     }
+    
     delete mBVH;
     mBVH = nullptr;
 
-    // Mesh statistics 
-    mMeshStats = compute_mesh_stats(F, V, mDeterministic, mProgress);
+    mMeshStats = compute_mesh_stats(F, V, mParams.deterministic, mProgress);
 
-    // For point clouds, build BVH first 
     if (pointcloud) {
         mBVH = new BVH(&F, &V, &N, mMeshStats.mAABB);
         mBVH->build(mProgress);
     }
 
-    // Resolve crease angle 
-    if (!std::isfinite(creaseAngle)) {
-        if (filename.find("fandisk")    != std::string::npos ||
-            filename.find("cube_twist") != std::string::npos)
-            creaseAngle = 20.f;
-        else
-            creaseAngle = -1.f;
-    }
-    mCreaseAngle = creaseAngle;
+    // Resolve target scale from whichever sizing option was set
+    Float scale = mParams.scale;
+    int face_count  = mParams.faceCount;
+    int vertex_count = mParams.vertexCount;
+    int posy = mParams.posy;
 
-    // Resolve target scale 
     if (scale < 0 && vertex_count < 0 && face_count < 0) {
         std::cout << "No target specified; defaulting to 1/16 of input vertex count.\n";
         vertex_count = (int)(V.cols() / 16);
@@ -274,18 +195,18 @@ void Mesher::loadInput(const std::string &filename,
         Float face_area = (posy == 4)
             ? (scale * scale)
             : (std::sqrt(3.f) / 4.f * scale * scale);
-        face_count   = (int)(mMeshStats.mSurfaceArea / face_area);
+        face_count = (int)(mMeshStats.mSurfaceArea / face_area);
         vertex_count = (posy == 4) ? face_count : (face_count / 2);
     } else if (face_count > 0) {
         Float face_area = mMeshStats.mSurfaceArea / face_count;
-        vertex_count    = (posy == 4) ? face_count : (face_count / 2);
-        scale           = (posy == 4)
+        vertex_count = (posy == 4) ? face_count : (face_count / 2);
+        scale = (posy == 4)
             ? std::sqrt(face_area)
             : (2.f * std::sqrt(face_area * std::sqrt(1.f / 3.f)));
     } else if (vertex_count > 0) {
-        face_count      = (posy == 4) ? vertex_count : (vertex_count * 2);
+        face_count= (posy == 4) ? vertex_count : (vertex_count * 2);
         Float face_area = mMeshStats.mSurfaceArea / face_count;
-        scale           = (posy == 4)
+        scale = (posy == 4)
             ? std::sqrt(face_area)
             : (2.f * std::sqrt(face_area * std::sqrt(1.f / 3.f)));
     }
@@ -295,14 +216,18 @@ void Mesher::loadInput(const std::string &filename,
               << "   Face count     = " << face_count    << "\n"
               << "   Edge length    = " << scale         << "\n";
 
-    // Set symmetry before building 
-    setSymmetry(rosy, posy);
+    if (!((mParams.rosy == 6 && posy == 3) ||
+          (mParams.rosy == 2 && posy == 4) ||
+          (mParams.rosy == 4 && posy == 4)))
+        throw std::runtime_error("Unsupported RoSy/PoSy combination");
 
-    // Build hierarchy 
+    mOptimizer.setRoSy(mParams.rosy);
+    mOptimizer.setPoSy(posy);
+    mOptimizer.setExtrinsic(mParams.extrinsic);
+
     mRes.free();
-    buildHierarchy(F, V, N, scale, rosy, posy);
+    buildHierarchy(F, V, N, scale);
 
-    // Build / update BVH on the final mesh 
     if (!mBVH) {
         mBVH = new BVH(&mRes.F(), &mRes.V(), &mRes.N(), mMeshStats.mAABB);
         mBVH->build(mProgress);
@@ -314,11 +239,9 @@ void Mesher::loadInput(const std::string &filename,
     mBVH->printStatistics();
 }
 
-// Field solvers
 void Mesher::solveOrientation() {
     if (mRes.levels() == 0)
         throw std::runtime_error("No mesh loaded");
-
     {
         std::lock_guard<ordered_lock> lock(mRes.mutex());
         mOptimizer.optimizeOrientations(-1);
@@ -343,13 +266,12 @@ void Mesher::solvePosition() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-// Extraction
 void Mesher::extractMesh() {
     if (mRes.levels() == 0 || mRes.iterationsO() < 0)
         throw std::runtime_error("Run solvePosition() first");
 
-    int  rosy      = mOptimizer.rosy();
-    int  posy      = mOptimizer.posy();
+    int rosy = mOptimizer.rosy();
+    int posy = mOptimizer.posy();
     bool extrinsic = mOptimizer.extrinsic();
 
     std::vector<std::vector<TaggedLink>> adj_extracted;
@@ -359,27 +281,26 @@ void Mesher::extractMesh() {
                   adj_extracted,
                   mV_extracted, mN_extracted,
                   mCreaseSet, creaseOut,
-                  mDeterministic);
+                  mParams.deterministic);
 
     extract_faces(adj_extracted,
                   mV_extracted, mN_extracted, mNf_extracted, mF_extracted,
                   posy, mRes.scale(), creaseOut,
                   true,
-                  mPureQuad,
+                  !mParams.dominant,
                   mBVH,
-                  mSmoothIterations);
+                  (int)mParams.smoothIter);
 
     std::cout << "Extraction complete: "
               << mF_extracted.cols() << " faces, "
               << mV_extracted.cols() << " vertices.\n";
 }
 
-// Output
-void Mesher::saveOutput(const std::string &filename) {
+void Mesher::saveOutput() {
     if (mF_extracted.size() == 0 || mV_extracted.size() == 0)
         throw std::runtime_error("No extracted mesh — run extractMesh() first");
 
-    write_mesh(filename, mF_extracted, mV_extracted, MatrixXf(), mNf_extracted);
+    write_mesh(mParams.outputPath.string(), mF_extracted, mV_extracted, MatrixXf(), mNf_extracted);
 
-    std::cout << "Saved: " << filename << "\n";
+    std::cout << "Saved: " << mParams.outputPath << "\n";
 }

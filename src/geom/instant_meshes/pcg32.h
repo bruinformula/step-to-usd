@@ -30,8 +30,6 @@
 #define PCG32_DEFAULT_STREAM 0xda3e39cb94b95bdbULL
 #define PCG32_MULT           0x5851f42d4c957f2dULL
 
-#include <inttypes.h>
-#include <cmath>
 #include <cassert>
 #include <algorithm>
 

@@ -154,9 +154,9 @@ static void build_recursive(BVH &bvh, uint32_t node_idx,
 
     // ---- Leaf: go fully serial and report progress -------------------------
     if (size < SERIAL_THRESHOLD) {
-        tbb::blocked_range<uint32_t> range(
-            (uint32_t)(start - bvh.mIndices),
-            (uint32_t)(end   - bvh.mIndices));
+            parallel::blocked_range<uint32_t> range(
+                (uint32_t)(start - bvh.mIndices),
+                (uint32_t)(end   - bvh.mIndices));
         const ProgressCallback &progress = bvh.mProgress;
         SHOW_PROGRESS_RANGE(range, total_size,
                             "Constructing Bounding Volume Hierarchy");
@@ -170,10 +170,10 @@ static void build_recursive(BVH &bvh, uint32_t node_idx,
     Float mx           = node.aabb.max[axis];
     Float inv_bin_size = Bins::BIN_COUNT / (mx - mn);
 
-    Bins bins = tbb::parallel_reduce(
-        tbb::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
+    Bins bins = parallel::parallel_reduce(
+        parallel::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
         Bins(),
-        [&](const tbb::blocked_range<uint32_t> &range, Bins result) {
+        [&](const parallel::blocked_range<uint32_t> &range, Bins result) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t f = start[i];
                 Float centroid = pointcloud
@@ -249,9 +249,9 @@ static void build_recursive(BVH &bvh, uint32_t node_idx,
 
     std::atomic<uint32_t> offset_left(0), offset_right(left_count);
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             uint32_t cl = 0, cr = 0;
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t f = start[i];
@@ -282,7 +282,7 @@ static void build_recursive(BVH &bvh, uint32_t node_idx,
     // Right half: start[left_count .. size-1] / temp[left_count .. size-1]
     // The two halves are always disjoint so parallel_invoke is race-free.
     if (size >= PARALLEL_THRESHOLD) {
-        tbb::parallel_invoke(
+        parallel::parallel_invoke(
             [&]{ build_recursive(bvh, node_idx_left,
                                  start,              start + left_count,
                                  temp,               total_size); },
@@ -393,11 +393,11 @@ void BVH::build(const ProgressCallback &progress) {
         cout << "Assigning disk radius .. ";
         cout.flush();
 
-        tbb::blocked_range<uint32_t> range(0u, (uint32_t)mV->cols(), GRAIN_SIZE);
-        double total = tbb::parallel_deterministic_reduce(
+        parallel::blocked_range<uint32_t> range(0u, (uint32_t)mV->cols(), GRAIN_SIZE);
+        double total = parallel::parallel_deterministic_reduce(
             range,
             0.0,
-            [&](const tbb::blocked_range<uint32_t> &r, double sum) -> double {
+            [&](const parallel::blocked_range<uint32_t> &r, double sum) -> double {
                 for (uint32_t i = r.begin(); i < r.end(); ++i) {
                     Float radius = std::numeric_limits<Float>::infinity();
                     if (findNearest(mV->col(i), radius) != (uint32_t)-1)

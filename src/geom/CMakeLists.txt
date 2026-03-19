@@ -36,4 +36,7 @@ target_link_libraries(test_schema PRIVATE
     usd
 )
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant-meshes")
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant_meshes")
+
+add_executable(InstantMeshes "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cpp")
+target_link_libraries(InstantMeshes PRIVATE AutolibInstantMeshes)

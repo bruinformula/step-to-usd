@@ -633,7 +633,7 @@ optimize_orientations_impl(MultiResolutionHierarchy &mRes, int level,
     MatrixXf &Q = mRes.Q(level);
     const std::vector<uint32_t> *phase = nullptr;
 
-    auto solve_normal = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto solve_normal = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t phaseIdx = range.begin(); phaseIdx<range.end(); ++phaseIdx) {
             const uint32_t i = (*phase)[phaseIdx];
             const Vector3f n_i = N.col(i);
@@ -674,7 +674,7 @@ optimize_orientations_impl(MultiResolutionHierarchy &mRes, int level,
         }
     };
 
-    auto solve_frozen = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto solve_frozen = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t phaseIdx = range.begin(); phaseIdx<range.end(); ++phaseIdx) {
             const uint32_t i = (*phase)[phaseIdx];
             const Vector3f n_i = N.col(i);
@@ -706,12 +706,12 @@ optimize_orientations_impl(MultiResolutionHierarchy &mRes, int level,
 
     Float error = 0.0f;
     for (const std::vector<uint32_t> &phase_ : phases) {
-        tbb::blocked_range<uint32_t> range(0u, (uint32_t)phase_.size(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range(0u, (uint32_t)phase_.size(), GRAIN_SIZE);
         phase = &phase_;
         if (mRes.frozenQ())
-            tbb::parallel_for(range, solve_frozen);
+            parallel::parallel_for(range, solve_frozen);
         else
-            tbb::parallel_for(range, solve_normal);
+            parallel::parallel_for(range, solve_normal);
         progress(phase_.size());
     }
 
@@ -725,7 +725,7 @@ static inline Float error_orientations_impl(const MultiResolutionHierarchy &mRes
     const MatrixXf &N = mRes.N(level);
     const MatrixXf &Q = mRes.Q(level);
 
-    auto map = [&](const tbb::blocked_range<uint32_t> &range, Float error) -> Float {
+    auto map = [&](const parallel::blocked_range<uint32_t> &range, Float error) -> Float {
         for (uint32_t i = range.begin(); i<range.end(); ++i) {
             Vector3f q_i = Q.col(i).normalized(), n_i = N.col(i);
             for (Link *link = adj[i]; link != adj[i+1]; ++link) {
@@ -744,8 +744,8 @@ static inline Float error_orientations_impl(const MultiResolutionHierarchy &mRes
         return error1 + error2;
     };
 
-    return tbb::parallel_reduce(
-        tbb::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), 0.0,
+    return parallel::parallel_reduce(
+        parallel::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), 0.0,
         map, reduce
     ) / (Float) (adj[mRes.size(level)] - adj[0]);
 }
@@ -803,7 +803,7 @@ freeze_ivars_orientations_impl(MultiResolutionHierarchy &mRes, int level,
     const MatrixXf &N = mRes.N(level);
     const MatrixXf &Q = mRes.Q(level);
 
-    auto map = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto map = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t i = range.begin(); i<range.end(); ++i) {
             const Vector3f &q_i = Q.col(i), &n_i = N.col(i);
             for (Link *link = adj[i]; link != adj[i+1]; ++link) {
@@ -817,8 +817,8 @@ freeze_ivars_orientations_impl(MultiResolutionHierarchy &mRes, int level,
         }
     };
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), map);
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), map);
     mRes.setFrozenQ(true);
 }
 
@@ -850,12 +850,12 @@ template <int rosy, typename Functor> inline static void compute_orientation_sin
         const MultiResolutionHierarchy &mRes, std::map<uint32_t, uint32_t> &sing, Functor functor) {
     const MatrixXf &N = mRes.N(), &Q = mRes.Q();
     const MatrixXu &F = mRes.F();
-    tbb::spin_mutex mutex;
+    parallel::spin_mutex mutex;
     sing.clear();
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f < range.end(); ++f) {
                 int index = 0;
                 for (int k = 0; k < 3; ++k) {
@@ -865,7 +865,7 @@ template <int rosy, typename Functor> inline static void compute_orientation_sin
                 }
                 index = modulo(index, rosy);
                 if (index == 1 || index == rosy-1) {
-                    tbb::spin_mutex::scoped_lock lock(mutex);
+                    parallel::spin_mutex::scoped_lock lock(mutex);
                     sing[f] = (uint32_t) index;
                 }
             }
@@ -907,7 +907,7 @@ template <typename CompatFunctor, typename RoundFunctor> static inline Float opt
     const VectorXf &COw = mRes.COw(level);
     MatrixXf &O = mRes.O(level);
 
-    auto solve_normal = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto solve_normal = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t phaseIdx = range.begin(); phaseIdx<range.end(); ++phaseIdx) {
             const uint32_t i = (*phase)[phaseIdx];
             const Vector3f n_i = N.col(i), v_i = V.col(i);
@@ -959,7 +959,7 @@ template <typename CompatFunctor, typename RoundFunctor> static inline Float opt
         }
     };
 
-    auto solve_frozen = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto solve_frozen = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t phaseIdx = range.begin(); phaseIdx<range.end(); ++phaseIdx) {
             const uint32_t i = (*phase)[phaseIdx];
             const Vector3f n_i = N.col(i), v_i = V.col(i);
@@ -1004,12 +1004,12 @@ template <typename CompatFunctor, typename RoundFunctor> static inline Float opt
 
     Float error = 0.0f;
     for (const std::vector<uint32_t> &phase_ : phases) {
-        tbb::blocked_range<uint32_t> range(0u, (uint32_t)phase_.size(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range(0u, (uint32_t)phase_.size(), GRAIN_SIZE);
         phase = &phase_;
         if (mRes.frozenO())
-            tbb::parallel_for(range, solve_frozen);
+            parallel::parallel_for(range, solve_frozen);
         else
-            tbb::parallel_for(range, solve_normal);
+            parallel::parallel_for(range, solve_normal);
         progress(phase_.size());
     }
 
@@ -1024,7 +1024,7 @@ static inline Float error_positions_impl(const MultiResolutionHierarchy &mRes,
     const MatrixXf &O = mRes.O(level), &V = mRes.V(level);
     const Float scale = mRes.scale(), inv_scale = 1.0f / scale;
 
-    auto map = [&](const tbb::blocked_range<uint32_t> &range, Float error) -> Float {
+    auto map = [&](const parallel::blocked_range<uint32_t> &range, Float error) -> Float {
         for (uint32_t i = range.begin(); i<range.end(); ++i) {
             const Vector3f &n_i = N.col(i), &v_i = V.col(i), &o_i = O.col(i);
             Vector3f q_i = Q.col(i);
@@ -1053,8 +1053,8 @@ static inline Float error_positions_impl(const MultiResolutionHierarchy &mRes,
         return error1 + error2;
     };
 
-    double total = tbb::parallel_reduce(
-        tbb::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), 0.0,
+    double total = parallel::parallel_reduce(
+        parallel::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), 0.0,
         map, reduce
     );
     return total / (double) (adj[mRes.size(level)] - adj[0]);
@@ -1106,14 +1106,14 @@ void compute_position_singularities(
     RotateShiftFunctor rshift, CompatPositionIndex compatPositionIndex) {
     const MatrixXf &V = mRes.V(), &N = mRes.N(), &Q = mRes.Q(), &O = mRes.O();
     const MatrixXu &F = mRes.F();
-    tbb::spin_mutex mutex;
+    parallel::spin_mutex mutex;
     pos_sing.clear();
 
     const Float scale = mRes.scale(), inv_scale = 1.0f / scale;
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f<range.end(); ++f) {
                 if (orient_sing.find(f) != orient_sing.end())
                     continue;
@@ -1157,7 +1157,7 @@ void compute_position_singularities(
                 }
 
                 if (index != Vector2i::Zero()) {
-                    tbb::spin_mutex::scoped_lock lock(mutex);
+                    parallel::spin_mutex::scoped_lock lock(mutex);
                     pos_sing[f] = rshift(index, best[0]);
                 }
             }
@@ -1172,7 +1172,7 @@ static inline void freeze_ivars_positions_impl(MultiResolutionHierarchy &mRes,
     const MatrixXf &N = mRes.N(level), &Q = mRes.Q(level), &V = mRes.V(level), &O = mRes.O(level);
     const Float scale = mRes.scale(), inv_scale = 1.0f / scale;
 
-    auto map = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto map = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t i = range.begin(); i<range.end(); ++i) {
             const Vector3f n_i = N.col(i), v_i = V.col(i), o_i = O.col(i);
             Vector3f q_i = Q.col(i);
@@ -1202,8 +1202,8 @@ static inline void freeze_ivars_positions_impl(MultiResolutionHierarchy &mRes,
         }
     };
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), map);
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0, mRes.size(level), GRAIN_SIZE), map);
 
     mRes.setFrozenO(true);
 }
@@ -1580,7 +1580,7 @@ void Optimizer::run() {
                     const MatrixXu &toUpper = mRes.toUpper(i);
                     MatrixXf &destField = mRes.Q(i);
                     const MatrixXf &N = mRes.N(i);
-                    tbb::parallel_for(0u, (uint32_t) srcField.cols(), [&](uint32_t j) {
+                    parallel::parallel_for(0u, (uint32_t) srcField.cols(), [&](uint32_t j) {
                         for (int k = 0; k<2; ++k) {
                             uint32_t dest = toUpper(k, j);
                             if (dest == INVALID)
@@ -1616,7 +1616,7 @@ void Optimizer::run() {
                     const MatrixXf &N = mRes.N(i);
                     const MatrixXf &V = mRes.V(i);
                     const MatrixXu &toUpper = mRes.toUpper(i);
-                    tbb::parallel_for(0u, (uint32_t) srcField.cols(), [&](uint32_t j) {
+                    parallel::parallel_for(0u, (uint32_t) srcField.cols(), [&](uint32_t j) {
                         for (int k=0; k<2; ++k) {
                             uint32_t dest = toUpper(k, j);
                             if (dest == INVALID)

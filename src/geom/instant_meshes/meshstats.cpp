@@ -23,7 +23,7 @@ MeshStats compute_mesh_stats(const MatrixXu &F, const MatrixXf &V,
     if (F.size() != 0) {
         cout << "Computing mesh statistics .. ";
         cout.flush();
-        auto map = [&](const tbb::blocked_range<uint32_t> &range, MeshStats stats) -> MeshStats {
+        auto map = [&](const parallel::blocked_range<uint32_t> &range, MeshStats stats) -> MeshStats {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 Vector3f v[3] = { V.col(F(0, f)), V.col(F(1, f)), V.col(F(2, f)) };
                 Vector3f face_center = Vector3f::Zero();
@@ -57,19 +57,19 @@ MeshStats compute_mesh_stats(const MatrixXu &F, const MatrixXf &V,
             return result;
         };
 
-        tbb::blocked_range<uint32_t> range(0u, (uint32_t) F.cols(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range(0u, (uint32_t) F.cols(), GRAIN_SIZE);
 
         if (deterministic)
-            stats = tbb::parallel_deterministic_reduce(range, MeshStats(), map, reduce);
+            stats = parallel::parallel_deterministic_reduce(range, MeshStats(), map, reduce);
         else
-            stats = tbb::parallel_reduce(range, MeshStats(), map, reduce);
+            stats = parallel::parallel_reduce(range, MeshStats(), map, reduce);
 
         stats.mAverageEdgeLength /= F.cols() * 3;
         stats.mWeightedCenter /= stats.mSurfaceArea;
     } else {
         cout << "Computing point cloud statistics .. ";
         cout.flush();
-        auto map = [&](const tbb::blocked_range<uint32_t> &range, MeshStats stats) -> MeshStats {
+        auto map = [&](const parallel::blocked_range<uint32_t> &range, MeshStats stats) -> MeshStats {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 const Vector3f &v = V.col(i);
                 stats.mAABB.expandBy(v);
@@ -86,12 +86,12 @@ MeshStats compute_mesh_stats(const MatrixXu &F, const MatrixXf &V,
             return result;
         };
 
-        tbb::blocked_range<uint32_t> range(0u, (uint32_t) V.cols(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range(0u, (uint32_t) V.cols(), GRAIN_SIZE);
 
         if (deterministic)
-            stats = tbb::parallel_deterministic_reduce(range, MeshStats(), map, reduce);
+            stats = parallel::parallel_deterministic_reduce(range, MeshStats(), map, reduce);
         else
-            stats = tbb::parallel_reduce(range, MeshStats(), map, reduce);
+            stats = parallel::parallel_reduce(range, MeshStats(), map, reduce);
 
         stats.mSurfaceArea = stats.mAverageEdgeLength = stats.mMaximumEdgeLength = 0;
         stats.mWeightedCenter /= V.cols();
@@ -112,9 +112,9 @@ void compute_dual_vertex_areas(const MatrixXu &F, const MatrixXf &V,
     cout.flush();
     Timer<> timer;
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID)

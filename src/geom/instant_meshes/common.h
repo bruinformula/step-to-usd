@@ -24,16 +24,152 @@
 #include <iomanip>
 #include <chrono>
 #include <vector>
-#include <atomic>
 #include <tbb/tbb.h>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <algorithm>
 
 #define PARALLELIZE
 #define SINGLE_PRECISION
 #define GRAIN_SIZE 1024
+
+namespace parallel {
+    constexpr inline bool serial = true;
+    //inline void set_serial(bool s) { serial = s; }
+
+    template<typename Range, typename Func>
+    inline void parallel_for(const Range &range, Func f) {
+        if (serial) {
+            f(range);
+        } else {
+            tbb::parallel_for(range, f);
+        }
+    }
+
+    template<typename Index>
+    class blocked_range {
+    public:
+        blocked_range(Index b, Index e, Index grain = (Index) GRAIN_SIZE) : b_(b), e_(e), grain_(grain) {}
+        Index begin() const { return b_; }
+        Index end() const { return e_; }
+        Index size() const { return e_ - b_; }
+        Index grainsize() const { return grain_; }
+        operator tbb::blocked_range<Index>() const { return tbb::blocked_range<Index>(b_, e_, (size_t) grain_); }
+    private:
+        Index b_, e_, grain_;
+    };
+
+    template<typename Index, typename Func>
+    inline void parallel_for(const blocked_range<Index> &range, Func f) {
+        if (serial) {
+            f(range);
+        } else {
+            tbb::parallel_for(tbb::blocked_range<Index>(range.begin(), range.end(), (size_t) range.grainsize()),
+                              [&](const tbb::blocked_range<Index> &r) {
+                                  f(blocked_range<Index>((Index) r.begin(), (Index) r.end(), (Index) r.grainsize()));
+                              });
+        }
+    }
+
+    template<typename Index, typename Func>
+    inline void parallel_for(Index begin, Index end, Func f) {
+        if (serial) {
+            for (Index i = begin; i < end; ++i)
+                f(i);
+        } else {
+            tbb::parallel_for(begin, end, f);
+        }
+    }
+
+    template<typename Range, typename T, typename Map, typename Reduce>
+    inline T parallel_reduce(const Range &range, T identity, Map map, Reduce reduce) {
+        if (serial) {
+            return map(range, identity);
+        } else {
+            return tbb::parallel_reduce(range, identity, map, reduce);
+        }
+    }
+
+    template<typename Index, typename T, typename Map, typename Reduce>
+    inline T parallel_reduce(const blocked_range<Index> &range, T identity, Map map, Reduce reduce) {
+        if (serial) {
+            return map(range, identity);
+        } else {
+            return tbb::parallel_reduce(
+                tbb::blocked_range<Index>(range.begin(), range.end(), (size_t) range.grainsize()),
+                identity,
+                [&](const tbb::blocked_range<Index> &r, T init) {
+                    return map(blocked_range<Index>((Index) r.begin(), (Index) r.end(), (Index) r.grainsize()), init);
+                },
+                reduce);
+        }
+    }
+
+    template<typename It, typename Comp>
+    inline void parallel_sort(It begin, It end, Comp cmp) {
+        if (serial) std::sort(begin, end, cmp);
+        else tbb::parallel_sort(begin, end, cmp);
+    }
+
+    template<typename... Fs>
+    inline void parallel_invoke(Fs &&...fs) {
+        if (serial) {
+            (void) std::initializer_list<int>{(fs(), 0)...};
+        } else {
+            tbb::parallel_invoke(std::forward<Fs>(fs)...);
+        }
+    }
+
+    template<typename Range, typename T, typename Map, typename Reduce>
+    inline T parallel_deterministic_reduce(const Range &range, T identity, Map map, Reduce reduce) {
+        if (serial) return map(range, identity);
+        else return tbb::parallel_deterministic_reduce(range, identity, map, reduce);
+    }
+
+    template<typename Index, typename T, typename Map, typename Reduce>
+    inline T parallel_deterministic_reduce(const blocked_range<Index> &range, T identity, Map map, Reduce reduce) {
+        if (serial) return map(range, identity);
+        else return tbb::parallel_deterministic_reduce(
+            tbb::blocked_range<Index>(range.begin(), range.end(), (size_t) range.grainsize()),
+            identity,
+            [&](const tbb::blocked_range<Index> &r, T init) {
+                return map(blocked_range<Index>((Index) r.begin(), (Index) r.end(), (Index) r.grainsize()), init);
+            },
+            reduce);
+    }
+
+    // Lightweight spin_mutex replacement that works both serial and parallel.
+    class spin_mutex {
+    public:
+        spin_mutex() : mtx(new std::mutex) {}
+        ~spin_mutex() = default;
+        spin_mutex(const spin_mutex &) = delete;
+        spin_mutex &operator=(const spin_mutex &) = delete;
+
+        void lock() {
+            if (!serial) mtx->lock();
+        }
+
+        void unlock() {
+            if (!serial) mtx->unlock();
+        }
+
+        class scoped_lock {
+        public:
+            explicit scoped_lock(spin_mutex &m) : ptr(m.mtx.get()) {
+                if (!serial) ptr->lock();
+            }
+            ~scoped_lock() {
+                if (!serial) ptr->unlock();
+            }
+        private:
+            std::mutex *ptr;
+        };
+
+    private:
+        std::unique_ptr<std::mutex> mtx;
+    };
+}
 
 /* Application precision -- can be set to single or double precision */
 #if defined(SINGLE_PRECISION)

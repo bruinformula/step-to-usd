@@ -26,7 +26,7 @@ generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, MatrixXf &N,
     N.resize(V.rows(), V.cols());
     N.setZero();
 
-    auto map = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto map = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t f = range.begin(); f != range.end(); ++f) {
             Vector3f fn = Vector3f::Zero();
             for (int i=0; i<3; ++i) {
@@ -56,16 +56,16 @@ generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, MatrixXf &N,
         SHOW_PROGRESS_RANGE(range, F.cols(), "Computing vertex normals (1/2)");
     };
 
-    tbb::blocked_range<uint32_t> range(0u, (uint32_t) F.cols(), GRAIN_SIZE);
+    parallel::blocked_range<uint32_t> range(0u, (uint32_t) F.cols(), GRAIN_SIZE);
 
     if (!deterministic)
-        tbb::parallel_for(range, map);
+        parallel::parallel_for(range, map);
     else
         map(range);
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 Float norm = N.col(i).norm();
                 if (norm < RCPOVERFLOW) {
@@ -96,9 +96,9 @@ void generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, const VectorX
     /* Compute face normals */
     MatrixXf Nf(3, F.cols());
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 Vector3f v0 = V.col(F(0, f)),
                          v1 = V.col(F(1, f)),
@@ -120,9 +120,9 @@ void generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, const VectorX
     N.resize(3, V.cols());
 
     /* Finally, compute the normals */
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i];
                 if (nonManifold[i] || edge == INVALID) {
@@ -182,9 +182,9 @@ void generate_crease_normals(MatrixXu &F, MatrixXf &V, const VectorXu &_V2E,
     /* Compute face normals */
     MatrixXf Nf(3, F.cols());
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 Vector3f v0 = V.col(F(0, f)),
                          v1 = V.col(F(1, f)),
@@ -206,9 +206,9 @@ void generate_crease_normals(MatrixXu &F, MatrixXf &V, const VectorXu &_V2E,
     /* Determine how many extra vertices are needed, and adjust
        the vertex->edge pointers so that they are located just after
        the first crease edge */
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID)
@@ -242,12 +242,12 @@ void generate_crease_normals(MatrixXu &F, MatrixXf &V, const VectorXu &_V2E,
     V.conservativeResize(3, V.cols() + creaseVert);
     N.resize(3, V.cols());
 
-    tbb::spin_mutex mutex;
+    parallel::spin_mutex mutex;
 
     /* Finally, compute the normals */
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, oldSize, GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, oldSize, GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i];
                 if (nonManifold[i] || edge == INVALID) {
@@ -331,9 +331,9 @@ void generate_crease_normals(const MatrixXu &F, const MatrixXf &V,
     MatrixXf Nf(3, F.cols());
     std::atomic<uint32_t> badFaces(0);
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 Vector3f v0 = V.col(F(0, f)),
                          v1 = V.col(F(1, f)),
@@ -355,9 +355,9 @@ void generate_crease_normals(const MatrixXu &F, const MatrixXf &V,
     /* Determine how many extra vertices are needed, and adjust
        the vertex->edge pointers so that they are located just after
        the first crease edge */
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID)
@@ -387,10 +387,10 @@ void generate_crease_normals(const MatrixXu &F, const MatrixXf &V,
     N.resize(3, V.cols());
 
     /* Finally, compute the normals */
-    tbb::spin_mutex mutex;
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::spin_mutex mutex;
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i];
                 if (nonManifold[i] || edge == INVALID) {

@@ -28,9 +28,9 @@ AdjacencyMatrix generate_adjacency_matrix_uniform(
     cout.flush();
     Timer<> timer;
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID) {
@@ -60,36 +60,36 @@ AdjacencyMatrix generate_adjacency_matrix_uniform(
     AdjacencyMatrix adj = new Link*[V2E.size() + 1];
     uint32_t nLinks = neighborhoodSize[neighborhoodSize.size()-1];
     Link *links = new Link[nLinks];
-    for (uint32_t i=0; i<neighborhoodSize.size(); ++i)
+    for (uint32_t i=0; i<neighborhoodSize.size(); ++i) {
         adj[i] = links + neighborhoodSize[i];
+    }
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range
+    ) {
+        for (uint32_t i = range.begin(); i != range.end(); ++i) {
+            uint32_t edge = V2E[i], stop = edge;
+            if (nonManifold[i] || edge == INVALID)
+                continue;
+            Link *ptr = adj[i];
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
-            for (uint32_t i = range.begin(); i != range.end(); ++i) {
-                uint32_t edge = V2E[i], stop = edge;
-                if (nonManifold[i] || edge == INVALID)
-                    continue;
-                Link *ptr = adj[i];
-
-                int it = 0;
-                do {
-                    uint32_t base = edge % 3, f = edge / 3;
-                    uint32_t opp = E2E[edge], next = dedge_next_3(opp);
-                    if (it == 0)
-                        *ptr++ = Link(F((base + 2)%3, f));
-                    if (opp == INVALID || next != stop) {
-                        *ptr++ = Link(F((base + 1)%3, f));
-                        if (opp == INVALID)
-                            break;
-                    }
-                    edge = next;
-                    ++it;
-                } while (edge != stop);
-            }
-            SHOW_PROGRESS_RANGE(range, V2E.size(), "Generating adjacency matrix (2/2)");
+            int it = 0;
+            do {
+                uint32_t base = edge % 3, f = edge / 3;
+                uint32_t opp = E2E[edge], next = dedge_next_3(opp);
+                if (it == 0)
+                    *ptr++ = Link(F((base + 2)%3, f));
+                if (opp == INVALID || next != stop) {
+                    *ptr++ = Link(F((base + 1)%3, f));
+                    if (opp == INVALID)
+                        break;
+                }
+                edge = next;
+                ++it;
+            } while (edge != stop);
         }
-    );
+        SHOW_PROGRESS_RANGE(range, V2E.size(), "Generating adjacency matrix (2/2)");
+    });
 
     cout << "done. (took " << timeString(timer.value()) << ")" << endl;
 
@@ -106,9 +106,9 @@ generate_adjacency_matrix_cotan(const MatrixXu &F, const MatrixXf &V,
     cout.flush();
     Timer<> timer;
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, (uint32_t) V2E.size(), GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID) {
@@ -138,12 +138,13 @@ generate_adjacency_matrix_cotan(const MatrixXu &F, const MatrixXf &V,
     AdjacencyMatrix adj = new Link*[V2E.size() + 1];
     uint32_t nLinks = neighborhoodSize[neighborhoodSize.size()-1];
     Link *links = new Link[nLinks];
-    for (uint32_t i=0; i<neighborhoodSize.size(); ++i)
+    for (uint32_t i=0; i<neighborhoodSize.size(); ++i) {
         adj[i] = links + neighborhoodSize[i];
-
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t)V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    }
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t)V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range
+    ) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i], stop = edge;
                 if (nonManifold[i] || edge == INVALID)
@@ -231,9 +232,9 @@ AdjacencyMatrix generate_adjacency_matrix_pointcloud(
 
     DisjointSets dset(V.cols());
     VectorXu adj_size(V.cols());
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             std::vector<std::pair<Float, uint32_t>> result;
             for (uint32_t i = range.begin(); i < range.end(); ++i) {
                 uint32_t *adj_set = adj_sets + (size_t) i * (size_t) knn_points;
@@ -300,33 +301,33 @@ AdjacencyMatrix generate_adjacency_matrix_pointcloud(
     VectorXu adj_offset(V.cols());
     adj_offset.setZero();
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
-            for (uint32_t i = range.begin(); i < range.end(); ++i) {
-                uint32_t *adj_set_i = adj_sets + (size_t) i * (size_t) knn_points;
-                if (adj_size[i] == INVALID)
-                    continue;
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range
+    ) {
+        for (uint32_t i = range.begin(); i < range.end(); ++i) {
+            uint32_t *adj_set_i = adj_sets + (size_t) i * (size_t) knn_points;
+            if (adj_size[i] == INVALID)
+                continue;
 
-                for (uint32_t j=0; j<knn_points; ++j) {
-                    uint32_t k = adj_set_i[j];
-                    if (k == INVALID)
-                        break;
-                    adj[i][atomicAdd(&adj_offset.coeffRef(i), 1)-1] = Link(k);
+            for (uint32_t j=0; j<knn_points; ++j) {
+                uint32_t k = adj_set_i[j];
+                if (k == INVALID)
+                    break;
+                adj[i][atomicAdd(&adj_offset.coeffRef(i), 1)-1] = Link(k);
 
-                    uint32_t *adj_set_k = adj_sets + (size_t) k * (size_t) knn_points;
-                    bool found = false;
-                    for (uint32_t l=0; l<knn_points; ++l) {
-                        uint32_t value = adj_set_k[l];
-                        if (value == i) { found = true; break; }
-                        if (value == INVALID) break;
-                    }
-                    if (!found)
-                        adj[k][atomicAdd(&adj_offset.coeffRef(k), 1)-1] = Link(i);
+                uint32_t *adj_set_k = adj_sets + (size_t) k * (size_t) knn_points;
+                bool found = false;
+                for (uint32_t l=0; l<knn_points; ++l) {
+                    uint32_t value = adj_set_k[l];
+                    if (value == i) { found = true; break; }
+                    if (value == INVALID) break;
                 }
+                if (!found)
+                    adj[k][atomicAdd(&adj_offset.coeffRef(k), 1)-1] = Link(i);
             }
         }
-    );
+    });
 
     /* Use a heuristic to estimate some useful quantities for point clouds (this
        is a biased estimate due to the kNN queries, but it's convenient and

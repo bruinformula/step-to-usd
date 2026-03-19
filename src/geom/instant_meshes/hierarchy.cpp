@@ -38,9 +38,9 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
     cout << "  Collapsing .. ";
     cout.flush();
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+              parallel::parallel_for(
+          parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+          [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t nNeighbors = adj[i + 1] - adj[i];
                 uint32_t base = adj[i] - adj[0];
@@ -55,10 +55,11 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
         }
     );
 
-    if (progress)
+    if (progress) {
         progress("Downsampling graph (2/6)", 0.0f);
+    }
 
-    tbb::parallel_sort(entries, entries + nLinks, std::less<Entry>());
+           parallel::parallel_sort(entries, entries + nLinks, std::less<Entry>());
 
     std::vector<bool> mergeFlag(V.cols(), false);
 
@@ -79,9 +80,9 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
     to_upper.resize(2, vertexCount);
     to_lower.resize(V.cols());
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) nCollapsed, GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) nCollapsed, GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 const Entry &e = entries[i];
                 const Float area1 = A[e.i], area2 = A[e.j], surfaceArea = area1+area2;
@@ -104,9 +105,9 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
     delete[] entries;
 
     std::atomic<int> offset(nCollapsed);
-    tbb::blocked_range<uint32_t> range(0u, (uint32_t) V.cols(), GRAIN_SIZE);
+    parallel::blocked_range<uint32_t> range(0u, (uint32_t) V.cols(), GRAIN_SIZE);
 
-    auto copy_uncollapsed = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto copy_uncollapsed = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t i = range.begin(); i != range.end(); ++i) {
             if (!mergeFlag[i]) {
                 uint32_t idx = offset++;
@@ -120,16 +121,17 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
         SHOW_PROGRESS_RANGE(range, V.cols(), "Downsampling graph (4/6)");
     };
 
-    if (deterministic)
+    if (deterministic) {
         copy_uncollapsed(range);
-    else
-        tbb::parallel_for(range, copy_uncollapsed);
+    } else {
+        parallel::parallel_for(range, copy_uncollapsed);
+    }
 
     VectorXu neighborhoodSize(V_p.cols() + 1);
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V_p.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+            parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V_p.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             std::vector<Link> scratch;
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 scratch.clear();
@@ -157,46 +159,48 @@ AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
     );
 
     neighborhoodSize[0] = 0;
-    for (uint32_t i=0; i<neighborhoodSize.size()-1; ++i)
+    for (uint32_t i=0; i<neighborhoodSize.size()-1; ++i) {
         neighborhoodSize[i+1] += neighborhoodSize[i];
+    }
 
     uint32_t nLinks_p = neighborhoodSize[neighborhoodSize.size()-1];
     AdjacencyMatrix adj_p = new Link*[V_p.size() + 1];
     Link *links = new Link[nLinks_p];
-    for (uint32_t i=0; i<neighborhoodSize.size(); ++i)
+    for (uint32_t i=0; i<neighborhoodSize.size(); ++i) {
         adj_p[i] = links + neighborhoodSize[i];
+    }
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V_p.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
-            std::vector<Link> scratch;
-            for (uint32_t i = range.begin(); i != range.end(); ++i) {
-                scratch.clear();
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V_p.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range
+    ) {
+        std::vector<Link> scratch;
+        for (uint32_t i = range.begin(); i != range.end(); ++i) {
+            scratch.clear();
 
-                for (int j=0; j<2; ++j) {
-                    uint32_t upper = to_upper(j, i);
-                    if (upper == INVALID)
-                        continue;
-                    for (Link *link = adj[upper]; link != adj[upper+1]; ++link)
-                        scratch.push_back(Link(to_lower[link->id], link->weight));
-                }
-                std::sort(scratch.begin(), scratch.end());
-                Link *dest = adj_p[i];
-                uint32_t id = INVALID;
-                for (const auto &link : scratch) {
-                    if (link.id != i) {
-                        if (id != link.id) {
-                            *dest++ = link;
-                            id = link.id;
-                        } else {
-                            dest[-1].weight += link.weight;
-                        }
+            for (int j=0; j<2; ++j) {
+                uint32_t upper = to_upper(j, i);
+                if (upper == INVALID)
+                    continue;
+                for (Link *link = adj[upper]; link != adj[upper+1]; ++link)
+                    scratch.push_back(Link(to_lower[link->id], link->weight));
+            }
+            std::sort(scratch.begin(), scratch.end());
+            Link *dest = adj_p[i];
+            uint32_t id = INVALID;
+            for (const auto &link : scratch) {
+                if (link.id != i) {
+                    if (id != link.id) {
+                        *dest++ = link;
+                        id = link.id;
+                    } else {
+                        dest[-1].weight += link.weight;
                     }
                 }
             }
-            SHOW_PROGRESS_RANGE(range, V_p.cols(), "Downsampling graph (6/6)");
         }
-    );
+        SHOW_PROGRESS_RANGE(range, V_p.cols(), "Downsampling graph (6/6)");
+    });
     cout << "done. (" << V.cols() << " -> " << V_p.cols() << " vertices, took "
          << timeString(timer.value()) << ")" << endl;
     return adj_p;
@@ -282,13 +286,13 @@ void generate_graph_coloring(const AdjacencyMatrix &adj, uint32_t size,
 
     /* Generate a permutation */
     std::vector<uint32_t> perm(size);
-    std::vector<tbb::spin_mutex> mutex(size);
+    std::vector<parallel::spin_mutex> mutex(size);
     for (uint32_t i=0; i<size; ++i)
         perm[i] = i;
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             pcg32 rng;
             rng.advance(range.begin());
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
@@ -298,18 +302,18 @@ void generate_graph_coloring(const AdjacencyMatrix &adj, uint32_t size,
                     continue;
                 if (j > k)
                     std::swap(j, k);
-                tbb::spin_mutex::scoped_lock l0(mutex[j]);
-                tbb::spin_mutex::scoped_lock l1(mutex[k]);
+                parallel::spin_mutex::scoped_lock l0(mutex[j]);
+                parallel::spin_mutex::scoped_lock l1(mutex[k]);
                 std::swap(perm[j], perm[k]);
             }
         }
     );
 
     std::vector<uint8_t> color(size, INVALID_COLOR);
-    ColorData colorData = tbb::parallel_reduce(
-        tbb::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
+    ColorData colorData = parallel::parallel_reduce(
+        parallel::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
         ColorData(),
-        [&](const tbb::blocked_range<uint32_t> &range, ColorData colorData) -> ColorData {
+        [&](const parallel::blocked_range<uint32_t> &range, ColorData colorData) -> ColorData {
             std::vector<uint32_t> neighborhood;
             bool possible_colors[256];
 
@@ -461,8 +465,8 @@ void MultiResolutionHierarchy::build(bool deterministic, const ProgressCallback 
 
 void init_random_tangent(const MatrixXf &N, MatrixXf &Q) {
     Q.resize(N.rows(), N.cols());
-    tbb::parallel_for(tbb::blocked_range<uint32_t>(0u, (uint32_t) N.cols()),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(parallel::blocked_range<uint32_t>(0u, (uint32_t) N.cols()),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             pcg32 rng;
             rng.advance(range.begin());
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
@@ -477,8 +481,8 @@ void init_random_tangent(const MatrixXf &N, MatrixXf &Q) {
 
 void init_random_position(const MatrixXf &P, const MatrixXf &N, MatrixXf &O, Float scale) {
     O.resize(N.rows(), N.cols());
-    tbb::parallel_for(tbb::blocked_range<uint32_t>(0u, (uint32_t) N.cols()),
-            [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(parallel::blocked_range<uint32_t>(0u, (uint32_t) N.cols()),
+            [&](const parallel::blocked_range<uint32_t> &range) {
             pcg32 rng;
             rng.advance(2*range.begin());
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
@@ -690,9 +694,9 @@ void MultiResolutionHierarchy::propagateSolution(int rosy) {
         const MatrixXf &Q = mQ[l];
         MatrixXf &Q_next = mQ[l+1];
 
-        tbb::parallel_for(
-            tbb::blocked_range<uint32_t>(0u, size(l+1), GRAIN_SIZE),
-            [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, size(l+1), GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
                 for (uint32_t i=range.begin(); i != range.end(); ++i) {
                     Vector2u upper = toUpper(l).col(i);
                     Vector3f q0 = Q.col(upper[0]);
@@ -761,9 +765,9 @@ void MultiResolutionHierarchy::propagateConstraints(int rosy, int posy) {
         const VectorXf &COw = mCOw[l];
         VectorXf &COw_next = mCOw[l+1];
 
-        tbb::parallel_for(
-            tbb::blocked_range<uint32_t>(0u, size(l+1), GRAIN_SIZE),
-            [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, size(l+1), GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
                 for (uint32_t i=range.begin(); i != range.end(); ++i) {
                     Vector2u upper = toUpper(l).col(i);
                     Vector3f cq = Vector3f::Zero(), co = Vector3f::Zero();

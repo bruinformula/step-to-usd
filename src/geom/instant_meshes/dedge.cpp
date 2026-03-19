@@ -31,9 +31,9 @@ void build_dedge(const MatrixXu &F, const MatrixXf &V, VectorXu &V2E,
     uint32_t deg = F.rows();
     std::vector<std::pair<uint32_t, uint32_t>> tmp(F.size());
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 for (uint32_t i = 0; i < deg; ++i) {
                     uint32_t idx_cur = F(i, f),
@@ -63,9 +63,9 @@ void build_dedge(const MatrixXu &F, const MatrixXf &V, VectorXu &V2E,
     E2E.resize(F.cols() * deg);
     E2E.setConstant(INVALID);
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) F.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t f = range.begin(); f != range.end(); ++f) {
                 for (uint32_t i = 0; i < deg; ++i) {
                     uint32_t idx_cur = F(i, f),
@@ -107,9 +107,9 @@ void build_dedge(const MatrixXu &F, const MatrixXf &V, VectorXu &V2E,
     boundary.setConstant(false);
 
     /* Detect boundary regions of the mesh and adjust vertex->edge pointers*/
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+        parallel::blocked_range<uint32_t>(0u, (uint32_t) V.cols(), GRAIN_SIZE),
+        [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
                 uint32_t edge = V2E[i];
                 if (edge == INVALID) {

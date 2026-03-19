@@ -54,7 +54,7 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
         tbb::concurrent_vector<WeightedEdge> collapse_edge_vec;
         collapse_edge_vec.reserve((uint32_t) (mRes.size()*2.5f));
 
-        auto classify_edges = [&](const tbb::blocked_range<uint32_t> &range) {
+        auto classify_edges = [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i<range.end(); ++i) {
                 while (!dset.try_lock(i))
                     ;
@@ -97,7 +97,7 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
 
         std::atomic<uint32_t> nConflicts(0), nItem(0);
         std::vector<uint16_t> nCollapses(mRes.size(), 0);
-        auto collapse_edges = [&](const tbb::blocked_range<uint32_t> &range) {
+        auto collapse_edges = [&](const parallel::blocked_range<uint32_t> &range) {
             std::set<uint32_t> temp;
 
             for (uint32_t i = range.begin(); i != range.end(); ++i) {
@@ -163,9 +163,9 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
         size_t nEdges = adj[mRes.size()]-adj[0];
         cout << "Step 1: Classifying " << nEdges << " edges " << (deterministic ? "in parallel " : "") << ".. ";
         cout.flush();
-        tbb::blocked_range<uint32_t> range1(0u, (uint32_t) V.cols(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range1(0u, (uint32_t) V.cols(), GRAIN_SIZE);
         if (!deterministic)
-            tbb::parallel_for(range1, classify_edges);
+            parallel::parallel_for(range1, classify_edges);
         else
             classify_edges(range1);
         cout << "done. (took " << timeString(timer.reset()) << ")" << endl;
@@ -177,11 +177,11 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
             bool operator()(const WeightedEdge& e1, const WeightedEdge& e2) const { return e1.second < e2.second; }
         };
 
-        tbb::parallel_sort(collapse_edge_vec.begin(), collapse_edge_vec.end(), WeightedEdgeComparator());
+        parallel::parallel_sort(collapse_edge_vec.begin(), collapse_edge_vec.end(), WeightedEdgeComparator());
 
-        tbb::blocked_range<uint32_t> range2(0u, (uint32_t) collapse_edge_vec.size(), GRAIN_SIZE);
+        parallel::blocked_range<uint32_t> range2(0u, (uint32_t) collapse_edge_vec.size(), GRAIN_SIZE);
         if (!deterministic)
-            tbb::parallel_for(range2, collapse_edges);
+            parallel::parallel_for(range2, collapse_edges);
         else
             collapse_edges(range2);
         cout << "done. (ignored " << nConflicts << " conflicting edges, took " << timeString(timer.reset()) << ")" << endl;
@@ -206,9 +206,9 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
         adj_new.shrink_to_fit();
         avg_collapses /= nVertices;
 
-        tbb::parallel_for(
-            tbb::blocked_range<uint32_t>(0u, nVertices, GRAIN_SIZE),
-            [&](const tbb::blocked_range<uint32_t> &range) {
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, nVertices, GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
                 std::set<uint32_t> temp;
                 for (uint32_t i = range.begin(); i != range.end(); ++i) {
                     temp.clear();
@@ -264,10 +264,10 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
             Eigen::VectorXf cluster_weight(nVertices);
             cluster_weight.setZero();
 
-            tbb::blocked_range<uint32_t> range(0u, V.cols(), GRAIN_SIZE);
-            tbb::spin_mutex mutex;
+            parallel::blocked_range<uint32_t> range(0u, V.cols(), GRAIN_SIZE);
+            parallel::spin_mutex mutex;
 
-            auto map = [&](const tbb::blocked_range<uint32_t> &range) {
+            auto map = [&](const parallel::blocked_range<uint32_t> &range) {
                 for (uint32_t i = range.begin(); i < range.end(); ++i) {
                     auto it = vertex_map.find(dset.find(i));
                     if (it == vertex_map.end())
@@ -276,7 +276,7 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
 
                     Float weight = std::exp(-(O.col(i)-V.col(i)).squaredNorm() * inv_scale * inv_scale * 9);
                     if (COw.size() != 0 && COw[i] != 0) {
-                        tbb::spin_mutex::scoped_lock lock(mutex);
+                        parallel::spin_mutex::scoped_lock lock(mutex);
                         crease_out.insert(j);
                     }
 
@@ -289,7 +289,7 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
             };
 
             if (!deterministic)
-                tbb::parallel_for(range, map);
+                parallel::parallel_for(range, map);
             else
                 map(range);
 
@@ -488,9 +488,9 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
     cout << "Step 6: Orienting edges .. ";
     cout.flush();
 
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t) O_new.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t> &range) {
+    parallel::parallel_for(
+    parallel::blocked_range<uint32_t>(0u, (uint32_t) O_new.cols(), GRAIN_SIZE),
+    [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i=range.begin(); i != range.end(); ++i) {
                 Vector3f s, t, p = O_new.col(i);
                 coordinate_system(N_new.col(i), s, t);
@@ -866,10 +866,10 @@ void extract_faces(std::vector<std::vector<TaggedLink> > &adj, MatrixXf &O,
         cout.flush();
 
         std::vector<std::set<uint32_t>> adj_new(nV);
-        std::vector<tbb::spin_mutex> locks(nV);
-        tbb::parallel_for(
-            tbb::blocked_range<uint32_t>(0u, nF, GRAIN_SIZE),
-            [&](const tbb::blocked_range<uint32_t> &range) {
+        std::vector<parallel::spin_mutex> locks(nV);
+        parallel::parallel_for(
+            parallel::blocked_range<uint32_t>(0u, nF, GRAIN_SIZE),
+            [&](const parallel::blocked_range<uint32_t> &range) {
                 for (uint32_t f = range.begin(); f != range.end(); ++f) {
                     if (posy == 4 && F(2, f) == F(3, f)) {
                         /* Irregular face */
@@ -880,8 +880,8 @@ void extract_faces(std::vector<std::vector<TaggedLink> > &adj, MatrixXf &O,
                             std::swap(i1, i0);
                         if (i0 == i1)
                             continue;
-                        tbb::spin_mutex::scoped_lock lock1(locks[i0]);
-                        tbb::spin_mutex::scoped_lock lock2(locks[i1]);
+                        parallel::spin_mutex::scoped_lock lock1(locks[i0]);
+                        parallel::spin_mutex::scoped_lock lock2(locks[i1]);
                         adj_new[i0].insert(i1);
                         adj_new[i1].insert(i0);
                     } else {
@@ -891,8 +891,8 @@ void extract_faces(std::vector<std::vector<TaggedLink> > &adj, MatrixXf &O,
                                 std::swap(i1, i0);
                             if (i0 == i1)
                                 continue;
-                            tbb::spin_mutex::scoped_lock lock1(locks[i0]);
-                            tbb::spin_mutex::scoped_lock lock2(locks[i1]);
+                            parallel::spin_mutex::scoped_lock lock1(locks[i0]);
+                            parallel::spin_mutex::scoped_lock lock2(locks[i1]);
                             adj_new[i0].insert(i1);
                             adj_new[i1].insert(i0);
                         }
@@ -907,9 +907,9 @@ void extract_faces(std::vector<std::vector<TaggedLink> > &adj, MatrixXf &O,
             cout << ".";
             cout.flush();
 
-            tbb::parallel_for(
-                tbb::blocked_range<uint32_t>(0u, (uint32_t) O.cols(), GRAIN_SIZE),
-                [&](const tbb::blocked_range<uint32_t> &range) {
+            parallel::parallel_for(
+                parallel::blocked_range<uint32_t>(0u, (uint32_t) O.cols(), GRAIN_SIZE),
+                [&](const parallel::blocked_range<uint32_t> &range) {
                     std::set<uint32_t> temp;
                     for (uint32_t i = range.begin(); i != range.end(); ++i) {
                         bool is_crease = crease.find(i) != crease.end();

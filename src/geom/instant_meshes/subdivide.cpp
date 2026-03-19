@@ -38,9 +38,9 @@ void subdivide(MatrixXu &F, MatrixXf &V, VectorXu &V2E, VectorXu &E2E,
     if (progress)
         progress("Subdividing mesh", 0.0f);
 
-    tbb::blocked_range<uint32_t> range(0u, (uint32_t) E2E.size(), GRAIN_SIZE);
+    parallel::blocked_range<uint32_t> range(0u, (uint32_t) E2E.size(), GRAIN_SIZE);
 
-    auto subdiv = [&](const tbb::blocked_range<uint32_t> &range) {
+    auto subdiv = [&](const parallel::blocked_range<uint32_t> &range) {
         for (uint32_t i = range.begin(); i<range.end(); ++i) {
             uint32_t v0 = F(i%3, i/3), v1 = F((i+1)%3, i/3);
             if (nonmanifold[v0] || nonmanifold[v1])
@@ -56,7 +56,7 @@ void subdivide(MatrixXu &F, MatrixXf &V, VectorXu &V2E, VectorXu &E2E,
     };
 
     if (!deterministic)
-        tbb::parallel_for(range, subdiv);
+        parallel::parallel_for(range, subdiv);
     else
         subdiv(range);
 
