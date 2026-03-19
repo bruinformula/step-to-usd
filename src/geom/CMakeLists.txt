@@ -35,4 +35,5 @@ target_link_libraries(test_schema PRIVATE
     sdf 
     usd
 )
- 
+
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant-meshes")
