@@ -7,7 +7,7 @@ echo "Script directory: $SCRIPT_DIR"
 #required to run testing 
 export PXR_MTLX_STDLIB_SEARCH_PATHS="$SCRIPT_DIR/build/autolib:$PXR_MTLX_STDLIB_SEARCH_PATHS"
 export ARNOLD_PLUGIN_PATH="$SCRIPT_DIR/build/autolib/arnold_plugin:$ARNOLD_PLUGIN_PATH"
-export ARNOLD_PLUGIN_PATH="$SCRIPT_DIR/build/autolib/oso:$ARNOLD_PLUGIN_PATH"
+#export ARNOLD_PLUGIN_PATH="$SCRIPT_DIR/build/autolib/oso:$ARNOLD_PLUGIN_PATH"
 
 export PYTHONPATH="$SCRIPT_DIR/build/lib/python:$PYTHONPATH"
 export PXR_PLUGINPATH_NAME="$SCRIPT_DIR/build/plugin/usd:$PXR_PLUGINPATH_NAME"

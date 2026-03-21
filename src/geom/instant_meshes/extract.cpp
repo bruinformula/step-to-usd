@@ -56,8 +56,7 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
 
         auto classify_edges = [&](const parallel::blocked_range<uint32_t> &range) {
             for (uint32_t i = range.begin(); i<range.end(); ++i) {
-                while (!dset.try_lock(i))
-                    ;
+                while (!dset.try_lock(i)) {}
 
                 for (Link *link = adj[i]; link != adj[i+1]; ++link) {
                     uint32_t j = link->id;
@@ -491,19 +490,18 @@ extract_graph(const MultiResolutionHierarchy &mRes, bool extrinsic, int rosy, in
     parallel::parallel_for(
     parallel::blocked_range<uint32_t>(0u, (uint32_t) O_new.cols(), GRAIN_SIZE),
     [&](const parallel::blocked_range<uint32_t> &range) {
-            for (uint32_t i=range.begin(); i != range.end(); ++i) {
-                Vector3f s, t, p = O_new.col(i);
-                coordinate_system(N_new.col(i), s, t);
+        for (uint32_t i=range.begin(); i != range.end(); ++i) {
+            Vector3f s, t, p = O_new.col(i);
+            coordinate_system(N_new.col(i), s, t);
 
-                std::sort(adj_new[i].begin(), adj_new[i].end(),
-                    [&](const TaggedLink &j0, const TaggedLink &j1) {
-                        Vector3f v0 = O_new.col(j0.id)-p, v1 = O_new.col(j1.id)-p;
-                        return std::atan2(t.dot(v0), s.dot(v0)) > std::atan2(t.dot(v1), s.dot(v1));
-                    }
-                );
-            }
+            std::sort(adj_new[i].begin(), adj_new[i].end(),
+                [&](const TaggedLink &j0, const TaggedLink &j1) {
+                    Vector3f v0 = O_new.col(j0.id)-p, v1 = O_new.col(j1.id)-p;
+                    return std::atan2(t.dot(v0), s.dot(v0)) > std::atan2(t.dot(v1), s.dot(v1));
+                }
+            );
         }
-    );
+    });
 
 
     cout << "done. (took " << timeString(timer.reset()) << ")" << endl;

@@ -474,7 +474,11 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     // repeat check for self-intersections 
     // if fail, refine the mesh until there are none 
     // or we hit the max pass count.
-    
+
+    // important note this is on the whole shape 
+    // not just the intersected shapes, 
+    // so the edge walk later works
+
     for (int pass = 0; pass < maxPasses; ++pass) {
         BRepExtrema_SelfIntersection checker(defShape, 1e-6);
         checker.Perform();
@@ -498,6 +502,11 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
 
     // positions remain welded via topology
+    // Poly_Triangululation is a tesselated representation of 
+    // the Topo_DS_whatever. For a given face, we need to store 
+    // it alongside the index into the source face array
+    // so its:
+    // Face A at idx 2 shares a triangle with Face C at idx 5 
     using TriNodeKey = std::pair<const Poly_Triangulation*, int>;
     struct PairHash {
         size_t operator()(const TriNodeKey& k) const {
@@ -518,7 +527,6 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     std::unordered_map<TriNodeKey, int, PairHash> nodeToCanonical;
     std::unordered_set<TriNodeKey, PairHash> boundaryKeys;
     std::unordered_set<int> boundaryNodes;
-
 
     std::unordered_map<TriNodeKey, TriNodeKey, PairHash> nodeAlias;
 
