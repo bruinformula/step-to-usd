@@ -1,5 +1,6 @@
 **/.DS_Store
 **/*.oso
+**/*.tx
 oso/
 build/
 .build/
