@@ -8,3 +8,4 @@ build/
 autolib/
 **/*.xbf
 **/*.stl
+**/*.units

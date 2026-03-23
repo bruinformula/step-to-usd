@@ -163,8 +163,8 @@ std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::p
             case hashString("sketchMode"):
                 variantParams.tessParams.sketchMode = parseCurveMode(value);
                 break;
-            case hashString("lodCullingMinimumSize"):
-                variantParams.tessParams.lodCullingMinimumSize = std::stof(value);
+            case hashString("renderPurposeThreshold"):
+                variantParams.tessParams.renderPurposeThreshold = std::stof(value);
                 break;
             case hashString("defaultMeshVisibility"):
                 variantParams.tessParams.defaultMeshVisibility = (value == "true");

@@ -17,7 +17,7 @@ const std::string argOptions =
     "    --meshLinearDeflection <float>                             Linear deflection as fraction of bbox diagonal (default: 0.05). \n"
     "    --meshAngularDeflection <float>                            Angular deflection in radians (default: 0.35). \n"
     "    --meshMinSize <float>                                      Minimum mesh size as fraction of linear deflection (default: 0.1). \n"
-    "    --lodCullingMinimumSize <float>                            Cull parts with bbox diagonal smaller than this value. \n"
+    "    --renderPurposeThreshold <float>                            Cull parts with bbox diagonal smaller than this value. \n"
     "    --defaultMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
     "    --defaultWireframeVisibility <true|false>                  Default visibility of wireframe curves (default: false). \n"
     "    --defaultSketchVisibility <true|false>                     Default visibility of sketch curves (default: false). \n"
@@ -91,9 +91,9 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 tessParams.meshMinSize = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--lodCullingMinimumSize"): {
+            case hashString("--renderPurposeThreshold"): {
                 if (nextToken.empty()) goto expectOption;
-                tessParams.lodCullingMinimumSize = std::stof(nextToken);
+                tessParams.renderPurposeThreshold = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--defaultMeshVisibility"): {

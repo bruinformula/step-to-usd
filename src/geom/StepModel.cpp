@@ -47,6 +47,10 @@
 #include <opencascade/BRepTools.hxx>
 #include <opencascade/TDF_Tool.hxx>
 #include <opencascade/OSD_Parallel.hxx>
+#include <opencascade/StepBasic_NamedUnit.hxx>
+#include <opencascade/StepBasic_SiUnit.hxx>
+#include <opencascade/StepBasic_ConversionBasedUnit.hxx>
+#include <opencascade/StepBasic_DimensionalExponents.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -81,52 +85,94 @@
 #include "StepModel.h"
 
 // Init
+static fs::path unitsCachePath(const fs::path& xbfPath) {
+    fs::path p = xbfPath;
+    return p.replace_extension("units");
+}
+
+static void saveUnitsCache(const fs::path& xbfPath, double metersPerUnit) {
+    std::ofstream f(unitsCachePath(xbfPath));
+    if (f) f << std::setprecision(17) << metersPerUnit;
+}
+
+static double loadUnitsCache(const fs::path& xbfPath) {
+    std::ifstream f(unitsCachePath(xbfPath));
+    double v = 0.001;
+    if (f) f >> v;
+    return v;
+}
+
+double StepModel::readStepLengthUnit(STEPControl_Reader& cafReader) {
+    TColStd_SequenceOfAsciiString lengthUnits, angleUnits, solidAngleUnits;
+    cafReader.FileUnits(lengthUnits, angleUnits, solidAngleUnits);
+
+    if (lengthUnits.IsEmpty()) {
+        std::cerr << "Warning: FileUnits() returned nothing, assuming mm\n";
+        return 0.001;
+    }
+
+    TCollection_AsciiString unit = lengthUnits.First();
+    unit.LowerCase();
+    std::cout << "STEP file length unit: " << unit << "\n";
+
+    if (unit == "metre"      || unit == "meter"      || unit == "m")   return 1.0;
+    if (unit == "millimetre" || unit == "millimeter"  || unit == "mm")  return 0.001;
+    if (unit == "centimetre" || unit == "centimeter"  || unit == "cm")  return 0.01;
+    if (unit == "micrometre" || unit == "micrometer"  || unit == "um")  return 1e-6;
+    if (unit == "kilometre"  || unit == "kilometer"   || unit == "km")  return 1000.0;
+    if (unit == "inch"       || unit == "in")                           return 0.0254;
+    if (unit == "foot"       || unit == "ft")                           return 0.3048;
+    if (unit == "yard"       || unit == "yd")                           return 0.9144;
+    if (unit == "mil"        || unit == "thou")                         return 2.54e-5;
+
+    std::cerr << "Warning: unrecognised unit '" << unit << "', assuming mm\n";
+    return 0.001;
+}
+
 std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
     try {
         OSD_Parallel::SetUseOcctThreads(true);
-
         occt::handle<TDocStd_Application> app = new TDocStd_Application();
         BinXCAFDrivers::DefineFormat(app);
-
         fs::path xbfPath = stepPath;
         xbfPath.replace_extension("xbf");
-
         occt::handle<TDocStd_Document> doc;
         app->NewDocument("BinXCAF", doc);
 
-        // xbf is a binary XCAF cache — subsequent loads skip the Step parser
-        // entirely. Invalidated whenever the Step file is newer than the cache.
+        double metersPerUnit = 0.0;
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
             std::cout << "XBF doesn't exist or is out of date. Building from Step...\n";
-
             STEPCAFControl_Reader reader;
             if (reader.ReadFile(stepPath.c_str()) != IFSelect_RetDone) {
                 std::cerr << "Error reading Step file\n";
                 return std::nullopt;
             }
+            STEPControl_Reader innerReader = reader.Reader();
+            metersPerUnit = readStepLengthUnit(innerReader);
+            std::cout << "Step length unit: " << metersPerUnit << " m\n";
             if (!reader.Transfer(doc)) {
                 std::cerr << "Error transferring Step data\n";
                 return std::nullopt;
             }
-
             std::cout << "Saving XBF to " << xbfPath << "\n";
             if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
                 std::cerr << "Warning: failed to save XBF cache\n";
+            saveUnitsCache(xbfPath, metersPerUnit);
         } else {
             std::cout << "Loading cached XBF from " << xbfPath << "\n";
             if (app->Open(xbfPath.c_str(), doc) != PCDM_RS_OK) {
                 std::cerr << "Error opening XBF\n";
                 return std::nullopt;
             }
+            metersPerUnit = loadUnitsCache(xbfPath);
+            std::cout << "Step length unit (cached): " << metersPerUnit << " m\n";
         }
 
-        auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
-        auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
+        auto shapeTool    = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+        auto colorTool    = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
-        auto layerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
-
-        return StepModel(app, doc, shapeTool, colorTool, materialTool, layerTool);
-
+        auto layerTool    = XCAFDoc_DocumentTool::LayerTool(doc->Main());
+        return StepModel(app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
     } catch (const Standard_Failure& e) {
         std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
         return std::nullopt;
@@ -457,9 +503,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         std::pow(zmax - zmin, 2)
     );
 
-    if (params.lodCullingMinimumSize && diagonal < *params.lodCullingMinimumSize) {
-        return false;
-    }
+    result.renderOnly = params.renderPurposeThreshold && diagonal < params.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
     meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
@@ -916,33 +960,38 @@ static bool initUsdStage(pxr::UsdStageRefPtr stage) {
     using namespace pxr;
 
     UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
-    stage->SetMetadata(TfToken("metersPerUnit"), 0.001);
 
-    UsdGeomXform assembly = UsdGeomXform::Define(stage, SdfPath("/Assembly"));
-    if (!assembly) {
-        std::cerr << "Failed to define root /Assembly\n";
-        return false;
-    }
-    stage->SetDefaultPrim(assembly.GetPrim());
-
-    if (!UsdGeomXform::Define(stage, SdfPath("/Prototypes"))) {
-        std::cerr << "Failed to define /Prototypes\n";
+    UsdGeomXform model = UsdGeomXform::Define(stage, SdfPath("/Model"));
+    if (!model) {
+        std::cerr << "Failed to define root /Model\n";
         return false;
     }
 
-    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/CADPart"));
+    stage->SetDefaultPrim(model.GetPrim());
+
+    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Assembly"))) {
+        std::cerr << "Failed to define /Model/Assembly\n";
+        return false;
+    }
+
+    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Prototypes"))) {
+        std::cerr << "Failed to define /Model/Prototypes\n";
+        return false;
+    }
+
+    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/Model/CADPart"));
     UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
+        SdfPath childPath = SdfPath("/Model/CADPart").AppendChild(TfToken(name));
         UsdPrim child = stage->DefinePrim(childPath);
         UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
         return child;
     };
 
-    makeClassChild("mesh");
-    makeClassChild("wire");
-    makeClassChild("sketch");
+    makeClassChild("Mesh");
+    makeClassChild("Wireframe");
+    makeClassChild("Sketch");
 
     return true;
 }
@@ -958,11 +1007,19 @@ static bool writePrototypeGeometry(
     using namespace pxr;
 
     UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
-    protoXform.GetPrim().GetInherits().AddInherit(SdfPath("/CADPart"));
+    UsdPrim protoPrim = protoXform.GetPrim();
 
-    protoXform.GetPrim()
-        .CreateAttribute(TfToken("autolibStepExport:defIndex"), pxr::SdfValueTypeNames->Int, true)
-        .Set(defIdx);
+    {
+        SdfChangeBlock changeBlock;
+        protoPrim.GetInherits().AddInherit(SdfPath("/Model/CADPart"));
+
+        protoPrim.CreateAttribute(TfToken("stepExport:defIndex"), pxr::SdfValueTypeNames->Int, true).Set(defIdx);
+
+        if (r.renderOnly) {
+            UsdGeomImageable imageable(protoPrim);
+            imageable.CreatePurposeAttr().Set(UsdGeomTokens->render);
+        }
+    }
 
     if (!r.points.empty()) {
         UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
@@ -1195,6 +1252,8 @@ void StepModel::populateUsd(
     if (!initUsdStage(stage))
         return;
 
+    stage->SetMetadata(TfToken("metersPerUnit"), metersPerUnit);
+
     LabelMap<SdfPath> prototypePaths;
     std::unordered_map<std::string, int> protoNameCounts;
     const int protoTotal = (int)defs.size();
@@ -1213,7 +1272,7 @@ void StepModel::populateUsd(
         }
         int protoCount = protoNameCounts[rawName]++;
         std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
+        SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
 
         if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
@@ -1226,15 +1285,18 @@ void StepModel::populateUsd(
     }
     std::cerr << "\n";
 
-    // Hide /Prototypes from renderers
+    // Hide /Model/Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
-    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
-    if (prototypeRoot.IsValid())
+    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Model/Prototypes"));
+    if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
-
-    UsdPrim wireframeRoot = stage->GetPrimAtPath(SdfPath("/Wireframe"));
-    if (wireframeRoot.IsValid())
-        wireframeRoot.SetActive(false);
+        /*
+        UsdGeomImageable imageable(prototypeRoot);
+        if (imageable) {
+            imageable.MakeInvisible();
+        }
+        */
+    }
 
     std::vector<SdfPath> paths = computeInstancePaths();
     writeInstanceXforms(stage, paths, prototypePaths);
@@ -1303,7 +1365,9 @@ void StepModel::populateVariantUsd(
     if (!initUsdStage(stage))
         return;
 
-    UsdGeomXform prototypes = UsdGeomXform(stage->GetPrimAtPath(SdfPath("/Prototypes")));
+    stage->SetMetadata(TfToken("metersPerUnit"), metersPerUnit);
+
+    UsdGeomXform prototypes = UsdGeomXform(stage->GetPrimAtPath(SdfPath("/Model/Prototypes")));
 
     LabelMap<SdfPath> prototypePaths;
     std::unordered_map<std::string, int> protoNameCounts;
@@ -1340,8 +1404,7 @@ void StepModel::populateVariantUsd(
 
         UsdStageRefPtr lodStage = UsdStage::CreateNew(params.outpath);
 
-        UsdPrim lodPrototypesPrim = lodStage->DefinePrim(SdfPath("/Prototypes"));
-        lodStage->SetDefaultPrim(lodPrototypesPrim);
+        UsdPrim lodPrototypesPrim = lodStage->DefinePrim(SdfPath("/Model/Prototypes"));
 
         int protoCompleted = 0;
         const int protoTotal = (int)defs.size();
@@ -1361,7 +1424,7 @@ void StepModel::populateVariantUsd(
 
             int protoCount = protoNameCounts[rawName]++;
             std::string name = sanitizeUsdName(rawName, protoCount);
-            SdfPath protoPath = SdfPath("/Prototypes").AppendChild(TfToken(name));
+            SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
 
             if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode, i)) {
                 std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
@@ -1390,15 +1453,18 @@ void StepModel::populateVariantUsd(
 
     std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
 
-    // Hide /Prototypes from renderers
+    // Hide /Model/Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
-    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Prototypes"));
-    if (prototypeRoot.IsValid())
+    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Model/Prototypes"));
+    if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
-
-    UsdPrim wireframeRoot = stage->GetPrimAtPath(SdfPath("/Wireframe"));
-    if (wireframeRoot.IsValid())
-        wireframeRoot.SetActive(false);
+        /*
+        UsdGeomImageable imageable(prototypeRoot);
+        if (imageable) {
+            imageable.MakeInvisible();
+        }
+        */
+    }
 
     std::vector<SdfPath> paths = computeInstancePaths();
     writeInstanceXforms(stage, paths, prototypePaths);
@@ -1425,7 +1491,7 @@ std::vector<pxr::SdfPath> StepModel::computeInstancePaths() const {
 
         SdfPath parentPath;
         if (instances[i].parentIdx == -1) {
-            parentPath = SdfPath("/Assembly");
+            parentPath = SdfPath("/Model/Assembly");
         } else {
             parentPath = paths[instances[i].parentIdx];
         }

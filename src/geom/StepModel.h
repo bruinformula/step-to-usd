@@ -13,6 +13,7 @@
 #include <opencascade/XCAFDoc_ShapeTool.hxx>
 #include <opencascade/Quantity_Array1OfColor.hxx>
 #include <opencascade/XCAFDoc_DocumentTool.hxx>
+#include <opencascade/STEPCAFControl_Reader.hxx>
 
 #pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle as a macro
 #undef Handle
@@ -114,10 +115,15 @@ struct StepModel {
         // Sketch curves
         pxr::VtArray<pxr::GfVec3f> sketchPoints;
         pxr::VtArray<int> sketchCounts;
+
+        // Render Purpose
+        bool renderOnly; 
     };
 
     struct TessParams {
-        std::optional<float> lodCullingMinimumSize = std::nullopt; // in the units of the model along the diagonal
+        std::optional<float> renderPurposeThreshold = std::nullopt; 
+        // in the units of the model along the diagonal. 
+        // if proto is smaller it gets marked as a render only asset
 
         float meshLinearDeflection = 0.05f; // as a fraction of the diagonal of the bounding box
         float meshAngularDeflection = 0.35f;
@@ -149,10 +155,12 @@ struct StepModel {
         occt::handle<XCAFDoc_ShapeTool>   st,
         occt::handle<XCAFDoc_ColorTool>    ct,
         occt::handle<XCAFDoc_MaterialTool>   mt,
-        occt::handle<XCAFDoc_LayerTool>   lt
-    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt), layerTool(lt) {}
+        occt::handle<XCAFDoc_LayerTool>   lt,
+        double metersPerUnit
+    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt), layerTool(lt), metersPerUnit(metersPerUnit) {}
 
     static std::optional<StepModel> loadFromFile(const fs::path& stepPath);
+    static double readStepLengthUnit(STEPControl_Reader& cafReader);
 
     void buildInstanceTree();
 
@@ -171,6 +179,7 @@ struct StepModel {
 
     std::vector<PartInstance> instances;        // flat pre-order instance tree
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
+    double metersPerUnit;
 
 private:
     int countNodes(const TDF_Label& label);
