@@ -15,43 +15,86 @@ over "GLOBAL" (
 
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters. Inheritable — child prims that don't author a value resolve the nearest authored ancestor."
+    doc = "Step tessellation quality parameters. Inheritable — child prims that do not author a value resolve the nearest authored ancestor value."
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    float stepTess:linearDeflection = 1.0 (
-        doc = "Linear deflection as a fraction of bounding box diagonal."
+    float stepTess:meshLinearDeflection = 1.0 (
+        doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:angularDeflection = 0.5 (
-        doc = "Angular deflection in radians."
+    float stepTess:meshAngularDeflection = 0.5 (
+        doc = "Angular deflection in radians. Maps to --meshAngularDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:minSize = 0.1 (
-        doc = "Minimum mesh element size as a fraction of linearDeflection."
+    bool stepTess:defaultMeshVisibility = true (
+        doc = "Whether mesh geometry is visible by default. Maps to --defaultMeshVisibility."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token stepTess:wireframeType = "linear" (
+        doc = "Curve type used for wireframe edges. Maps to --wireframeType."
+        allowedTokens = ["none", "linear", "catmullRom"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token stepTess:wireframeSampling = "underlying" (
+        doc = "Sampling strategy for wireframe edge curves. Maps to --wireframeSampling."
+        allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float stepTess:wireframeDeflection = 0.01 (
-        doc = "Sampling deflection for wireframe edge curves."
+        doc = "Deflection tolerance for wireframe edge curve sampling. Maps to --wireframeDeflection."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool stepTess:defaultWireframeVisibility = true (
+        doc = "Whether wireframe geometry is visible by default. Maps to --defaultWireframeVisibility."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token stepTess:sketchType = "none" (
+        doc = "Curve type used for sketch and free-edge curves. Maps to --sketchType."
+        allowedTokens = ["none", "linear", "catmullRom"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token stepTess:sketchSampling = "underlying" (
+        doc = "Sampling strategy for sketch and free-edge curves. Maps to --sketchSampling."
+        allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float stepTess:sketchDeflection = 0.005 (
-        doc = "Sampling deflection for sketch/free-edge curves."
+        doc = "Deflection tolerance for sketch/free-edge curve sampling. Maps to --sketchDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:lodCullingMinimumSize = -1.0 (
-        doc = "Parts whose bounding diagonal is smaller than this are culled. Negative means disabled."
+    bool stepTess:defaultSketchVisibility = false (
+        doc = "Whether sketch geometry is visible by default. Maps to --defaultSketchVisibility."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:wireframeMode = "linear" (
-        doc = "Wireframe curve mode."
-        allowedTokens = ["none", "linear", "resampledlinear", "catmullRom"]
+    float stepTess:renderPurposeThreshold = 0.0 (
+        doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter. Maps to --renderPurposeThreshold."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:sketchMode = "none" (
-        doc = "Sketch/free-edge curve mode."
-        allowedTokens = ["none", "linear", "resampledlinear", "catmullRom"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
+}
+
+class "StepTessellationDefaults" (
+    inherits = </Typed>
+    typeName = "StepTessellationDefaults"
+    doc = "Concrete prim class that carries a complete authored set of StepTessellationAPI values."
+    prepend apiSchemas = ["StepTessellationAPI"]
+    customData = {
+        token schemaKind = "concreteTyped"
+    }
+) {
+    float stepTess:meshLinearDeflection = 1.0
+    float stepTess:meshAngularDeflection = 0.5
+    float stepTess:meshMinSize = 0.1
+    bool stepTess:defaultMeshVisibility = true
+    token stepTess:wireframeType = "linear"
+    token stepTess:wireframeSampling = "uniform"
+    float stepTess:wireframeDeflection = 0.01
+    bool stepTess:defaultWireframeVisibility = true
+    token stepTess:sketchType = "none"
+    token stepTess:sketchSampling = "uniform"
+    float stepTess:sketchDeflection = 0.005
+    bool stepTess:defaultSketchVisibility = false
+    float stepTess:renderPurposeThreshold = 0.0
+    float stepTess:lodCullingMinimumSize = -1.0
 }

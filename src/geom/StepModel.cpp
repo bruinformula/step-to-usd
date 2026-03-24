@@ -78,11 +78,12 @@
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/token.h>
 
-
 #pragma pop_macro("Handle")
 
 #include "XCAFUtils.h"
 #include "StepModel.h"
+
+#include "stepTessellationAPI.h"
 
 // Init
 static fs::path unitsCachePath(const fs::path& xbfPath) {
@@ -484,7 +485,114 @@ static pxr::VtArray<pxr::GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
     return result;
 }
 
-// Usd
+// Usd Tess Params Resolution
+template <typename T>
+bool getInheritedAttribute(const pxr::UsdPrim& prim, const pxr::TfToken& attrName, T* value, const pxr::UsdTimeCode& time = pxr::UsdTimeCode::Default()) {
+    using namespace pxr;
+    for (UsdPrim p = prim; p && !p.IsPseudoRoot(); p = p.GetParent()) {
+        UsdAttribute attr = p.GetAttribute(attrName);
+
+        if (attr && attr.HasAuthoredValue()) {
+            return attr.Get(value, time);
+        }
+    }
+    
+    // Get the default value from the schema definition on the original prim.
+    UsdAttribute leafAttr = prim.GetAttribute(attrName);
+    if (leafAttr) {
+        return leafAttr.Get(value, time);
+    }
+    
+    return false;
+}
+
+template <typename T>
+void updateIfAuthored(const pxr::UsdAttribute& attr, T* value) {
+    if (attr.HasAuthoredValue()) {
+        attr.Get(value);
+    }
+}
+
+static void traverseForTessParams(
+    const pxr::UsdPrim& prim, 
+    StepModel::TessParams currentSettings,
+    std::map<pxr::SdfPath, StepModel::TessParams>& results
+) {
+    using namespace pxr;
+    if (prim.HasAPI<AutolibStepTessellationAPI>()) {
+        AutolibStepTessellationAPI api(prim);
+
+        // Update settings only if values are authored on this prim
+        //updateIfAuthored(api.GetStepTessLinearDeflectionAttr(), &currentSettings.linearDeflection);
+        //updateIfAuthored(api.GetStepTessAngularDeflectionAttr(), &currentSettings.angularDeflection);
+        //updateIfAuthored(api.GetStepTessMinSizeAttr(), &currentSettings.minSize);
+        //updateIfAuthored(api.GetStepTessWireframeDeflectionAttr(), &currentSettings.wireframeDeflection);
+        //updateIfAuthored(api.GetStepTessSketchDeflectionAttr(), &currentSettings.sketchDeflection);
+        //updateIfAuthored(api.GetStepTessLodCullingMinimumSizeAttr(), &currentSettings.lodCullingMinimumSize);
+        //updateIfAuthored(api.GetStepTessWireframeModeAttr(), &currentSettings.wireframeMode);
+        //updateIfAuthored(api.GetStepTessSketchModeAttr(), &currentSettings.sketchMode);
+    }
+
+    results[prim.GetPath()] = currentSettings;
+
+    // Recurse to children, and pass the current state down
+    for (const auto& child : prim.GetChildren()) {
+        traverseForTessParams(child, currentSettings, results);
+    }
+}
+
+std::map<pxr::SdfPath, StepModel::TessParams> StepModel::resolveParams(
+    const pxr::UsdPrim& rootPrim
+) {
+    TessParams defaultParams = {};
+
+    std::map<pxr::SdfPath, StepModel::TessParams> results;
+    traverseForTessParams(rootPrim, defaultParams, results);
+
+    return results;
+}
+
+// Usd Export
+static bool initUsdStage(pxr::UsdStageRefPtr stage) {
+    using namespace pxr;
+
+    UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
+
+    UsdGeomXform model = UsdGeomXform::Define(stage, SdfPath("/Model"));
+    if (!model) {
+        std::cerr << "Failed to define root /Model\n";
+        return false;
+    }
+
+    stage->SetDefaultPrim(model.GetPrim());
+
+    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Assembly"))) {
+        std::cerr << "Failed to define /Model/Assembly\n";
+        return false;
+    }
+
+    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Prototypes"))) {
+        std::cerr << "Failed to define /Model/Prototypes\n";
+        return false;
+    }
+
+    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/Model/CADPart"));
+    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    auto makeClassChild = [&](const char* name) {
+        SdfPath childPath = SdfPath("/Model/CADPart").AppendChild(TfToken(name));
+        UsdPrim child = stage->DefinePrim(childPath);
+        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+        return child;
+    };
+
+    makeClassChild("Mesh");
+    makeClassChild("Wireframe");
+    makeClassChild("Sketch");
+
+    return true;
+}
+
 bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, const TessParams& params) const {
     using namespace pxr;
     using Clock = std::chrono::high_resolution_clock;
@@ -965,46 +1073,6 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     return true;
 }
 
-static bool initUsdStage(pxr::UsdStageRefPtr stage) {
-    using namespace pxr;
-
-    UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
-
-    UsdGeomXform model = UsdGeomXform::Define(stage, SdfPath("/Model"));
-    if (!model) {
-        std::cerr << "Failed to define root /Model\n";
-        return false;
-    }
-
-    stage->SetDefaultPrim(model.GetPrim());
-
-    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Assembly"))) {
-        std::cerr << "Failed to define /Model/Assembly\n";
-        return false;
-    }
-
-    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Prototypes"))) {
-        std::cerr << "Failed to define /Model/Prototypes\n";
-        return false;
-    }
-
-    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/Model/CADPart"));
-    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-
-    auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = SdfPath("/Model/CADPart").AppendChild(TfToken(name));
-        UsdPrim child = stage->DefinePrim(childPath);
-        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-        return child;
-    };
-
-    makeClassChild("Mesh");
-    makeClassChild("Wireframe");
-    makeClassChild("Sketch");
-
-    return true;
-}
-
 static bool writePrototypeGeometry(
     pxr::UsdStageRefPtr stage,
     const pxr::SdfPath& protoPath,
@@ -1085,56 +1153,89 @@ static bool writePrototypeGeometry(
     }
 
     if (!r.curveCounts.empty()) {
-        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("Wireframe")));
-        {
-            SdfChangeBlock changeBlock;
-            if (wireframeMode.type == CurveType::CatmullRom) {
-                curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            } else {
-                curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
-            }
-            curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-            curves.GetPointsAttr().Set(r.curvePoints);
-            curves.GetCurveVertexCountsAttr().Set(r.curveCounts);
+        int pointOffset = 0;
+        SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
+        UsdGeomXform curveXform = UsdGeomXform::Define(stage, wireframePath);
+        for (int ci = 0; ci < (int)r.curveCounts.size(); ++ci) {
+            int count = r.curveCounts[ci];
 
-            VtArray<float> widths(r.curvePoints.size(), 0.1f); // constant widths option
-            curves.CreateWidthsAttr().Set(widths);
-
-            VtArray<GfVec3f> color = {{0.8, 0.8, 0.8}};
-            curves.GetDisplayColorAttr().Set(color);
-
-            UsdGeomPrimvarsAPI curveAPI(curves);
-            UsdGeomPrimvar primContinuityType = curveAPI.CreatePrimvar(
-                TfToken("continuityType"),
-                SdfValueTypeNames->IntArray,
-                UsdGeomTokens->uniform
+            pxr::VtArray<pxr::GfVec3f> pts(
+                r.curvePoints.begin() + pointOffset,
+                r.curvePoints.begin() + pointOffset + count
             );
-            primContinuityType.Set(r.curveContinuity);
-        } // SdfChangeBlock
+
+            SdfPath curvePath = wireframePath.AppendChild(
+                TfToken("Wireframe_" + std::to_string(ci))
+            );
+
+            UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(stage, curvePath);
+            {
+                SdfChangeBlock changeBlock;
+                if (wireframeMode.type == CurveType::CatmullRom) {
+                    curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                    curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+                } else {
+                    curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
+                }
+                curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+                curve.GetPointsAttr().Set(pts);
+                curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+
+                VtArray<float> widths(count, 0.1f);
+                curve.CreateWidthsAttr().Set(widths);
+
+                VtArray<GfVec3f> color = {{0.8f, 0.8f, 0.8f}};
+                curve.GetDisplayColorAttr().Set(color);
+
+                if (ci < (int)r.curveContinuity.size()) {
+                    UsdGeomPrimvarsAPI curveAPI(curve);
+                    curveAPI.CreatePrimvar(
+                        TfToken("continuityType"),
+                        SdfValueTypeNames->IntArray,
+                        UsdGeomTokens->uniform
+                    ).Set(VtIntArray{r.curveContinuity[ci]});
+                }
+            }
+            pointOffset += count;
+        }
     }
 
     if (!r.sketchCounts.empty()) {
-        UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("Sketch")));
-        {
-            SdfChangeBlock changeBlock;
-            if (sketchMode.type == CurveType::CatmullRom) {
-                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            } else {
-                // Linear and ResampledLinear both produce polylines
-                sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->linear);
+        int pointOffset = 0;
+        SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
+        UsdGeomXform sketchXform = UsdGeomXform::Define(stage, sketchPath);
+        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
+            int count = r.sketchCounts[ci];
+
+            pxr::VtArray<pxr::GfVec3f> pts(
+                r.sketchPoints.begin() + pointOffset,
+                r.sketchPoints.begin() + pointOffset + count
+            );
+
+            SdfPath curvePath = sketchPath.AppendChild(
+                TfToken("Sketch_" + std::to_string(ci))
+            );
+            UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(stage, curvePath);
+            {
+                SdfChangeBlock changeBlock;
+                if (sketchMode.type == CurveType::CatmullRom) {
+                    sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                    sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+                } else {
+                    sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
+                }
+                sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+                sketchCurve.GetPointsAttr().Set(pts);
+                sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+
+                VtArray<float> sketchWidths(count, 0.1f);
+                sketchCurve.CreateWidthsAttr().Set(sketchWidths);
+
+                VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}};
+                sketchCurve.GetDisplayColorAttr().Set(sketchColor);
             }
-            sketchCurves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-            sketchCurves.GetPointsAttr().Set(r.sketchPoints);
-            sketchCurves.GetCurveVertexCountsAttr().Set(r.sketchCounts);
-
-            VtArray<float> sketchWidths(r.sketchPoints.size(), 0.1f);
-            sketchCurves.CreateWidthsAttr().Set(sketchWidths);
-
-            VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}}; // blue tint to distinguish from wireframe
-            sketchCurves.GetDisplayColorAttr().Set(sketchColor);
-        } // SdfChangeBlock
+            pointOffset += count;
+        }
     }
 
     return true;

@@ -105,11 +105,6 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 tessParams.meshAngularDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--meshMinSize"): {
-                if (nextToken.empty()) goto expectOption;
-                tessParams.meshMinSize = std::stof(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
             case hashString("--renderPurposeThreshold"): {
                 if (nextToken.empty()) goto expectOption;
                 tessParams.renderPurposeThreshold = std::stof(nextToken);

@@ -10,6 +10,7 @@ target_include_directories(AutolibGeom PUBLIC
     ${OpenCASCADE_INCLUDE_DIR}
 )
 target_link_libraries(AutolibGeom PUBLIC
+    autolibStepTessellation
     usd
     usdGeom
     sdf
@@ -36,7 +37,9 @@ target_link_libraries(test_schema PRIVATE
     usd
 )
 
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant_meshes")
+# TODO: Get to this later
+#add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant_meshes")
 
-add_executable(InstantMeshes "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cpp")
-target_link_libraries(InstantMeshes PRIVATE AutolibInstantMeshes)
+#add_executable(InstantMeshes "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cpp")
+#target_link_libraries(InstantMeshes PRIVATE AutolibInstantMeshes)
+

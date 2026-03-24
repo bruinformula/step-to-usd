@@ -155,9 +155,6 @@ std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::p
             case hashString("meshAngularDeflection"):
                 variantParams.tessParams.meshAngularDeflection = std::stof(value);
                 break;
-            case hashString("meshMinSize"):
-                variantParams.tessParams.meshMinSize = std::stof(value);
-                break;
             case hashString("wireframeDeflection"):
                 variantParams.tessParams.wireframeDeflection = std::stof(value);
                 break;

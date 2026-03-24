@@ -194,6 +194,7 @@ private:
     int countNodes(const TDF_Label& label);
     int countAssemblyChildren(const TDF_Label& assemblyDef);
     bool isLabelVisible(const TDF_Label& label) const;
+    static std::map<pxr::SdfPath, StepModel::TessParams> resolveParams(const pxr::UsdPrim& rootPrim);
 
     void fillNode(
         const TDF_Label& label,
