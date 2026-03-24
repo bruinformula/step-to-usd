@@ -13,13 +13,20 @@ const std::string argOptions =
     "    --config <path>                                            Path to a configuration file. \n"
     "    --help                                                     Prints this message.\n";
 
-static CurveMode parseCurveMode(const std::string& s) {
+static CurveSampling parseCurveSampling(const std::string& s) {
     switch (hashString(s)) {
-        case hashString("none"):            return CurveMode::None;
-        case hashString("linear"):          return CurveMode::Linear;
-        case hashString("resampledlinear"): return CurveMode::ResampledLinear;
-        case hashString("catmullrom"):      return CurveMode::CatmullRom;
-        default: return CurveMode::Linear;
+        case hashString("underlying"): return CurveSampling::Underlying;
+        case hashString("resampled"):  return CurveSampling::Resampled;
+        default: return CurveSampling::Underlying;
+    }
+}
+
+static CurveType parseCurveType(const std::string& s) {
+    switch (hashString(s)) {
+        case hashString("none"):            return CurveType::None;
+        case hashString("linear"):          return CurveType::Linear;
+        case hashString("catmullRom"):      return CurveType::CatmullRom;
+        default: return CurveType::CatmullRom;
     }
 }
 
@@ -157,11 +164,17 @@ std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::p
             case hashString("sketchDeflection"):
                 variantParams.tessParams.sketchDeflection = std::stof(value);
                 break;
-            case hashString("wireframeMode"):
-                variantParams.tessParams.wireframeMode = parseCurveMode(value);
+            case hashString("wireframeCurveType"):
+                variantParams.tessParams.wireframeMode.type = parseCurveType(value);
                 break;
-            case hashString("sketchMode"):
-                variantParams.tessParams.sketchMode = parseCurveMode(value);
+            case hashString("wireframeCurveSampling"):
+                variantParams.tessParams.wireframeMode.sampling = parseCurveSampling(value);
+                break;
+            case hashString("sketchCurveType"):
+                variantParams.tessParams.sketchMode.type = parseCurveType(value);
+                break;
+            case hashString("sketchCurveSampling"):
+                variantParams.tessParams.sketchMode.sampling = parseCurveSampling(value);
                 break;
             case hashString("renderPurposeThreshold"):
                 variantParams.tessParams.renderPurposeThreshold = std::stof(value);

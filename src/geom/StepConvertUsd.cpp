@@ -10,27 +10,36 @@ const std::string argOptions =
     " Options: \n"
     "    --inputStepFile <path>                                     Path to the input Step file to convert. \n"
     "    --outputFile <path>                                        Path to the output Usd file. \n"
-    "    --wireframeMode <none|linear|resampledlinear|catmullrom>   Wireframe mode for visualization (default: linear). \n"
+    "    --wireframeType <none|linear|resampledLinear|catmullRom>    Wireframe curve type (default: linear). \n"
+    "    --wireframeSampling <underlying|resampled>                  Wireframe curve sampling (default: underlying). \n"
     "    --wireframeDeflection <float>                              Deflection value for wireframe curves (default: 1.0). \n"
-    "    --sketchMode <none|linear|resampledlinear|catmullrom>      Sketch mode for visualization (default: linear). \n"
+    "    --sketchType <none|linear|resampledLinear|catmullRom>       Sketch curve type (default: linear). \n"
+    "    --sketchSampling <underlying|resampled>                     Sketch curve sampling (default: underlying). \n"
     "    --sketchDeflection <float>                                 Deflection value for sketch curves (default: 0.5). \n"
     "    --meshLinearDeflection <float>                             Linear deflection as fraction of bbox diagonal (default: 0.05). \n"
     "    --meshAngularDeflection <float>                            Angular deflection in radians (default: 0.35). \n"
     "    --meshMinSize <float>                                      Minimum mesh size as fraction of linear deflection (default: 0.1). \n"
-    "    --renderPurposeThreshold <float>                            Cull parts with bbox diagonal smaller than this value. \n"
+    "    --renderPurposeThreshold <float>                           Cull parts with bbox diagonal smaller than this value. \n"
     "    --defaultMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
     "    --defaultWireframeVisibility <true|false>                  Default visibility of wireframe curves (default: false). \n"
     "    --defaultSketchVisibility <true|false>                     Default visibility of sketch curves (default: false). \n"
 
     "    --help                                                     Prints this message.\n";
 
-static CurveMode parseCurveMode(const std::string& s) {
+static CurveSampling parseCurveSampling(const std::string& s) {
     switch (hashString(s)) {
-        case hashString("none"):            return CurveMode::None;
-        case hashString("linear"):          return CurveMode::Linear;
-        case hashString("resampledlinear"): return CurveMode::ResampledLinear;
-        case hashString("catmullrom"):      return CurveMode::CatmullRom;
-        default: return CurveMode::Linear;
+        case hashString("underlying"): return CurveSampling::Underlying;
+        case hashString("resampled"):  return CurveSampling::Resampled;
+        default: return CurveSampling::Underlying;
+    }
+}
+
+static CurveType parseCurveType(const std::string& s) {
+    switch (hashString(s)) {
+        case hashString("none"):            return CurveType::None;
+        case hashString("linear"):          return CurveType::Linear;
+        case hashString("catmullRom"):      return CurveType::CatmullRom;
+        default: return CurveType::CatmullRom;
     }
 }
 
@@ -56,9 +65,14 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 outputFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--wireframeMode"): {
+            case hashString("--wireframeType"): {
                 if (nextToken.empty()) goto expectOption;
-                tessParams.wireframeMode = parseCurveMode(nextToken);
+                tessParams.wireframeMode.type = parseCurveType(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--wireframeSampling"): {
+                if (nextToken.empty()) goto expectOption;
+                tessParams.wireframeMode.sampling = parseCurveSampling(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--wireframeDeflection"): {
@@ -66,9 +80,14 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 tessParams.wireframeDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--sketchMode"): {
+            case hashString("--sketchType"): {
                 if (nextToken.empty()) goto expectOption;
-                tessParams.sketchMode = parseCurveMode(nextToken);
+                tessParams.sketchMode.type = parseCurveType(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--sketchSampling"): {
+                if (nextToken.empty()) goto expectOption;
+                tessParams.sketchMode.sampling = parseCurveSampling(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--sketchDeflection"): {

@@ -80,11 +80,20 @@ struct PartInstance {
     std::optional<Quantity_Color> color;
 };
 
-enum class CurveMode {
-    None,
-    Linear,          // polyline using the tessellated mesh boundary vertices directly
-    ResampledLinear, // polyline resampled from the underlying curve geometry
-    CatmullRom,      // cubic Catmull-Rom resampled from the underlying curve geometry
+enum class CurveType {
+    None,                // ain't got nothing on me
+    Linear,              // polyline using the tessellated mesh boundary vertices directly
+    CatmullRom          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
+};
+
+enum class CurveSampling {
+    Underlying, // polyline using the tessellated mesh boundary vertices
+    Resampled   // resampled from the underlying curve geometry
+};
+
+struct CurveMode {
+    CurveType type;
+    CurveSampling sampling;
 };
 
 struct StepModel {
@@ -130,10 +139,10 @@ struct StepModel {
         float meshMinSize = 0.1f; // as a fraction of the linear deflection
 
         float wireframeDeflection = 1.0f;
-        CurveMode wireframeMode = CurveMode::Linear;
+        CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
 
         float sketchDeflection = 0.5f;
-        CurveMode sketchMode = CurveMode::Linear;
+        CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
 
         bool defaultMeshVisibility = true;
         bool defaultWireframeVisibility = false;

@@ -46,12 +46,12 @@ class "StepTessellationAPI" (
     )
     token stepTess:wireframeMode = "linear" (
         doc = "Wireframe curve mode."
-        allowedTokens = ["none", "linear", "resampledlinear", "catmullrom"]
+        allowedTokens = ["none", "linear", "resampledlinear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token stepTess:sketchMode = "none" (
         doc = "Sketch/free-edge curve mode."
-        allowedTokens = ["none", "linear", "resampledlinear", "catmullrom"]
+        allowedTokens = ["none", "linear", "resampledlinear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }

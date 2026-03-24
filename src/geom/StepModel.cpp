@@ -661,7 +661,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
         int numNodes = canonical.poly->NbNodes();
 
         std::vector<TriNodeKey> edgeCanonicalKeys;
-        if (isSurfaceBoundary && params.wireframeMode == CurveMode::Linear)
+        if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
             edgeCanonicalKeys.reserve(numNodes);
 
         for (int k = 1; k <= numNodes; k++) {
@@ -685,23 +685,22 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                 }
             }
 
-            if (isSurfaceBoundary && params.wireframeMode == CurveMode::Linear)
+            if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
                 edgeCanonicalKeys.push_back(canonKey);
         }
 
-        if (isSurfaceBoundary && params.wireframeMode != CurveMode::None) {
-            if (params.wireframeMode == CurveMode::Linear) {
+        if (isSurfaceBoundary && params.wireframeMode.type != CurveType::None) {
+            if (params.wireframeMode.sampling == CurveSampling::Underlying) {
                 if (edgeCanonicalKeys.size() >= 2)
                     deferredLinearCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
-                // ResampledLinear and CatmullRom both sample from the curve
                 BRepAdaptor_Curve adaptor(edge);
                 GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframeDeflection, adaptor.FirstParameter(), adaptor.LastParameter());
 
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
 
-                    if (params.wireframeMode == CurveMode::CatmullRom) {
+                    if (params.wireframeMode.type == CurveType::CatmullRom) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
                         result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -737,7 +736,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
     // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
-    if (params.sketchMode != CurveMode::None) {
+    if (params.sketchMode.type != CurveType::None) {
         for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
             const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
             if (BRep_Tool::Degenerated(edge)) continue;
@@ -750,7 +749,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
             double deflection;
             
-            if (params.sketchMode == CurveMode::Linear) {
+            if (params.sketchMode.type == CurveType::Linear) {
                 deflection = params.wireframeDeflection;
             } else {
                 deflection = params.sketchDeflection;
@@ -764,7 +763,7 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
 
             int n = sampler.NbPoints();
 
-            if (params.sketchMode == CurveMode::CatmullRom) {
+            if (params.sketchMode.type == CurveType::CatmullRom) {
                 // Phantom start — duplicate first point for Catmull-Rom
                 gp_Pnt p0 = sampler.Value(1);
                 result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -932,9 +931,19 @@ bool StepModel::tesselatePart(TessResult& result, const TopoDS_Shape& defShape, 
                 resolved.push_back(it->second);
         }
         if (resolved.size() >= 2) {
+            if (params.wireframeMode.type == CurveType::CatmullRom) {
+                // Phantom start — duplicate first point
+                result.curvePoints.push_back(result.points[resolved.front()]);
+            }
             for (int idx : resolved)
                 result.curvePoints.push_back(result.points[idx]);
-            result.curveCounts.push_back(static_cast<int>(resolved.size()));
+            if (params.wireframeMode.type == CurveType::CatmullRom) {
+                // Phantom end — duplicate last point
+                result.curvePoints.push_back(result.points[resolved.back()]);
+                result.curveCounts.push_back(static_cast<int>(resolved.size()) + 2);
+            } else {
+                result.curveCounts.push_back(static_cast<int>(resolved.size()));
+            }
             result.curveContinuity.push_back(deferred.continuity);
         }
     }
@@ -1000,8 +1009,8 @@ static bool writePrototypeGeometry(
     pxr::UsdStageRefPtr stage,
     const pxr::SdfPath& protoPath,
     const StepModel::TessResult& r,
-    CurveMode wireframeMode,
-    CurveMode sketchMode,
+    const CurveMode& wireframeMode,
+    const CurveMode& sketchMode,
     int defIdx
 ) {
     using namespace pxr;
@@ -1009,7 +1018,7 @@ static bool writePrototypeGeometry(
     UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
     UsdPrim protoPrim = protoXform.GetPrim();
 
-    {
+    { // SdfChangeBlock
         SdfChangeBlock changeBlock;
         protoPrim.GetInherits().AddInherit(SdfPath("/Model/CADPart"));
 
@@ -1022,7 +1031,7 @@ static bool writePrototypeGeometry(
     }
 
     if (!r.points.empty()) {
-        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("mesh")));
+        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
         for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
             int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
@@ -1032,7 +1041,7 @@ static bool writePrototypeGeometry(
 
             UsdGeomSubset::CreateGeomSubset(
                 proto,
-                TfToken("surfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)),
+                TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)),
                 UsdGeomTokens->face,
                 indices,
                 TfToken("materialBind"),
@@ -1040,7 +1049,7 @@ static bool writePrototypeGeometry(
             );
         }
 
-        {
+        { // SdfChangeBlock
             SdfChangeBlock changeBlock;
             proto.GetPointsAttr().Set(r.points);
             proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
@@ -1076,14 +1085,13 @@ static bool writePrototypeGeometry(
     }
 
     if (!r.curveCounts.empty()) {
-        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("wire")));
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("Wireframe")));
         {
             SdfChangeBlock changeBlock;
-            if (wireframeMode == CurveMode::CatmullRom) {
+            if (wireframeMode.type == CurveType::CatmullRom) {
                 curves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 curves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {
-                // Linear and ResampledLinear both produce polylines
                 curves.CreateTypeAttr().Set(UsdGeomTokens->linear);
             }
             curves.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
@@ -1107,10 +1115,10 @@ static bool writePrototypeGeometry(
     }
 
     if (!r.sketchCounts.empty()) {
-        UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("sketch")));
+        UsdGeomBasisCurves sketchCurves = UsdGeomBasisCurves::Define(stage, protoPath.AppendChild(TfToken("Sketch")));
         {
             SdfChangeBlock changeBlock;
-            if (sketchMode == CurveMode::CatmullRom) {
+            if (sketchMode.type == CurveType::CatmullRom) {
                 sketchCurves.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 sketchCurves.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {
