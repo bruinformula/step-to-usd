@@ -28,8 +28,8 @@ class "StepTessellationAPI" (
         doc = "Angular deflection in radians. Maps to --meshAngularDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool stepTess:defaultMeshVisibility = true (
-        doc = "Whether mesh geometry is visible by default. Maps to --defaultMeshVisibility."
+    double stepTess:meshMinSize = 0.0 (
+        doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal. Maps to --meshMinSize."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token stepTess:wireframeType = "linear" (
@@ -46,10 +46,6 @@ class "StepTessellationAPI" (
         doc = "Deflection tolerance for wireframe edge curve sampling. Maps to --wireframeDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool stepTess:defaultWireframeVisibility = true (
-        doc = "Whether wireframe geometry is visible by default. Maps to --defaultWireframeVisibility."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
     token stepTess:sketchType = "none" (
         doc = "Curve type used for sketch and free-edge curves. Maps to --sketchType."
         allowedTokens = ["none", "linear", "catmullRom"]
@@ -64,19 +60,23 @@ class "StepTessellationAPI" (
         doc = "Deflection tolerance for sketch/free-edge curve sampling. Maps to --sketchDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool stepTess:defaultSketchVisibility = false (
-        doc = "Whether sketch geometry is visible by default. Maps to --defaultSketchVisibility."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
     float stepTess:renderPurposeThreshold = 0.0 (
         doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter. Maps to --renderPurposeThreshold."
         customData = { string variability = "SdfVariabilityUniform" }
     )
+    double stepTess:selfIntersectionThreshold = 1e-3 (
+        doc = "Threshold for detecting self-intersecting triangles during meshing. Maps to --selfIntersectionThreshold."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    int stepTess:maxNumberRemeshPasses = 3 (
+        doc = "Maximum number of remeshing passes to attempt if self-intersections are detected. Maps to --maxNumberRemeshPasses."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
 }
 
-class "StepTessellationDefaults" (
+class "StepTessellationOptions" (
     inherits = </Typed>
-    typeName = "StepTessellationDefaults"
+    typeName = "StepTessellationOptions"
     doc = "Concrete prim class that carries a complete authored set of StepTessellationAPI values."
     prepend apiSchemas = ["StepTessellationAPI"]
     customData = {
@@ -85,16 +85,14 @@ class "StepTessellationDefaults" (
 ) {
     float stepTess:meshLinearDeflection = 1.0
     float stepTess:meshAngularDeflection = 0.5
-    float stepTess:meshMinSize = 0.1
-    bool stepTess:defaultMeshVisibility = true
+    double stepTess:meshMinSize = 0.0
     token stepTess:wireframeType = "linear"
-    token stepTess:wireframeSampling = "uniform"
+    token stepTess:wireframeSampling = "underlying"
     float stepTess:wireframeDeflection = 0.01
-    bool stepTess:defaultWireframeVisibility = true
     token stepTess:sketchType = "none"
-    token stepTess:sketchSampling = "uniform"
+    token stepTess:sketchSampling = "underlying"
     float stepTess:sketchDeflection = 0.005
-    bool stepTess:defaultSketchVisibility = false
     float stepTess:renderPurposeThreshold = 0.0
-    float stepTess:lodCullingMinimumSize = -1.0
+    double stepTess:selfIntersectionThreshold = 1e-3
+    int stepTess:maxNumberRemeshPasses = 3
 }

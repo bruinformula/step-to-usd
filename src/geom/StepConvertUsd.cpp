@@ -1,16 +1,30 @@
-#include <iostream>
+
+#include <stddef.h>
+#include <ostream>
 #include <optional>
 #include <vector>
+#include <chrono>
+#include <filesystem>
+#include <string>
+#include <string_view>
+
+#include <pxr/pxr.h>
+#include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/stage.h>
 
 #include "ArgumentHandler.h"
+#include "UsdStepExporter.h"
 #include "StepModel.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
     " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
     "    --inputStepFile <path>                                     Path to the input Step file to convert. \n"
     "    --outputFile <path>                                        Path to the output Usd file. \n"
-    "    --wireframeType <none|linear|resampledLinear|catmullRom>    Wireframe curve type (default: linear). \n"
+    "    --wireframeType <none|linear|catmullRom>                   Wireframe curve type (default: linear). \n"
     "    --wireframeSampling <underlying|resampled>                  Wireframe curve sampling (default: underlying). \n"
     "    --wireframeDeflection <float>                              Deflection value for wireframe curves (default: 1.0). \n"
     "    --sketchType <none|linear|resampledLinear|catmullRom>       Sketch curve type (default: linear). \n"
@@ -20,7 +34,7 @@ const std::string argOptions =
     "    --meshAngularDeflection <float>                            Angular deflection in radians (default: 0.35). \n"
     "    --meshMinSize <float>                                      Minimum mesh size as fraction of linear deflection (default: 0.1). \n"
     "    --renderPurposeThreshold <float>                           Cull parts with bbox diagonal smaller than this value. \n"
-    "    --defaultMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
+    "    --invertMeshVisibility <true|false>                       Default visibility of mesh geometry (default: true). \n"
     "    --defaultWireframeVisibility <true|false>                  Default visibility of wireframe curves (default: false). \n"
     "    --defaultSketchVisibility <true|false>                     Default visibility of sketch curves (default: false). \n"
 
@@ -48,7 +62,7 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
     std::filesystem::path inputStepFile;
     std::filesystem::path outputFile;
 
-    StepModel::TessParams tessParams;
+    TessParams tessParams;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -105,24 +119,24 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 tessParams.meshAngularDeflection = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
+            case hashString("--meshMinSize"): {
+                if (nextToken.empty()) goto expectOption;
+                tessParams.meshMinSize = std::stod(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
             case hashString("--renderPurposeThreshold"): {
                 if (nextToken.empty()) goto expectOption;
                 tessParams.renderPurposeThreshold = std::stof(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--defaultMeshVisibility"): {
+            case hashString("--selfIntersectionThreshold"): {
                 if (nextToken.empty()) goto expectOption;
-                tessParams.defaultMeshVisibility = (nextToken == "true");
+                tessParams.selfIntersectionThreshold = std::stod(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--defaultWireframeVisibility"): {
+            case hashString("--maxNumberRemeshPasses"): {
                 if (nextToken.empty()) goto expectOption;
-                tessParams.defaultWireframeVisibility = (nextToken == "true");
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--defaultSketchVisibility"): {
-                if (nextToken.empty()) goto expectOption;
-                tessParams.defaultSketchVisibility = (nextToken == "true");
+                tessParams.maxNumberRemeshPasses = std::stoi(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
@@ -213,13 +227,13 @@ int main(int argc, char** argv) {
     //model.printDefinitionShapes();
     //model.writeMeshTest(inputArgs.outputDir);
 
-    pxr::UsdStageRefPtr stage = pxr::UsdStage::CreateNew(inputArgs.outputFile);
+    UsdStageRefPtr stage = UsdStage::CreateNew(inputArgs.outputFile);
     if (!stage) {
         std::cerr << "Failed to create stage at " << inputArgs.outputFile << "\n";
         return 1;
     }
 
-    model.populateUsd(stage, inputArgs.tessParams);
+    UsdStepExporter::populateUsd(model, stage, inputArgs.tessParams);
 
     std::cout << "Saving to " << inputArgs.outputFile << "...\n";
     stage->GetRootLayer()->Save();

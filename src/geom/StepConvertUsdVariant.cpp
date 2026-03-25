@@ -1,9 +1,23 @@
-#include <iostream>
+#include <ostream>
 #include <optional>
 #include <vector>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <stddef.h>
+#include <string_view>
+
+#include <pxr/pxr.h>
+#include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/stage.h>
 
 #include "ArgumentHandler.h"
+#include "UsdStepExporter.h"
 #include "StepModel.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
     " StepConvertUsd -- Converts Step files to Usd\n"
@@ -105,7 +119,7 @@ std::string trim(const std::string& s) {
     return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
-std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::path& configFilePath) {
+std::optional<UsdStepExporter::VariantParams> parseConfigFile(const std::filesystem::path& configFilePath) {
     if (!std::filesystem::exists(configFilePath)) {
         std::cerr << "Config file does not exist: " << configFilePath << std::endl;
         return std::nullopt;
@@ -119,7 +133,7 @@ std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::p
 
     std::string line;
 
-    StepModel::VariantParams variantParams;
+    UsdStepExporter::VariantParams variantParams;
     while (std::getline(configFile, line)) {
         // Strip comment
         auto commentPos = line.find('#');
@@ -176,15 +190,13 @@ std::optional<StepModel::VariantParams> parseConfigFile(const std::filesystem::p
             case hashString("renderPurposeThreshold"):
                 variantParams.tessParams.renderPurposeThreshold = std::stof(value);
                 break;
-            case hashString("defaultMeshVisibility"):
-                variantParams.tessParams.defaultMeshVisibility = (value == "true");
+            case hashString("selfIntersectionThreshold"):
+                variantParams.tessParams.selfIntersectionThreshold = std::stod(value);
                 break;
-            case hashString("defaultWireframeVisibility"):
-                variantParams.tessParams.defaultWireframeVisibility = (value == "true");
+            case hashString("maxNumberRemeshPasses"):
+                variantParams.tessParams.maxNumberRemeshPasses = std::stoi(value);
                 break;
-            case hashString("defaultSketchVisibility"):
-                variantParams.tessParams.defaultSketchVisibility = (value == "true");
-                break;
+
             default:
                 std::cerr << "Unrecognized config key: " << key << " in config file: " << configFilePath << std::endl;
         }
@@ -224,12 +236,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<StepModel::VariantParams> variantParams;
+    std::vector<UsdStepExporter::VariantParams> variantParams;
 
     const std::filesystem::path& basePath = inputArgs.outputFile.parent_path();
 
     for (const auto& config : inputArgs.configFiles) {
-        std::optional<StepModel::VariantParams> params = parseConfigFile(config);
+        std::optional<UsdStepExporter::VariantParams> params = parseConfigFile(config);
         if (!params.has_value()) {
             std::cerr << "Failed to parse config file: " << config << std::endl;
             return 1;
@@ -259,9 +271,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    StepModel::TessParams params = {};
+    TessParams params = {};
 
-    model.populateVariantUsd(stage, variantParams);
+    UsdStepExporter::populateVariantUsd(model, stage, variantParams);
 
     stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();

@@ -1,117 +1,242 @@
 #include <iostream>
+#include <string>
+
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/inherits.h>
+#include <pxr/base/tf/staticData.h>
+#include <pxr/base/tf/token.h>
+#include <pxr/base/tf/type.h>
+#include <pxr/base/vt/value.h>
+#include <pxr/pxr.h>
+#include <pxr/usd/sdf/declareHandles.h>
+#include <pxr/usd/sdf/propertySpec.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
 
-#include "stepTessellationAPI.h"
-#include "stepTessellationDefaults.h"
+#include "stepTessellationOptions.h"
 #include "tokens.h"
 
-using namespace pxr;
+PXR_NAMESPACE_USING_DIRECTIVE
 
 int main() {
-    TfType t = TfType::FindByName("AutolibStepTessellationAPI");
-    if (t == TfType::GetUnknownType()) {
-        std::cerr << "Fail: AutolibStepTessellationAPI in TfType registry" << std::endl;
-        return 1;
-    }
-
     UsdStageRefPtr stage = UsdStage::CreateInMemory();
-    UsdPrim prim = stage->DefinePrim(SdfPath("/test"), TfToken("Mesh"));
-    AutolibStepTessellationAPI api = AutolibStepTessellationAPI::Apply(prim);
-    if (!api) {
-        std::cerr << "Fail: Apply() returned valid schema" << std::endl;
-        return 1;
+
+    AutolibStepTessellationOptions defaultParams = AutolibStepTessellationOptions::Define(stage, SdfPath("/DefaultParams"));
+    defaultParams.CreateStepTessMeshLinearDeflectionAttr(VtValue(1.0f));
+    defaultParams.CreateStepTessMeshAngularDeflectionAttr(VtValue(0.5f));
+    defaultParams.CreateStepTessWireframeTypeAttr(VtValue(AutolibTokens->linear));
+    defaultParams.CreateStepTessWireframeSamplingAttr(VtValue(AutolibTokens->underlying));
+    defaultParams.CreateStepTessWireframeDeflectionAttr(VtValue(0.01f));
+    defaultParams.CreateStepTessSketchTypeAttr(VtValue(AutolibTokens->none));
+    defaultParams.CreateStepTessSketchSamplingAttr(VtValue(AutolibTokens->underlying));
+    defaultParams.CreateStepTessSketchDeflectionAttr(VtValue(0.005f));
+    defaultParams.CreateStepTessRenderPurposeThresholdAttr(VtValue(0.0f));
+
+    AutolibStepTessellationOptions wheelParams = AutolibStepTessellationOptions::Define(stage, SdfPath("/WheelParams"));
+    wheelParams.GetPrim().GetInherits().AddInherit(SdfPath("/DefaultParams"));
+    wheelParams.CreateStepTessMeshLinearDeflectionAttr(VtValue(0.3f));
+
+    UsdPrim car = stage->DefinePrim(SdfPath("/Car"), TfToken("Xform"));
+    car.GetInherits().AddInherit(SdfPath("/DefaultParams"));
+
+    UsdPrim wheelR = stage->DefinePrim(SdfPath("/Car/WheelR"));
+    wheelR.GetInherits().AddInherit(SdfPath("/WheelParams"));
+
+    UsdPrim wheelL = stage->DefinePrim(SdfPath("/Car/WheelL"));
+    wheelL.GetInherits().AddInherit(SdfPath("/WheelParams"));
+    AutolibStepTessellationOptions wheelLOptions(wheelL);
+    wheelLOptions.CreateStepTessMeshLinearDeflectionAttr(VtValue(100.0f));
+
+    int failures = 0;
+
+    auto CHECK = [&](bool condition, const std::string& msg) {
+        if (!condition) {
+            std::cerr << "FAIL: " << msg << std::endl;
+            ++failures;
+        }
+    };
+
+    auto CHECK_FLOAT = [&](float got, float expected, const std::string& msg) {
+        if (got != expected) {
+            std::cerr << "FAIL: " << msg
+                    << " expected=" << expected << " got=" << got << std::endl;
+            ++failures;
+        }
+    };
+
+    auto CHECK_TOKEN = [&](TfToken got, TfToken expected, const std::string& msg) {
+        if (got != expected) {
+            std::cerr << "FAIL: " << msg
+                    << " expected=" << expected << " got=" << got << std::endl;
+            ++failures;
+        }
+    };
+
+    { // /DefaultParams values should be exactly what was authored 
+        float v = 0;
+        defaultParams.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 1.0f,  "/DefaultParams meshLinearDeflection");
+
+        defaultParams.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.5f,  "/DefaultParams meshAngularDeflection");
+
+        defaultParams.GetStepTessWireframeDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.01f, "/DefaultParams wireframeDeflection");
+
+        defaultParams.GetStepTessSketchDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.005f,"/DefaultParams sketchDeflection");
+
+        defaultParams.GetStepTessRenderPurposeThresholdAttr().Get(&v);
+        CHECK_FLOAT(v, 0.0f,  "/DefaultParams renderPurposeThreshold");
+
+        TfToken tok;
+        defaultParams.GetStepTessWireframeTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->linear,     "/DefaultParams wireframeType");
+
+        defaultParams.GetStepTessWireframeSamplingAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->underlying, "/DefaultParams wireframeSampling");
+
+        defaultParams.GetStepTessSketchTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->none,       "/DefaultParams sketchType");
+
+        defaultParams.GetStepTessSketchSamplingAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->underlying, "/DefaultParams sketchSampling");
     }
 
-    if (!prim.HasAPI<AutolibStepTessellationAPI>()) {
-        std::cerr << "Fail: HasAPI<> true after Apply" << std::endl;
-        return 1;
-    }
+    { // /WheelParams authored one override, rest resolved via inherit
+        AutolibStepTessellationOptions wp(stage->GetPrimAtPath(SdfPath("/WheelParams")));
+        float v = 0;
 
-    api.CreateStepTessMeshLinearDeflectionAttr(VtValue(0.25f));
-    float val = 0.0f;
-    api.GetStepTessMeshLinearDeflectionAttr().Get(&val);
-    if (val != 0.25f) {
-        std::cerr << "Fail: write/read stepTessMeshLinearDeflection = 0.25" << std::endl;
-        return 1;
-    }
+        // Authored override
+        wp.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.3f,  "/WheelParams meshLinearDeflection (authored override)");
 
-    api.CreateStepTessMeshAngularDeflectionAttr(VtValue(0.1f));
-    api.GetStepTessMeshAngularDeflectionAttr().Get(&val);
-    if (val != 0.1f) {
-        std::cerr << "Fail: write/read stepTessMeshAngularDeflection = 0.1" << std::endl;
-        return 1;
-    }
+        // Everything below should come from /DefaultParams via inherit
+        wp.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.5f,  "/WheelParams meshAngularDeflection (inherited)");
 
-    if (!(AutolibTokens->stepTessMeshLinearDeflection == TfToken("stepTess:meshLinearDeflection"))) {
-        std::cerr << "Fail: token stepTessMeshLinearDeflection == 'stepTess:meshLinearDeflection'" << std::endl;
-        return 1;
-    }
+        wp.GetStepTessWireframeDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.01f, "/WheelParams wireframeDeflection (inherited)");
 
-    std::string usda;
-    stage->ExportToString(&usda);
-    if (usda.find("StepTessellationAPI") == std::string::npos) {
-        std::cerr << "Fail: exported layer contains schema name" << std::endl;
-        return 1;
-    }
+        wp.GetStepTessSketchDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.005f,"/WheelParams sketchDeflection (inherited)");
 
-    AutolibStepTessellationDefaults defaults = AutolibStepTessellationDefaults::Define(stage, SdfPath("/TessDefaults"));
-    if (!defaults) {
-        std::cerr << "Fail: StepTessellationDefaults::Define" << std::endl;
-        return 1;
-    }
+        TfToken tok;
+        wp.GetStepTessWireframeTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->linear,     "/WheelParams wireframeType (inherited)");
 
-    defaults.CreateStepTessMeshLinearDeflectionAttr(VtValue(1.0f));
-    defaults.CreateStepTessMeshAngularDeflectionAttr(VtValue(0.5f));
-    defaults.CreateStepTessDefaultMeshVisibilityAttr(VtValue(true));
-    defaults.CreateStepTessWireframeTypeAttr(VtValue(AutolibTokens->linear));
-    defaults.CreateStepTessWireframeSamplingAttr(VtValue(AutolibTokens->underlying));
-    defaults.CreateStepTessWireframeDeflectionAttr(VtValue(0.01f));
-    defaults.CreateStepTessDefaultWireframeVisibilityAttr(VtValue(true));
-    defaults.CreateStepTessSketchTypeAttr(VtValue(AutolibTokens->none));
-    defaults.CreateStepTessSketchSamplingAttr(VtValue(AutolibTokens->underlying));
-    defaults.CreateStepTessSketchDeflectionAttr(VtValue(0.005f));
-    defaults.CreateStepTessDefaultSketchVisibilityAttr(VtValue(false));
-    defaults.CreateStepTessRenderPurposeThresholdAttr(VtValue(0.0f));
+        wp.GetStepTessSketchTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->none,       "/WheelParams sketchType (inherited)");
 
-    UsdPrim childPrim = stage->DefinePrim(SdfPath("/Assembly"), TfToken("Xform"));
-    childPrim.GetInherits().AddInherit(SdfPath("/TessDefaults"));
-    AutolibStepTessellationAPI childApi = AutolibStepTessellationAPI::Apply(childPrim);
-
-    // Only author the overrides on the child
-    childApi.CreateStepTessMeshLinearDeflectionAttr(VtValue(0.25f));
-    childApi.CreateStepTessWireframeTypeAttr(VtValue(AutolibTokens->catmullRom));
-    childApi.CreateStepTessDefaultSketchVisibilityAttr(VtValue(true));
-
-    // These should resolve through the inherit arc, not be locally authored
-    float resolvedAngular = 0.0f;
-    childApi.GetStepTessMeshAngularDeflectionAttr().Get(&resolvedAngular);
-    if (resolvedAngular != 0.5f) { 
-        std::cerr << "Fail: overridden meshLinearDeflection should resolve to 0.25, got " << resolvedAngular << std::endl;
-        return 1;
-    }
-
-    TfToken resolvedWireframeSampling;
-    childApi.GetStepTessWireframeSamplingAttr().Get(&resolvedWireframeSampling);
-    if (resolvedWireframeSampling != AutolibTokens->underlying) {
-        std::cerr << "Fail: meshAngularDeflection should not be locally authored on child" << std::endl;
-        return 1;
-    }
-
-    for (const auto& spec : childApi.GetStepTessMeshAngularDeflectionAttr().GetPropertyStack()) {
-        if (spec->GetPath().GetPrimPath() == SdfPath("/Assembly")) {
-            std::cerr << "Fail: found local spec for meshAngularDeflection on /Assembly" << std::endl;
-            return 1;
+        // Confirm no local spec was authored for the inherited attrs
+        for (const auto& spec : wp.GetStepTessMeshAngularDeflectionAttr().GetPropertyStack()) {
+            CHECK(spec->GetPath().GetPrimPath() != SdfPath("/WheelParams"),
+                "/WheelParams must not have a local spec for meshAngularDeflection");
         }
     }
 
+    
+    { // /Car inherits DefaultParams with no local overrides
+        AutolibStepTessellationOptions carOpts(car);
+        float v = 0;
+
+        carOpts.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 1.0f,  "/Car meshLinearDeflection (inherited from DefaultParams)");
+
+        carOpts.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.5f,  "/Car meshAngularDeflection (inherited from DefaultParams)");
+
+        TfToken tok;
+        carOpts.GetStepTessWireframeTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->linear, "/Car wireframeType (inherited from DefaultParams)");
+    }
+
+    
+    { // /Car/WheelR has no local overrides and resolves entirely via WheelParams
+        AutolibStepTessellationOptions wrOpts(wheelR);
+        float v = 0;
+
+        // Comes from WheelParams authored override
+        wrOpts.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.3f,  "/Car/WheelR meshLinearDeflection (from WheelParams)");
+
+        // Comes from DefaultParams via WheelParams inherit
+        wrOpts.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.5f,  "/Car/WheelR meshAngularDeflection (from DefaultParams via WheelParams)");
+
+        wrOpts.GetStepTessWireframeDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.01f, "/Car/WheelR wireframeDeflection (from DefaultParams via WheelParams)");
+
+        wrOpts.GetStepTessSketchDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.005f,"/Car/WheelR sketchDeflection (from DefaultParams via WheelParams)");
+
+        TfToken tok;
+        wrOpts.GetStepTessWireframeTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->linear, "/Car/WheelR wireframeType (from DefaultParams via WheelParams)");
+
+        wrOpts.GetStepTessSketchTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->none,   "/Car/WheelR sketchType (from DefaultParams via WheelParams)");
+
+        // No local specs anywhere on /Car/WheelR itself
+        for (const auto& spec : wrOpts.GetStepTessMeshLinearDeflectionAttr().GetPropertyStack()) {
+            CHECK(spec->GetPath().GetPrimPath() != SdfPath("/Car/WheelR"),
+                "/Car/WheelR must not have any local specs");
+        }
+    }
+
+    
+    { // /Car/WheelL one local override, rest resolves via WheelParams 
+        float v = 0;
+
+        // Local override wins over WheelParams
+        wheelLOptions.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 100.0f, "/Car/WheelL meshLinearDeflection (local override)");
+
+        // No local spec for angular — should fall through WheelParams → DefaultParams
+        wheelLOptions.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.5f,   "/Car/WheelL meshAngularDeflection (from DefaultParams via WheelParams)");
+
+        wheelLOptions.GetStepTessWireframeDeflectionAttr().Get(&v);
+        CHECK_FLOAT(v, 0.01f,  "/Car/WheelL wireframeDeflection (from DefaultParams via WheelParams)");
+
+        TfToken tok;
+        wheelLOptions.GetStepTessWireframeTypeAttr().Get(&tok);
+        CHECK_TOKEN(tok, AutolibTokens->linear, "/Car/WheelL wireframeType (from DefaultParams via WheelParams)");
+
+        // Confirm the local override is the strongest opinion
+        bool foundLocalSpec = false;
+        for (const auto& spec : wheelLOptions.GetStepTessMeshLinearDeflectionAttr().GetPropertyStack()) {
+            if (spec->GetPath().GetPrimPath() == SdfPath("/Car/WheelL")) {
+                foundLocalSpec = true;
+                break;
+            }
+        }
+        CHECK(foundLocalSpec, "/Car/WheelL must have a local spec for meshLinearDeflection");
+
+        // Confirm NO local spec for angular on WheelL
+        for (const auto& spec : wheelLOptions.GetStepTessMeshAngularDeflectionAttr().GetPropertyStack()) {
+            CHECK(spec->GetPath().GetPrimPath() != SdfPath("/Car/WheelL"),
+                "/Car/WheelL must not have a local spec for meshAngularDeflection");
+        }
+    }
+
+    // Final result
+    if (failures == 0) {
+        std::cout << "All tests passed." << std::endl;
+    } else {
+        std::cerr << failures << " test(s) failed." << std::endl;
+        return 1;
+    }
+    /*
     std::string finalUsda;
     stage->ExportToString(&finalUsda);
-
     std::cout << finalUsda << std::endl;
+    */
 
-    std::cout << "\nAll tests passed." << std::endl;
-    return 0;
+    std::string sparseUsda;
+    stage->GetRootLayer()->ExportToString(&sparseUsda);
+    std::cout << sparseUsda << std::endl;
+    
 }

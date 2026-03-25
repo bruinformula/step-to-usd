@@ -10,7 +10,7 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include <iostream>
+#include <ostream>
 #include <cstring>
 #include <cstdlib>
 #include <filesystem>

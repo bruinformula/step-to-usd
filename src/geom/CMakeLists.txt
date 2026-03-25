@@ -4,7 +4,7 @@ find_package(OpenCASCADE REQUIRED)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tess_schema")
 
 # AutolibGeom
-add_library(AutolibGeom SHARED "${CMAKE_CURRENT_SOURCE_DIR}/StepModel.cpp")
+add_library(AutolibGeom SHARED "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporter.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/StepModel.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporterSchemaSupport.cpp")
 target_include_directories(AutolibGeom PUBLIC
     ${pxr_INCLUDES}
     ${OpenCASCADE_INCLUDE_DIR}
@@ -35,6 +35,7 @@ target_link_libraries(test_schema PRIVATE
     tf 
     sdf 
     usd
+    AutolibGeom
 )
 
 # TODO: Get to this later
