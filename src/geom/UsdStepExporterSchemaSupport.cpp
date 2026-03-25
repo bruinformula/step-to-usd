@@ -1,46 +1,97 @@
 #include "stepTessellationOptions.h"
+#include "stepTessellationAPI.h"
 #include "tokens.h"
 
 #include "UsdStepExporter.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+template <typename T>
+void updateIfAuthored(const UsdAttribute& attr, T* value) {
+    if (attr.HasAuthoredValue()) {
+        attr.Get(value);
+    }
+}
+
 // Helper to read a token attr and convert to CurveType
-static CurveType tokenToCurveType(const UsdAttribute& attr, CurveType fallback) {
+
+template <>
+void updateIfAuthored(const UsdAttribute& attr, CurveSampling* value) {
+    if (!attr.HasAuthoredValue()) return;
+
     TfToken token;
-    if (!attr || !attr.Get(&token)) return fallback;
-    if (token == AutolibTokens->none) return CurveType::None;
-    if (token == AutolibTokens->linear) return CurveType::Linear;
-    if (token == AutolibTokens->catmullRom) return CurveType::CatmullRom;
-    return fallback;
+    if (!attr.Get(&token)) {
+        *value = CurveSampling::Underlying;
+        return;
+    }
+
+    if (token == AutolibTokens->underlying) {
+        *value = CurveSampling::Underlying;
+    } else if (token == AutolibTokens->resampled) {
+        *value = CurveSampling::Resampled;
+    }
 }
 
-static CurveSampling tokenToCurveSampling(const UsdAttribute& attr, CurveSampling fallback) {
+template <>
+void updateIfAuthored(const UsdAttribute& attr, CurveType* value) {
+    if (!attr.HasAuthoredValue()) return;
+
     TfToken token;
-    if (!attr || !attr.Get(&token)) return fallback;
-    if (token == AutolibTokens->underlying) return CurveSampling::Underlying;
-    if (token == AutolibTokens->resampled)  return CurveSampling::Resampled;
-    return fallback;
+    if (!attr.Get(&token)) {
+        *value = CurveType::None;
+        return;
+    }
+
+    if (token == AutolibTokens->none) {
+        *value = CurveType::None;
+    } else if (token == AutolibTokens->linear) {
+        *value = CurveType::Linear;
+    } else if (token == AutolibTokens->catmullRom) {
+        *value = CurveType::CatmullRom;
+    }
 }
 
-TessParams getResolvedTessParams(const UsdPrim& prim) {
-    TessParams params;
-    AutolibStepTessellationOptions options(prim);
+static void traverseForTessParams(
+    UsdPrim prim, 
+    TessParams currentParams,
+    std::map<SdfPath, TessParams>& results
+) {
+    if (prim.HasAPI<AutolibStepTessellationAPI>()) {
+        AutolibStepTessellationAPI api(prim);
 
-    options.GetStepTessMeshLinearDeflectionAttr().Get(&params.meshLinearDeflection);
-    options.GetStepTessMeshAngularDeflectionAttr().Get(&params.meshAngularDeflection);
-    options.GetStepTessMeshMinSizeAttr().Get(&params.meshMinSize);
-    options.GetStepTessWireframeDeflectionAttr().Get(&params.wireframeDeflection);
-    options.GetStepTessSketchDeflectionAttr().Get(&params.sketchDeflection);
-    options.GetStepTessRenderPurposeThresholdAttr().Get(&params.renderPurposeThreshold);
-    options.GetStepTessSelfIntersectionThresholdAttr().Get(&params.selfIntersectionThreshold);
-    options.GetStepTessMaxNumberRemeshPassesAttr().Get(&params.maxNumberRemeshPasses);
+        // Update settings only if values are authored on this prim
+        updateIfAuthored(api.GetStepTessMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection);
+        updateIfAuthored(api.GetStepTessMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection);
+        updateIfAuthored(api.GetStepTessMeshMinSizeAttr(), &currentParams.meshMinSize);
 
-    // Tokens must read as TfToken then convert to enum
-    params.wireframeMode.type = tokenToCurveType    (options.GetStepTessWireframeTypeAttr(),     params.wireframeMode.type);
-    params.wireframeMode.sampling = tokenToCurveSampling(options.GetStepTessWireframeSamplingAttr(), params.wireframeMode.sampling);
-    params.sketchMode.type = tokenToCurveType    (options.GetStepTessSketchTypeAttr(),         params.sketchMode.type);
-    params.sketchMode.sampling = tokenToCurveSampling(options.GetStepTessSketchSamplingAttr(),     params.sketchMode.sampling);
+        updateIfAuthored(api.GetStepTessWireframeDeflectionAttr(), &currentParams.wireframeDeflection);
+        updateIfAuthored(api.GetStepTessWireframeTypeAttr(), &currentParams.wireframeMode.type);
+        updateIfAuthored(api.GetStepTessWireframeSamplingAttr(), &currentParams.wireframeMode.sampling);
 
-    return params;
+        updateIfAuthored(api.GetStepTessSketchDeflectionAttr(), &currentParams.sketchDeflection);
+        updateIfAuthored(api.GetStepTessSketchTypeAttr(), &currentParams.sketchMode.type);
+        updateIfAuthored(api.GetStepTessSketchSamplingAttr(), &currentParams.sketchMode.sampling);
+
+        updateIfAuthored(api.GetStepTessRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold);
+        updateIfAuthored(api.GetStepTessSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold);
+        updateIfAuthored(api.GetStepTessMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses);
+
+    }
+
+    results[prim.GetPath()] = currentParams;
+
+    for (const auto& child : prim.GetChildren()) {
+        traverseForTessParams(child, currentParams, results);
+    }
+}
+
+std::map<SdfPath, TessParams> resolveParams(
+    const UsdPrim& rootPrim
+) {
+    TessParams defaultParams = {};
+
+    std::map<SdfPath, TessParams> results;
+    traverseForTessParams(rootPrim, defaultParams, results);
+
+    return results;
 }

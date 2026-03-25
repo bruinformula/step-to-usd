@@ -21,11 +21,6 @@ class XCAFDoc_LayerTool;
 class XCAFDoc_MaterialTool;
 class XCAFDoc_ShapeTool;
 
-#pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle as a macro
-#undef Handle
-
-#pragma pop_macro("Handle")
-
 namespace occt = opencascade;
 namespace fs = std::filesystem;
 

@@ -126,6 +126,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
                 return std::nullopt;
             }
             std::cout << "Saving XBF to " << xbfPath << "\n";
+            doc->ChangeStorageFormat("BinXCAF");
             if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
                 std::cerr << "Warning: failed to save XBF cache\n";
             saveUnitsCache(xbfPath, metersPerUnit);
@@ -298,7 +299,7 @@ void StepModel::fillLeaf(
 
     //std::cout << instances[myIdx].materialName << std::endl;
 
-    bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color) || colorTool->GetColor(defLabel, XCAFDoc_ColorGen, color);
+    bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color);
     if (hasColor) {
         instances[myIdx].color = color;
     } else {

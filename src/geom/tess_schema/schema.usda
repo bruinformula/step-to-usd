@@ -13,6 +13,19 @@ over "GLOBAL" (
     }
 ) {}
 
+class "StepFileContainerAPI" (
+    inherits = </APISchemaBase>
+    doc = "Container for STEP file metadata and tessellation options. Should be applied to a prim at or above the scope of any STEP geometry. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
+    customData = {
+        token apiSchemaType = "singleApply"
+    }
+) {
+    asset stepFile:filePath (
+        doc = "Path to the source STEP file. This is for informational purposes only and is not automatically resolved or loaded by the exporter."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+}
+
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
     doc = "Step tessellation quality parameters. Inheritable — child prims that do not author a value resolve the nearest authored ancestor value."

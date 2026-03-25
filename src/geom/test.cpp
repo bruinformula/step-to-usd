@@ -18,6 +18,8 @@
 #include "stepTessellationOptions.h"
 #include "tokens.h"
 
+#include "UsdStepExporterSchemaSupport.h"
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 int main() {
@@ -48,6 +50,9 @@ int main() {
     wheelL.GetInherits().AddInherit(SdfPath("/WheelParams"));
     AutolibStepTessellationOptions wheelLOptions(wheelL);
     wheelLOptions.CreateStepTessMeshLinearDeflectionAttr(VtValue(100.0f));
+
+    UsdPrim wheelM = stage->DefinePrim(SdfPath("/Car/WheelM"));
+
 
     int failures = 0;
 
@@ -137,7 +142,6 @@ int main() {
         }
     }
 
-    
     { // /Car inherits DefaultParams with no local overrides
         AutolibStepTessellationOptions carOpts(car);
         float v = 0;
@@ -153,7 +157,6 @@ int main() {
         CHECK_TOKEN(tok, AutolibTokens->linear, "/Car wireframeType (inherited from DefaultParams)");
     }
 
-    
     { // /Car/WheelR has no local overrides and resolves entirely via WheelParams
         AutolibStepTessellationOptions wrOpts(wheelR);
         float v = 0;
@@ -186,7 +189,6 @@ int main() {
         }
     }
 
-    
     { // /Car/WheelL one local override, rest resolves via WheelParams 
         float v = 0;
 
@@ -229,11 +231,29 @@ int main() {
         std::cerr << failures << " test(s) failed." << std::endl;
         return 1;
     }
+
+    std::map<SdfPath, TessParams> params = resolveParams(car);
     /*
     std::string finalUsda;
     stage->ExportToString(&finalUsda);
     std::cout << finalUsda << std::endl;
     */
+
+    for (const auto& p : params) {
+        std::cout << "Prim: " << p.first << std::endl;
+        const TessParams& tp = p.second;
+        std::cout << "  meshLinearDeflection: " << tp.meshLinearDeflection << std::endl;
+        std::cout << "  meshAngularDeflection: " << tp.meshAngularDeflection << std::endl;
+        std::cout << "  wireframeDeflection: " << tp.wireframeDeflection << std::endl;
+        std::cout << "  wireframeType: " << tp.wireframeMode.type << std::endl;
+        std::cout << "  wireframeSampling: " << tp.wireframeMode.sampling << std::endl;
+        std::cout << "  sketchDeflection: " << tp.sketchDeflection << std::endl;
+        std::cout << "  sketchType: " << tp.sketchMode.type << std::endl;
+        std::cout << "  sketchSampling: " << tp.sketchMode.sampling << std::endl;
+        std::cout << "  renderPurposeThreshold: " << tp.renderPurposeThreshold << std::endl;
+        std::cout << "  selfIntersectionThreshold: " << tp.selfIntersectionThreshold << std::endl;
+        std::cout << "  maxNumberRemeshPasses: " << tp.maxNumberRemeshPasses << std::endl;
+    }
 
     std::string sparseUsda;
     stage->GetRootLayer()->ExportToString(&sparseUsda);
