@@ -1,4 +1,3 @@
-#include "stepTessellationOptions.h"
 #include "stepTessellationAPI.h"
 #include "tokens.h"
 
@@ -60,21 +59,21 @@ static void traverseForTessParams(
         AutolibStepTessellationAPI api(prim);
 
         // Update settings only if values are authored on this prim
-        updateIfAuthored(api.GetStepTessMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection);
-        updateIfAuthored(api.GetStepTessMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection);
-        updateIfAuthored(api.GetStepTessMeshMinSizeAttr(), &currentParams.meshMinSize);
+        updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection);
+        updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection);
+        updateIfAuthored(api.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize);
 
-        updateIfAuthored(api.GetStepTessWireframeDeflectionAttr(), &currentParams.wireframeDeflection);
-        updateIfAuthored(api.GetStepTessWireframeTypeAttr(), &currentParams.wireframeMode.type);
-        updateIfAuthored(api.GetStepTessWireframeSamplingAttr(), &currentParams.wireframeMode.sampling);
+        updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection);
+        updateIfAuthored(api.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type);
+        updateIfAuthored(api.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling);
 
-        updateIfAuthored(api.GetStepTessSketchDeflectionAttr(), &currentParams.sketchDeflection);
-        updateIfAuthored(api.GetStepTessSketchTypeAttr(), &currentParams.sketchMode.type);
-        updateIfAuthored(api.GetStepTessSketchSamplingAttr(), &currentParams.sketchMode.sampling);
+        updateIfAuthored(api.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection);
+        updateIfAuthored(api.GetStepSketchTypeAttr(), &currentParams.sketchMode.type);
+        updateIfAuthored(api.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling);
 
-        updateIfAuthored(api.GetStepTessRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold);
-        updateIfAuthored(api.GetStepTessSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold);
-        updateIfAuthored(api.GetStepTessMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses);
+        updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold);
+        updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold);
+        updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses);
 
     }
 

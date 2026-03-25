@@ -144,7 +144,10 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         auto colorTool    = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
         auto layerTool    = XCAFDoc_DocumentTool::LayerTool(doc->Main());
-        return StepModel(app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
+
+        StepModel model(app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
+        model.buildInstanceTree();
+        return model;
     } catch (const Standard_Failure& e) {
         std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
         return std::nullopt;

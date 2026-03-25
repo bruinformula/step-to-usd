@@ -1,6 +1,5 @@
 #include <stddef.h>
 #include <chrono>
-#include <filesystem>
 #include <utility>
 #include <algorithm>
 #include <atomic>
@@ -747,8 +746,6 @@ bool UsdStepExporter::writePrototypeGeometry(
     const CurveMode& sketchMode,
     int defIdx
 ) {
-    
-
     UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
     UsdPrim protoPrim = protoXform.GetPrim();
 
@@ -998,7 +995,7 @@ std::vector<SdfPath> UsdStepExporter::computeInstancePaths(const std::vector<Ste
     return paths;
 }
 
-void UsdStepExporter::populateUsd(
+void UsdStepExporter::populateUsdPlain(
     const StepModel& model, 
     UsdStageRefPtr stage, 
     const TessParams& params
@@ -1103,15 +1100,16 @@ void UsdStepExporter::populateUsd(
     }
 }
 
-void UsdStepExporter::populateVariantUsd(
-    const StepModel& model,
-    UsdStageRefPtr stage,
-    const std::vector<VariantParams>& variantParams
+#ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
+
+void UsdStepExporter::populateUsd(
+    const StepModel& model, 
+    UsdStageRefPtr stage, 
+    const TessParams& params
 ) {
     
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
-
     auto totalStart = Clock::now();
     TfErrorMark mark;
 
@@ -1119,148 +1117,85 @@ void UsdStepExporter::populateVariantUsd(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
     );
-
-    int numTessellations = (int)variantParams.size() * defs.size();
-
-    std::vector<TessResult> tessVariantResults(numTessellations);
-
-    LabelMap<int> labelToDefIdx;
-    for (int i = 0; i < (int)defs.size(); i++) {
-        labelToDefIdx[defs[i].first] = i;
-    }
+    std::vector<TessResult> tessResults(defs.size());
 
     auto tessStart = Clock::now();
     std::atomic<int> tessCompleted(0);
+    const int total = (int)defs.size();
 
-    OSD_Parallel::For(0, numTessellations, [&](int i) {
-        int baseIdx = i / (int)variantParams.size();
-        int variantIdx = i % (int)variantParams.size();
-        const VariantParams& params = variantParams[variantIdx];
-
-        const TopoDS_Shape& defShape = defs[baseIdx].second;
+    OSD_Parallel::For(0, total, [&](int i) {
+        const TopoDS_Shape& defShape = defs[i].second;
         if (defShape.IsNull()) {
             int done = ++tessCompleted;
-            std::cerr << "\r[" << done << "/" << numTessellations
-                      << "] Tessellating..." << std::flush;
+            std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
             return;
         }
 
+        auto partStart = Clock::now();
+        std::string partName = getLabelName(defs[i].first);
+
         try {
             TessResult result;
-            if (tesselatePart(result, defShape, params.tessParams))
-                tessVariantResults[variantIdx * (int)defs.size() + baseIdx] = std::move(result);
+            if (tesselatePart(result, defShape, params))
+                tessResults[i] = std::move(result);
         } catch (const Standard_Failure& e) {
-            std::cerr << "OCC exception during tessellation of def " << baseIdx << " variant " << variantIdx << ": " << e.GetMessageString() << "\n";
+            std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
         }
+
+        double elapsed = Seconds(Clock::now() - partStart).count();
+        if (elapsed > 10.0) {
+            std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
+                    << "  time=" << elapsed << "s"
+                    << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
+                    << "\n";
+        }
+
         int done = ++tessCompleted;
-        std::cerr << "\r[" << done << "/" << numTessellations << "] Tessellating..." << std::flush;
+        std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
     });
     std::cerr << "\n";
-
-    std::cout << "Tessellation time:  " << Seconds(Clock::now() - tessStart).count() << " s\n";
 
     if (!initUsdStage(stage))
         return;
 
     stage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
 
-    UsdGeomXform prototypes = UsdGeomXform(stage->GetPrimAtPath(SdfPath("/Model/Prototypes")));
-
     LabelMap<SdfPath> prototypePaths;
     std::unordered_map<std::string, int> protoNameCounts;
+    const int protoTotal = (int)defs.size();
+    int protoCompleted = 0;
 
-    UsdVariantSets variantSets = prototypes.GetPrim().GetVariantSets();
-
-    for (const auto& p : variantParams) {
-        if (!variantSets.HasVariantSet(p.variantSetName)) {
-            variantSets.AddVariantSet(p.variantSetName);
+    for (int i = 0; i < protoTotal; i++) {
+        const TessResult& r = tessResults[i];
+        if (r.points.empty() && r.sketchCounts.empty()) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+            continue;
         }
+
+        std::string rawName = getLabelName(defs[i].first);
+        if (rawName.empty()) {
+            rawName = "Def_" + std::to_string(i);
+        }
+        int protoCount = protoNameCounts[rawName]++;
+        std::string name = sanitizeUsdName(rawName, protoCount);
+        SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
+
+        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode, i)) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+            continue;
+        }
+
+        prototypePaths[defs[i].first] = protoPath;
+        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
+        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
     }
-
-    for (int v = 0; v < (int)variantParams.size(); v++) {
-        const VariantParams& params = variantParams[v];
-        const TessParams& tessParams = params.tessParams;
-        int baseIdx = v * defs.size();
-        protoNameCounts.clear();
-
-        std::cerr << "Writing variant [" << (v + 1) << "/"
-                  << variantParams.size() << "]: "
-                  << params.variantName << "\n";
-
-        bool overwrite = true;
-
-        if (fs::exists(params.outpath)) {
-            if (overwrite) {
-                std::cerr << "Warning: overwriting existing file at " << params.outpath << "\n";
-                fs::remove(params.outpath);
-            } else {
-                std::cerr << "Error: file already exists at " << params.outpath << ", skipping variant " << v << "\n";
-                continue;
-            }
-        }
-
-        UsdStageRefPtr lodStage = UsdStage::CreateNew(params.outpath);
-
-        UsdPrim lodPrototypesPrim = lodStage->DefinePrim(SdfPath("/Model/Prototypes"));
-
-        int protoCompleted = 0;
-        const int protoTotal = (int)defs.size();
-
-        for (int i = 0; i < defs.size(); i++) {
-            const TessResult& r = tessVariantResults[baseIdx + i];
-            if (r.points.empty() && r.sketchCounts.empty()) {
-                std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
-                          << "] Writing prototypes..." << std::flush;
-                continue;
-            }
-
-            std::string rawName = getLabelName(defs[i].first);
-            if (rawName.empty()) {
-                rawName = "Def_" + std::to_string(i);
-            }
-
-            int protoCount = protoNameCounts[rawName]++;
-            std::string name = sanitizeUsdName(rawName, protoCount);
-            SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
-
-            if (!writePrototypeGeometry(lodStage, protoPath, r, tessParams.wireframeMode, tessParams.sketchMode, i)) {
-                std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal
-                          << "] Writing prototypes..." << std::flush;
-                continue;
-            }
-
-            prototypePaths[defs[i].first] = protoPath;
-
-            //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
-            std::cerr << "\r  [" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-        }
-        std::cerr << "\n";
-
-        lodStage->Save();
-
-        UsdVariantSet variantSet = variantSets.GetVariantSet(params.variantSetName);
-
-        variantSet.AddVariant(params.variantName);
-        variantSet.SetVariantSelection(params.variantName);
-        {
-            UsdEditContext ctx(variantSet.GetVariantEditContext());
-            prototypes.GetPrim().GetReferences().AddReference(params.refpath.generic_string());
-        }
-    }
-
-    std::cout << "Prototypes written: " << prototypePaths.size() << "\n";
+    std::cerr << "\n";
 
     // Hide /Model/Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
     UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Model/Prototypes"));
     if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
-        /*
-        UsdGeomImageable imageable(prototypeRoot);
-        if (imageable) {
-            imageable.MakeInvisible();
-        }
-        */
     }
 
     std::vector<SdfPath> paths = computeInstancePaths(model.instances);
@@ -1270,6 +1205,5 @@ void UsdStepExporter::populateVariantUsd(
         for (const auto& error : mark)
             std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
-
-    std::cout << "Total export time:  " << Seconds(Clock::now() - totalStart).count() << " s\n";
 }
+#endif

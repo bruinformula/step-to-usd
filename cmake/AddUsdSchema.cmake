@@ -48,7 +48,7 @@ function(add_usd_schema SCHEMA_SOURCE_DIR SCHEMA_NAME)
     if(TARGET usd_ms)
         target_link_libraries(${SCHEMA_NAME} PUBLIC usd_ms)
     else()
-        target_link_libraries(${SCHEMA_NAME} PUBLIC tf sdf usd)
+        target_link_libraries(${SCHEMA_NAME} PUBLIC tf sdf usd usdGeom)
     endif()
 
     set_target_properties(${SCHEMA_NAME} PROPERTIES

@@ -1,13 +1,14 @@
 #usda 1.0
 (
     subLayers = [
-        @usd/schema.usda@
+        @usd/schema.usda@,
+        @usdGeom/schema.usda@
     ]
 )
 
 over "GLOBAL" (
     customData = {
-        string libraryName = "stepTessellation"
+        string libraryName = "stepellation"
         string libraryPath = "."
         string libraryPrefix = "Autolib"
     }
@@ -20,7 +21,7 @@ class "StepFileContainerAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
-    asset stepFile:filePath (
+    asset step:sourceAsset (
         doc = "Path to the source STEP file. This is for informational purposes only and is not automatically resolved or loaded by the exporter."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -28,60 +29,60 @@ class "StepFileContainerAPI" (
 
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters. Inheritable — child prims that do not author a value resolve the nearest authored ancestor value."
+    doc = "Step tessellation quality parameters. Child prims will take on the opinions of the nearest parent prim"
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    float stepTess:meshLinearDeflection = 1.0 (
+    float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:meshAngularDeflection = 0.5 (
+    float step:meshAngularDeflection = 0.5 (
         doc = "Angular deflection in radians. Maps to --meshAngularDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double stepTess:meshMinSize = 0.0 (
+    double step:meshMinSize = 0.0 (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal. Maps to --meshMinSize."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:wireframeType = "linear" (
+    token step:wireframeType = "linear" (
         doc = "Curve type used for wireframe edges. Maps to --wireframeType."
         allowedTokens = ["none", "linear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:wireframeSampling = "underlying" (
+    token step:wireframeSampling = "underlying" (
         doc = "Sampling strategy for wireframe edge curves. Maps to --wireframeSampling."
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:wireframeDeflection = 0.01 (
+    float step:wireframeDeflection = 0.01 (
         doc = "Deflection tolerance for wireframe edge curve sampling. Maps to --wireframeDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:sketchType = "none" (
+    token step:sketchType = "none" (
         doc = "Curve type used for sketch and free-edge curves. Maps to --sketchType."
         allowedTokens = ["none", "linear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token stepTess:sketchSampling = "underlying" (
+    token step:sketchSampling = "underlying" (
         doc = "Sampling strategy for sketch and free-edge curves. Maps to --sketchSampling."
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:sketchDeflection = 0.005 (
+    float step:sketchDeflection = 0.005 (
         doc = "Deflection tolerance for sketch/free-edge curve sampling. Maps to --sketchDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float stepTess:renderPurposeThreshold = 0.0 (
+    float step:renderPurposeThreshold = 0.0 (
         doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter. Maps to --renderPurposeThreshold."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double stepTess:selfIntersectionThreshold = 1e-3 (
+    double step:selfIntersectionThreshold = 1e-3 (
         doc = "Threshold for detecting self-intersecting triangles during meshing. Maps to --selfIntersectionThreshold."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    int stepTess:maxNumberRemeshPasses = 3 (
+    int step:maxNumberRemeshPasses = 3 (
         doc = "Maximum number of remeshing passes to attempt if self-intersections are detected. Maps to --maxNumberRemeshPasses."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -96,16 +97,30 @@ class "StepTessellationOptions" (
         token schemaKind = "concreteTyped"
     }
 ) {
-    float stepTess:meshLinearDeflection = 1.0
-    float stepTess:meshAngularDeflection = 0.5
-    double stepTess:meshMinSize = 0.0
-    token stepTess:wireframeType = "linear"
-    token stepTess:wireframeSampling = "underlying"
-    float stepTess:wireframeDeflection = 0.01
-    token stepTess:sketchType = "none"
-    token stepTess:sketchSampling = "underlying"
-    float stepTess:sketchDeflection = 0.005
-    float stepTess:renderPurposeThreshold = 0.0
-    double stepTess:selfIntersectionThreshold = 1e-3
-    int stepTess:maxNumberRemeshPasses = 3
+    float step:meshLinearDeflection = 1.0
+    float step:meshAngularDeflection = 0.5
+    double step:meshMinSize = 0.0
+    token step:wireframeType = "linear"
+    token step:wireframeSampling = "underlying"
+    float step:wireframeDeflection = 0.01
+    token step:sketchType = "none"
+    token step:sketchSampling = "underlying"
+    float step:sketchDeflection = 0.005
+    float step:renderPurposeThreshold = 0.0
+    double step:selfIntersectionThreshold = 1e-3
+    int step:maxNumberRemeshPasses = 3
+}
+
+class "StepFileContainer" (
+    inherits = </Xform>
+    typeName = "StepFileContainer"
+    doc = """Concrete Xform prim that identifies a STEP file root. 
+             It inherits all default tessellation settings and provides 
+             the target asset path."""
+    prepend apiSchemas = ["StepFileContainerAPI", "StepTessellationAPI"]
+    customData = {
+        token schemaKind = "concreteTyped"
+    }
+) {
+    asset step:sourceAsset = @@ 
 }

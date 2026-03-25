@@ -1,8 +1,6 @@
 #pragma once
 
-#include <filesystem>
 #include <limits>
-#include <string>
 #include <vector>
 
 #pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle as a macro
@@ -96,17 +94,11 @@ void updateIfAuthored(const UsdAttribute& attr, T* value);
 
 struct UsdStepExporter {
 
-    struct VariantParams {
-        TessParams tessParams;
-        std::string variantName;
-        std::string variantSetName;
-        std::filesystem::path outpath;  
-        std::filesystem::path refpath;
-        bool overwrite = false;
-    };
-
+    static void populateUsdPlain(const StepModel& model, UsdStageRefPtr stage, const TessParams& params);
+    
+    #ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
     static void populateUsd(const StepModel& model, UsdStageRefPtr stage, const TessParams& params);
-    static void populateVariantUsd(const StepModel& model, UsdStageRefPtr stage, const std::vector<VariantParams>& variantParams);
+    #endif
 
 private:
     static std::vector<SdfPath> computeInstancePaths(const std::vector<StepModel::PartInstance>& instances);

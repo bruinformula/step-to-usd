@@ -3,14 +3,22 @@ find_package(OpenCASCADE REQUIRED)
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tess_schema")
 
-# AutolibGeom
-add_library(AutolibGeom SHARED "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporter.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/StepModel.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporterSchemaSupport.cpp")
-target_include_directories(AutolibGeom PUBLIC
-    ${pxr_INCLUDES}
-    ${OpenCASCADE_INCLUDE_DIR}
+
+set(AUTOLIB_GEOM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/StepModel.cpp"
 )
+
+if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
+    list(APPEND AUTOLIB_GEOM_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/UsdStepExporterSchemaSupport.cpp"
+    )
+endif()
+
+# AutolibGeom
+add_library(AutolibGeom SHARED ${AUTOLIB_GEOM_SOURCES})
+
 target_link_libraries(AutolibGeom PUBLIC
-    autolibStepTessellation
     usd
     usdGeom
     sdf
@@ -18,15 +26,24 @@ target_link_libraries(AutolibGeom PUBLIC
     ${OpenCASCADE_LIBRARIES}
 )
 
-# StepConvertUsd
-add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
-target_include_directories(StepConvertUsd BEFORE PRIVATE ${pxr_INCLUDES})
-target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
+if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
 
-# StepConvertUsdVariant
-add_executable(StepConvertUsdVariant "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsdVariant.cpp")
-target_include_directories(StepConvertUsdVariant BEFORE PRIVATE ${pxr_INCLUDES})
-target_link_libraries(StepConvertUsdVariant PRIVATE AutolibGeom)
+    target_link_libraries(AutolibGeom PUBLIC
+        autolibStepTessellation
+    )
+
+    target_compile_definitions(
+        AutolibGeom PUBLIC
+        "AUTOLIB_BUILD_STEP_USD_SCHEMA"
+    )
+    # StepConvertUsd
+    add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
+    target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
+endif()
+
+# StepConvertUsdPlain
+add_executable(StepConvertUsdPlain "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsdPlain.cpp")
+target_link_libraries(StepConvertUsdPlain PRIVATE AutolibGeom)
 
 add_executable(test_schema test.cpp)
 

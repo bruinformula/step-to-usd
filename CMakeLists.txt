@@ -16,7 +16,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 option(BUILD_AUTOLIB_MTL "Build lookdev tools. Requires MaterialX, OSL, and OpenImageIO" ON)
 option(BUILD_AUTOLIB_MTL_ARNOLD "Build arnold BSDFs. Requires Arnold-SDK" ON)
 option(BUILD_AUTOLIB_GEOM "Build geometry tools. Requires Usd, TBB (greater than ) and OpenCascade" ON)
-option(AUTOLIB_BUILD_STEP_TESS_USD_SCHEMA "Build the Usd schema for STEP tessellation parameters. Requires Usd" ON)
+option(AUTOLIB_BUILD_STEP_USD_SCHEMA "Build the Usd schema for STEP tessellation parameters. Requires Usd" ON)
 option(BUILD_AUTOLIB_SIM "Build simulation tools. Requires Usd and Chrono" OFF)
 
 if (NOT CMAKE_BUILD_TYPE)

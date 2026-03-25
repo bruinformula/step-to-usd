@@ -26,19 +26,19 @@ int main() {
     UsdStageRefPtr stage = UsdStage::CreateInMemory();
 
     AutolibStepTessellationOptions defaultParams = AutolibStepTessellationOptions::Define(stage, SdfPath("/DefaultParams"));
-    defaultParams.CreateStepTessMeshLinearDeflectionAttr(VtValue(1.0f));
-    defaultParams.CreateStepTessMeshAngularDeflectionAttr(VtValue(0.5f));
-    defaultParams.CreateStepTessWireframeTypeAttr(VtValue(AutolibTokens->linear));
-    defaultParams.CreateStepTessWireframeSamplingAttr(VtValue(AutolibTokens->underlying));
-    defaultParams.CreateStepTessWireframeDeflectionAttr(VtValue(0.01f));
-    defaultParams.CreateStepTessSketchTypeAttr(VtValue(AutolibTokens->none));
-    defaultParams.CreateStepTessSketchSamplingAttr(VtValue(AutolibTokens->underlying));
-    defaultParams.CreateStepTessSketchDeflectionAttr(VtValue(0.005f));
-    defaultParams.CreateStepTessRenderPurposeThresholdAttr(VtValue(0.0f));
+    defaultParams.CreateStepMeshLinearDeflectionAttr(VtValue(1.0f));
+    defaultParams.CreateStepMeshAngularDeflectionAttr(VtValue(0.5f));
+    defaultParams.CreateStepWireframeTypeAttr(VtValue(AutolibTokens->linear));
+    defaultParams.CreateStepWireframeSamplingAttr(VtValue(AutolibTokens->underlying));
+    defaultParams.CreateStepWireframeDeflectionAttr(VtValue(0.01f));
+    defaultParams.CreateStepSketchTypeAttr(VtValue(AutolibTokens->none));
+    defaultParams.CreateStepSketchSamplingAttr(VtValue(AutolibTokens->underlying));
+    defaultParams.CreateStepSketchDeflectionAttr(VtValue(0.005f));
+    defaultParams.CreateStepRenderPurposeThresholdAttr(VtValue(0.0f));
 
     AutolibStepTessellationOptions wheelParams = AutolibStepTessellationOptions::Define(stage, SdfPath("/WheelParams"));
     wheelParams.GetPrim().GetInherits().AddInherit(SdfPath("/DefaultParams"));
-    wheelParams.CreateStepTessMeshLinearDeflectionAttr(VtValue(0.3f));
+    wheelParams.CreateStepMeshLinearDeflectionAttr(VtValue(0.3f));
 
     UsdPrim car = stage->DefinePrim(SdfPath("/Car"), TfToken("Xform"));
     car.GetInherits().AddInherit(SdfPath("/DefaultParams"));
@@ -49,7 +49,7 @@ int main() {
     UsdPrim wheelL = stage->DefinePrim(SdfPath("/Car/WheelL"));
     wheelL.GetInherits().AddInherit(SdfPath("/WheelParams"));
     AutolibStepTessellationOptions wheelLOptions(wheelL);
-    wheelLOptions.CreateStepTessMeshLinearDeflectionAttr(VtValue(100.0f));
+    wheelLOptions.CreateStepMeshLinearDeflectionAttr(VtValue(100.0f));
 
     UsdPrim wheelM = stage->DefinePrim(SdfPath("/Car/WheelM"));
 
@@ -81,32 +81,32 @@ int main() {
 
     { // /DefaultParams values should be exactly what was authored 
         float v = 0;
-        defaultParams.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        defaultParams.GetStepMeshLinearDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 1.0f,  "/DefaultParams meshLinearDeflection");
 
-        defaultParams.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        defaultParams.GetStepMeshAngularDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.5f,  "/DefaultParams meshAngularDeflection");
 
-        defaultParams.GetStepTessWireframeDeflectionAttr().Get(&v);
+        defaultParams.GetStepWireframeDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.01f, "/DefaultParams wireframeDeflection");
 
-        defaultParams.GetStepTessSketchDeflectionAttr().Get(&v);
+        defaultParams.GetStepSketchDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.005f,"/DefaultParams sketchDeflection");
 
-        defaultParams.GetStepTessRenderPurposeThresholdAttr().Get(&v);
+        defaultParams.GetStepRenderPurposeThresholdAttr().Get(&v);
         CHECK_FLOAT(v, 0.0f,  "/DefaultParams renderPurposeThreshold");
 
         TfToken tok;
-        defaultParams.GetStepTessWireframeTypeAttr().Get(&tok);
+        defaultParams.GetStepWireframeTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->linear,     "/DefaultParams wireframeType");
 
-        defaultParams.GetStepTessWireframeSamplingAttr().Get(&tok);
+        defaultParams.GetStepWireframeSamplingAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->underlying, "/DefaultParams wireframeSampling");
 
-        defaultParams.GetStepTessSketchTypeAttr().Get(&tok);
+        defaultParams.GetStepSketchTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->none,       "/DefaultParams sketchType");
 
-        defaultParams.GetStepTessSketchSamplingAttr().Get(&tok);
+        defaultParams.GetStepSketchSamplingAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->underlying, "/DefaultParams sketchSampling");
     }
 
@@ -115,28 +115,28 @@ int main() {
         float v = 0;
 
         // Authored override
-        wp.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        wp.GetStepMeshLinearDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.3f,  "/WheelParams meshLinearDeflection (authored override)");
 
         // Everything below should come from /DefaultParams via inherit
-        wp.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        wp.GetStepMeshAngularDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.5f,  "/WheelParams meshAngularDeflection (inherited)");
 
-        wp.GetStepTessWireframeDeflectionAttr().Get(&v);
+        wp.GetStepWireframeDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.01f, "/WheelParams wireframeDeflection (inherited)");
 
-        wp.GetStepTessSketchDeflectionAttr().Get(&v);
+        wp.GetStepSketchDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.005f,"/WheelParams sketchDeflection (inherited)");
 
         TfToken tok;
-        wp.GetStepTessWireframeTypeAttr().Get(&tok);
+        wp.GetStepWireframeTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->linear,     "/WheelParams wireframeType (inherited)");
 
-        wp.GetStepTessSketchTypeAttr().Get(&tok);
+        wp.GetStepSketchTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->none,       "/WheelParams sketchType (inherited)");
 
         // Confirm no local spec was authored for the inherited attrs
-        for (const auto& spec : wp.GetStepTessMeshAngularDeflectionAttr().GetPropertyStack()) {
+        for (const auto& spec : wp.GetStepMeshAngularDeflectionAttr().GetPropertyStack()) {
             CHECK(spec->GetPath().GetPrimPath() != SdfPath("/WheelParams"),
                 "/WheelParams must not have a local spec for meshAngularDeflection");
         }
@@ -146,14 +146,14 @@ int main() {
         AutolibStepTessellationOptions carOpts(car);
         float v = 0;
 
-        carOpts.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        carOpts.GetStepMeshLinearDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 1.0f,  "/Car meshLinearDeflection (inherited from DefaultParams)");
 
-        carOpts.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        carOpts.GetStepMeshAngularDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.5f,  "/Car meshAngularDeflection (inherited from DefaultParams)");
 
         TfToken tok;
-        carOpts.GetStepTessWireframeTypeAttr().Get(&tok);
+        carOpts.GetStepWireframeTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->linear, "/Car wireframeType (inherited from DefaultParams)");
     }
 
@@ -162,28 +162,28 @@ int main() {
         float v = 0;
 
         // Comes from WheelParams authored override
-        wrOpts.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        wrOpts.GetStepMeshLinearDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.3f,  "/Car/WheelR meshLinearDeflection (from WheelParams)");
 
         // Comes from DefaultParams via WheelParams inherit
-        wrOpts.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        wrOpts.GetStepMeshAngularDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.5f,  "/Car/WheelR meshAngularDeflection (from DefaultParams via WheelParams)");
 
-        wrOpts.GetStepTessWireframeDeflectionAttr().Get(&v);
+        wrOpts.GetStepWireframeDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.01f, "/Car/WheelR wireframeDeflection (from DefaultParams via WheelParams)");
 
-        wrOpts.GetStepTessSketchDeflectionAttr().Get(&v);
+        wrOpts.GetStepSketchDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.005f,"/Car/WheelR sketchDeflection (from DefaultParams via WheelParams)");
 
         TfToken tok;
-        wrOpts.GetStepTessWireframeTypeAttr().Get(&tok);
+        wrOpts.GetStepWireframeTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->linear, "/Car/WheelR wireframeType (from DefaultParams via WheelParams)");
 
-        wrOpts.GetStepTessSketchTypeAttr().Get(&tok);
+        wrOpts.GetStepSketchTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->none,   "/Car/WheelR sketchType (from DefaultParams via WheelParams)");
 
         // No local specs anywhere on /Car/WheelR itself
-        for (const auto& spec : wrOpts.GetStepTessMeshLinearDeflectionAttr().GetPropertyStack()) {
+        for (const auto& spec : wrOpts.GetStepMeshLinearDeflectionAttr().GetPropertyStack()) {
             CHECK(spec->GetPath().GetPrimPath() != SdfPath("/Car/WheelR"),
                 "/Car/WheelR must not have any local specs");
         }
@@ -193,23 +193,23 @@ int main() {
         float v = 0;
 
         // Local override wins over WheelParams
-        wheelLOptions.GetStepTessMeshLinearDeflectionAttr().Get(&v);
+        wheelLOptions.GetStepMeshLinearDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 100.0f, "/Car/WheelL meshLinearDeflection (local override)");
 
         // No local spec for angular — should fall through WheelParams → DefaultParams
-        wheelLOptions.GetStepTessMeshAngularDeflectionAttr().Get(&v);
+        wheelLOptions.GetStepMeshAngularDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.5f,   "/Car/WheelL meshAngularDeflection (from DefaultParams via WheelParams)");
 
-        wheelLOptions.GetStepTessWireframeDeflectionAttr().Get(&v);
+        wheelLOptions.GetStepWireframeDeflectionAttr().Get(&v);
         CHECK_FLOAT(v, 0.01f,  "/Car/WheelL wireframeDeflection (from DefaultParams via WheelParams)");
 
         TfToken tok;
-        wheelLOptions.GetStepTessWireframeTypeAttr().Get(&tok);
+        wheelLOptions.GetStepWireframeTypeAttr().Get(&tok);
         CHECK_TOKEN(tok, AutolibTokens->linear, "/Car/WheelL wireframeType (from DefaultParams via WheelParams)");
 
         // Confirm the local override is the strongest opinion
         bool foundLocalSpec = false;
-        for (const auto& spec : wheelLOptions.GetStepTessMeshLinearDeflectionAttr().GetPropertyStack()) {
+        for (const auto& spec : wheelLOptions.GetStepMeshLinearDeflectionAttr().GetPropertyStack()) {
             if (spec->GetPath().GetPrimPath() == SdfPath("/Car/WheelL")) {
                 foundLocalSpec = true;
                 break;
@@ -218,7 +218,7 @@ int main() {
         CHECK(foundLocalSpec, "/Car/WheelL must have a local spec for meshLinearDeflection");
 
         // Confirm NO local spec for angular on WheelL
-        for (const auto& spec : wheelLOptions.GetStepTessMeshAngularDeflectionAttr().GetPropertyStack()) {
+        for (const auto& spec : wheelLOptions.GetStepMeshAngularDeflectionAttr().GetPropertyStack()) {
             CHECK(spec->GetPath().GetPrimPath() != SdfPath("/Car/WheelL"),
                 "/Car/WheelL must not have a local spec for meshAngularDeflection");
         }
