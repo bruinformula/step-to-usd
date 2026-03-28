@@ -158,20 +158,20 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
 }
 
 void StepModel::buildInstanceTree() {
-    instances.clear();
+    partNodes.clear();
     definitionShapes.clear();
 
     NCollection_Sequence<TDF_Label> freeShapes;
     shapeTool->GetFreeShapes(freeShapes);
 
-    // Pass 1: count the total node count so we can resize instances[] once
+    // Pass 1: count the total node count so we can resize partNodes[] once
     // and use direct index writes in pass 2
     int numNodes = 0;
     for (int i = 1; i <= freeShapes.Length(); i++) {
         numNodes += countNodes(freeShapes.Value(i));
     }
 
-    instances.resize(numNodes);
+    partNodes.resize(numNodes);
 
     // Pass 2: pre-order fill — each assembly claims its slot then immediately
     // records firstChildIdx = cursor before recursing, so children are written
@@ -185,11 +185,11 @@ void StepModel::buildInstanceTree() {
     assert(cursor == numNodes); // should hit all the nodes we counted in pass 1
 
     int leaves = 0, assemblies = 0;
-    for (const auto& n : instances) {
-        if (n.type == InstanceType::Leaf)     leaves++;
-        if (n.type == InstanceType::Assembly) assemblies++;
+    for (const auto& n : partNodes) {
+        if (n.type == PartNodeType::Leaf)     leaves++;
+        if (n.type == PartNodeType::Assembly) assemblies++;
     }
-    std::cout << "Instance tree built: " << instances.size() << " nodes\n";
+    std::cout << "Instance tree built: " << partNodes.size() << " nodes\n";
     std::cout << "  Assemblies:          " << assemblies << "\n";
     std::cout << "  Leaves:              " << leaves     << "\n";
     std::cout << "  Unique definitions:  " << definitionShapes.size() << "\n";
@@ -283,7 +283,7 @@ void StepModel::fillLeaf(
 ) {
     int myIdx = cursor++;
 
-    instances[myIdx].name = getLabelName(defLabel);
+    partNodes[myIdx].name = getLabelName(defLabel);
 
     Quantity_Color color(0.8, 0.8, 0.8, Quantity_TOC_RGB);
     
@@ -300,23 +300,23 @@ void StepModel::fillLeaf(
         aDensValType->Print(std::cout);
     }
 
-    //std::cout << instances[myIdx].materialName << std::endl;
+    //std::cout << partNodes[myIdx].materialName << std::endl;
 
     bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color);
     if (hasColor) {
-        instances[myIdx].color = color;
+        partNodes[myIdx].color = color;
     } else {
-        instances[myIdx].color = std::nullopt;
+        partNodes[myIdx].color = std::nullopt;
     }
 
-    instances[myIdx].type             = InstanceType::Leaf;
-    instances[myIdx].definitionLabel  = defLabel;
-    instances[myIdx].localTransform   = localTrsf;
-    instances[myIdx].parentIdx        = parentIdx;
-    instances[myIdx].firstChildIdx    = -1;
-    instances[myIdx].childCount       = 0;
-    instances[myIdx].depth            = depth;
-    instances[myIdx].visible          = isLabelVisible(defLabel);
+    partNodes[myIdx].type             = PartNodeType::Leaf;
+    partNodes[myIdx].definitionLabel  = defLabel;
+    partNodes[myIdx].localTransform   = localTrsf;
+    partNodes[myIdx].parentIdx        = parentIdx;
+    partNodes[myIdx].firstChildIdx    = -1;
+    partNodes[myIdx].childCount       = 0;
+    partNodes[myIdx].depth            = depth;
+    partNodes[myIdx].visible          = isLabelVisible(defLabel);
 
     // Only store the shape the first time we see this definition label.
     // Subsequent instances of the same part share this entry.
@@ -335,9 +335,9 @@ void StepModel::fillAssembly(
 ) {
     int myIdx = cursor++;
 
-    instances[myIdx].name = getLabelName(defLabel);
-    instances[myIdx].color = std::nullopt;
-    instances[myIdx].visible = isLabelVisible(defLabel);
+    partNodes[myIdx].name = getLabelName(defLabel);
+    partNodes[myIdx].color = std::nullopt;
+    partNodes[myIdx].visible = isLabelVisible(defLabel);
 
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(defLabel, components);
@@ -351,13 +351,13 @@ void StepModel::fillAssembly(
     // right now, and recursion will fill slots contiguously from here
     int firstChild = (validChildren > 0) ? cursor : -1;
 
-    instances[myIdx].type             = InstanceType::Assembly;
-    instances[myIdx].definitionLabel  = defLabel;
-    instances[myIdx].localTransform   = localTrsf;
-    instances[myIdx].parentIdx        = parentIdx;
-    instances[myIdx].firstChildIdx    = firstChild;
-    instances[myIdx].childCount       = validChildren;
-    instances[myIdx].depth            = depth;
+    partNodes[myIdx].type             = PartNodeType::Assembly;
+    partNodes[myIdx].definitionLabel  = defLabel;
+    partNodes[myIdx].localTransform   = localTrsf;
+    partNodes[myIdx].parentIdx        = parentIdx;
+    partNodes[myIdx].firstChildIdx    = firstChild;
+    partNodes[myIdx].childCount       = validChildren;
+    partNodes[myIdx].depth            = depth;
 
     for (int i = 1; i <= components.Length(); i++)
         fillNode(components.Value(i), world, myIdx, depth + 1, cursor);
@@ -365,9 +365,9 @@ void StepModel::fillAssembly(
 
 // Debug 
 void StepModel::debugPrintInstances() const {
-    for (size_t i = 0; i < instances.size(); i++) {
-        const PartInstance& inst = instances[i];
-        std::string type = (inst.type == InstanceType::Assembly) ? "ASM" : "LEAF";
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        const PartNode& inst = partNodes[i];
+        std::string type = (inst.type == PartNodeType::Assembly) ? "ASM" : "LEAF";
         gp_XYZ lt = inst.localTransform.TranslationPart();
         std::cout << "[" << i << "] " << type
                   << " parent="     << inst.parentIdx

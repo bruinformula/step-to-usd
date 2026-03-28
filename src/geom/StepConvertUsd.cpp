@@ -1,5 +1,7 @@
 #include <iostream>
 #include <ostream>
+#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 #include <chrono>
 #include <filesystem>
@@ -16,6 +18,7 @@
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/payloads.h>
 #include <pxr/usd/sdf/schema.h>
+#include <pxr/base/work/loops.h>
 
 #include "stepTessellationAPI.h"
 #include "stepFileContainerAPI.h"
@@ -123,56 +126,102 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    for (const auto& prim : stage->Traverse()) {
-        if (prim.HasAPI<AutolibStepFileContainerAPI>()) {
-            AutolibStepFileContainer container(prim);
+    std::unordered_set<SdfAssetPath, SdfAssetPath::Hash> referencedStepAssetPaths;
 
-            UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+    // Do a scan for all refernced Step Assets, so 
+    // we can load them in parallel and cache the 
+    // results to avoid redundant parsing of the same STEP file.
+    for (const auto& prim : stage->TraverseAll()) {
+        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
 
-            SdfAssetPath sdfAssetPath;
-            if (!pathAttr.Get(&sdfAssetPath)) {
-                std::cerr << "Failed to get asset path from UsdAttribute\n";
-                continue;
-            }
+        AutolibStepFileContainer container(prim);
+        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
 
-            // Convert USD file on a new stage
-            fs::path assetPath = sdfAssetPath.GetResolvedPath();
-
-            fs::path newStagePath = assetPath.replace_extension("usda");
-
-            SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath);
-            if (layer) {
-                std::cout << "Layer already exists at " << newStagePath << ", clearing contents.\n";
-                layer->Clear();
-                layer->Save();
-            } else {
-                std::cout << "Creating new layer at " << newStagePath << "\n";
-                layer = SdfLayer::CreateNew(newStagePath);
-            }
-
-            UsdStageRefPtr newStage = UsdStage::Open(newStagePath);
-            if (!newStage) {
-                std::cerr << "Failed to create new stage at " << newStagePath << "\n";
-                continue;
-            }
-            std::cout << sdfAssetPath.GetResolvedPath() << std::endl;
-            std::optional<StepModel> optionalModel = StepModel::loadFromFile(sdfAssetPath.GetResolvedPath());
-            if(!optionalModel.has_value()) {
-                std::cerr << "Failed to load STEP model from " << sdfAssetPath.GetResolvedPath() << "\n";
-                return 1;
-            }
-
-            StepModel model = optionalModel.value();
-
-            TessParams params;
-            UsdStepExporter::populateUsdPlain(model, newStage, params);
-
-            newStage->Save();
-
-            UsdPayloads primPayloads = prim.GetPayloads();
-
-            primPayloads.AddPayload(newStagePath.filename());
+        SdfAssetPath sdfAssetPath;
+        if (!pathAttr.Get(&sdfAssetPath)) {
+            std::cerr << "Failed to get asset path from UsdAttribute\n";
+            continue;
         }
+
+        referencedStepAssetPaths.insert(sdfAssetPath);
+    }
+
+    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
+
+    WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
+        std::string resolvedPath = assetPath.GetResolvedPath();
+
+        if (resolvedPath.empty()) {
+            std::cerr << "Failed to resolve path to: " << assetPath.GetAssetPath() << "\n";
+            return;
+        }
+
+        std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
+
+        if (!optModel.has_value()) {
+            std::cerr << "Failed to load STEP model from " << resolvedPath << "\n";
+            return;
+        }
+
+        modelCache.insert_or_assign(assetPath, std::move(*optModel));
+    });
+
+
+    for (UsdPrim prim : stage->TraverseAll()) {
+        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
+
+        AutolibStepFileContainer container(prim);
+        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+
+        SdfAssetPath sdfAssetPath;
+        if (!pathAttr.Get(&sdfAssetPath)) {
+            std::cerr << "Failed to get asset path from UsdAttribute\n";
+            continue;
+        }
+
+        fs::path assetPath   = sdfAssetPath.GetResolvedPath();
+        fs::path newStagePath = fs::path(assetPath).replace_extension("usda");
+
+        std::cout << "Processing STEP file: " << assetPath << "\n";
+
+        // Prepare the output layer, clearing it if it already exists.
+        SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath);
+        if (layer) {
+            std::cout << "Layer already exists, clearing contents.\n";
+            layer->Clear();
+            layer->Save();
+        } else {
+            std::cout << "Creating new layer at " << newStagePath << "\n";
+            layer = SdfLayer::CreateNew(newStagePath);
+        }
+
+        UsdStageRefPtr newStage = UsdStage::Open(newStagePath);
+        if (!newStage) {
+            std::cerr << "Failed to open new stage at " << newStagePath << "\n";
+            continue;
+        }
+
+        if (!UsdStepExporter::initUsdStage(newStage, prim)) {
+            std::cerr << "Failed to initialize USD stage for " << newStagePath << "\n";
+            continue;
+        }
+
+        // Load the model, using the cache to avoid re-parsing the same STEP file.
+        auto iter = modelCache.find(sdfAssetPath);
+        if (iter == modelCache.end()) {
+            std::cerr << "Model not found in cache for asset path: " << assetPath << "\n";
+            continue;
+        }
+
+        const StepModel& model = iter->second;
+
+        TessParams params;
+        UsdStepExporter::populateUsd(model, newStage, newStagePath, prim);
+        newStage->Save();
+
+        UsdPayloads primPayloads = prim.GetPayloads();
+
+        primPayloads.AddPayload(newStagePath.filename());
     }
 
     stage->GetRootLayer()->Save();

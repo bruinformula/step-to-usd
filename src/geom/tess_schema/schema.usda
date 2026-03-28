@@ -34,6 +34,10 @@ class "StepTessellationAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
+    rel step:tessellationOptions (
+        doc = "Relationship to a StepTessellationOptions prim whose values override the local attrs"
+    )
+
     float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
         customData = { string variability = "SdfVariabilityUniform" }

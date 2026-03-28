@@ -65,6 +65,7 @@
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/references.h>
+#include <pxr/usd/usd/payloads.h>
 
 #include <pxr/usd/sdf/changeBlock.h>
 #include <pxr/usd/sdf/types.h>
@@ -214,34 +215,32 @@ static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
 }
 
 // Usd Export
-static bool initUsdStage(UsdStageRefPtr stage) {
-    
+bool UsdStepExporter::initUsdStage(UsdStageRefPtr stage, const UsdPrim& rootPrim) {
 
     UsdGeomSetStageUpAxis(stage, UsdGeomTokens->z);
 
-    UsdGeomXform model = UsdGeomXform::Define(stage, SdfPath("/Model"));
-    if (!model) {
-        std::cerr << "Failed to define root /Model\n";
+    SdfPath rootPrimPath = rootPrim.GetPath();
+
+    stage->SetDefaultPrim(rootPrim);
+
+    SdfPath assemblyPath = rootPrimPath.AppendChild(TfToken("Assembly"));
+    if (!UsdGeomXform::Define(stage, assemblyPath)) {
+        std::cerr << "Failed to define /Assembly" << assemblyPath << std::endl;
         return false;
     }
 
-    stage->SetDefaultPrim(model.GetPrim());
+    SdfPath prototypesPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
 
-    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Assembly"))) {
-        std::cerr << "Failed to define /Model/Assembly\n";
+    if (!UsdGeomXform::Define(stage, prototypesPath)) {
+        std::cerr << "Failed to define " << prototypesPath << std::endl;
         return false;
     }
 
-    if (!UsdGeomXform::Define(stage, SdfPath("/Model/Prototypes"))) {
-        std::cerr << "Failed to define /Model/Prototypes\n";
-        return false;
-    }
-
-    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/Model/CADPart"));
+    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/CADPart"));
     UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = SdfPath("/Model/CADPart").AppendChild(TfToken(name));
+        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
         UsdPrim child = stage->DefinePrim(childPath);
         UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
         return child;
@@ -487,14 +486,14 @@ static bool tesselatePart(
                         gp_Pnt pN = sampler.Value(n);
                         result.curvePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
 
-                        result.curveCounts.push_back(n + 2);
+                        result.wireframeCounts.push_back(n + 2);
                     } else {
                         // ResampledLinear
                         for (int i = 1; i <= n; ++i) {
                             gp_Pnt p = sampler.Value(i);
                             result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
                         }
-                        result.curveCounts.push_back(n);
+                        result.wireframeCounts.push_back(n);
                     }
 
                     result.curveContinuity.push_back(continuity);
@@ -713,9 +712,9 @@ static bool tesselatePart(
             if (params.wireframeMode.type == CurveType::CatmullRom) {
                 // Phantom end — duplicate last point
                 result.curvePoints.push_back(result.points[resolved.back()]);
-                result.curveCounts.push_back(static_cast<int>(resolved.size()) + 2);
+                result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
             } else {
-                result.curveCounts.push_back(static_cast<int>(resolved.size()));
+                result.wireframeCounts.push_back(static_cast<int>(resolved.size()));
             }
             result.curveContinuity.push_back(deferred.continuity);
         }
@@ -738,12 +737,9 @@ static bool tesselatePart(
     return true;
 }
 
-bool UsdStepExporter::writePrototypeGeometry(
+bool UsdStepExporter::writePrototypeXform(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
-    const CurveMode& wireframeMode,
-    const CurveMode& sketchMode,
     int defIdx
 ) {
     UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
@@ -751,10 +747,25 @@ bool UsdStepExporter::writePrototypeGeometry(
 
     { // SdfChangeBlock
         SdfChangeBlock changeBlock;
-        protoPrim.GetInherits().AddInherit(SdfPath("/Model/CADPart"));
+        protoPrim.GetInherits().AddInherit(SdfPath("/CADPart"));
 
-        protoPrim.CreateAttribute(TfToken("stepExport:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
+        protoPrim.CreateAttribute(TfToken("step:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
+    }
 
+    return true;
+}
+
+bool UsdStepExporter::writePrototypeGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params,
+    int defIdx
+) {
+    UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
+    UsdPrim protoPrim = protoXform.GetPrim();
+
+    { // SdfChangeBlock
         if (r.renderOnly) {
             UsdGeomImageable imageable(protoPrim);
             imageable.CreatePurposeAttr().Set(UsdGeomTokens->render);
@@ -815,26 +826,26 @@ bool UsdStepExporter::writePrototypeGeometry(
         } // SdfChangeBlock
     }
 
-    if (!r.curveCounts.empty()) {
+    if (!r.wireframeCounts.empty()) {
         int pointOffset = 0;
         SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
         UsdGeomXform curveXform = UsdGeomXform::Define(stage, wireframePath);
-        for (int ci = 0; ci < (int)r.curveCounts.size(); ++ci) {
-            int count = r.curveCounts[ci];
+        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
+            int count = r.wireframeCounts[ci];
 
             VtArray<GfVec3f> pts(
                 r.curvePoints.begin() + pointOffset,
                 r.curvePoints.begin() + pointOffset + count
             );
 
-            SdfPath curvePath = wireframePath.AppendChild(
+            SdfPath wireframeCurvePath = wireframePath.AppendChild(
                 TfToken("Wireframe_" + std::to_string(ci))
             );
 
-            UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(stage, curvePath);
+            UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(stage, wireframeCurvePath);
             {
                 SdfChangeBlock changeBlock;
-                if (wireframeMode.type == CurveType::CatmullRom) {
+                if (params.wireframeMode.type == CurveType::CatmullRom) {
                     curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                     curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
                 } else {
@@ -881,7 +892,7 @@ bool UsdStepExporter::writePrototypeGeometry(
             UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(stage, curvePath);
             {
                 SdfChangeBlock changeBlock;
-                if (sketchMode.type == CurveType::CatmullRom) {
+                if (params.sketchMode.type == CurveType::CatmullRom) {
                     sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                     sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
                 } else {
@@ -905,37 +916,37 @@ bool UsdStepExporter::writePrototypeGeometry(
 }
 
 void UsdStepExporter::writeInstanceXforms(
-    const std::vector<StepModel::PartInstance>& instances,
+    const std::vector<StepModel::PartNode>& partNodes,
     UsdStageRefPtr stage, 
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths
 ) {
     
     // pre compute which instances have children
-    std::vector<bool> hasChildren(instances.size(), false);
-    for (size_t i = 0; i < instances.size(); i++) {
-        if (instances[i].parentIdx != -1)
-            hasChildren[instances[i].parentIdx] = true;
+    std::vector<bool> hasChildren(partNodes.size(), false);
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        if (partNodes[i].parentIdx != -1)
+            hasChildren[partNodes[i].parentIdx] = true;
     }
     // Define all xform nodes, wire references, and author transforms
-    const int total = (int)instances.size();
+    const int total = (int)partNodes.size();
     int completed = 0;
-    for (size_t i = 0; i < instances.size(); i++) {
-        const StepModel::PartInstance& inst = instances[i];
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        const StepModel::PartNode& node = partNodes[i];
         UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
         if (!xform) {
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+            std::cerr << "\r[" << ++completed << "/" << total << "] Writing partNodes..." << std::flush;
             continue;
         }
         {
             SdfChangeBlock changeBlock;
             // Usd composes the full world transform later
-            xform.AddTransformOp().Set(trsfToGfMatrix(inst.localTransform));
-            if (inst.type == StepModel::InstanceType::Leaf) {
-                auto protoIter = prototypePaths.find(inst.definitionLabel);
+            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform));
+            if (node.type == StepModel::PartNodeType::Leaf) {
+                auto protoIter = prototypePaths.find(node.definitionLabel);
                 if (protoIter == prototypePaths.end()) {
-                    std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+                    std::cerr << "\r[" << ++completed << "/" << total << "] Writing partNodes..." << std::flush;
                     continue;
                 }
                 xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
@@ -943,11 +954,11 @@ void UsdStepExporter::writeInstanceXforms(
                 if (!hasChildren[i]) {
                     xform.GetPrim().SetInstanceable(true);
                 }
-                if (inst.color.has_value()) {
+                if (node.color.has_value()) {
                     VtArray<GfVec3f> displayColor = {{
-                        static_cast<float>(inst.color->Red()),
-                        static_cast<float>(inst.color->Green()),
-                        static_cast<float>(inst.color->Blue())
+                        static_cast<float>(node.color->Red()),
+                        static_cast<float>(node.color->Green()),
+                        static_cast<float>(node.color->Blue())
                     }};
                     UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
                         TfToken("primvars:displayColor"),
@@ -956,7 +967,7 @@ void UsdStepExporter::writeInstanceXforms(
                     );
                     colorAttr.Set(displayColor);
                 }
-                if (!inst.visible) {
+                if (!node.visible) {
                     UsdGeomImageable(xform.GetPrim())
                         .CreateVisibilityAttr()
                         .Set(UsdGeomTokens->invisible);
@@ -965,30 +976,33 @@ void UsdStepExporter::writeInstanceXforms(
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
             }
         } // SdfChangeBlock
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing instances..." << std::flush;
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing partNodes..." << std::flush;
     }
     std::cerr << "\n";
 }
 
-std::vector<SdfPath> UsdStepExporter::computeInstancePaths(const std::vector<StepModel::PartInstance>& instances) {
+std::vector<SdfPath> UsdStepExporter::computeNodePaths(
+    const std::vector<StepModel::PartNode>& partNodes,
+    const SdfPath& assemblyPath
+) {
     std::unordered_map<std::string, int> nameCounts;
-    std::vector<SdfPath> paths(instances.size());
+    std::vector<SdfPath> paths(partNodes.size());
 
     // pre-order guarantees parent path is always assigned before we 
     // reach any of its children or Usd will omplain about missing 
     // parent prims when we try to define them
-    for (size_t i = 0; i < instances.size(); i++) {
-        const StepModel::PartInstance& inst = instances[i];
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        const StepModel::PartNode& node = partNodes[i];
 
         SdfPath parentPath;
-        if (instances[i].parentIdx == -1) {
-            parentPath = SdfPath("/Model/Assembly");
+        if (partNodes[i].parentIdx == -1) {
+            parentPath = assemblyPath;
         } else {
-            parentPath = paths[instances[i].parentIdx];
+            parentPath = paths[partNodes[i].parentIdx];
         }
 
-        int count = nameCounts[inst.name]++;
-        std::string finalName = sanitizeUsdName(inst.name, count);
+        int count = nameCounts[node.name]++;
+        std::string finalName = sanitizeUsdName(node.name, count);
         paths[i] = parentPath.AppendChild(TfToken(finalName));
     }
 
@@ -1010,6 +1024,14 @@ void UsdStepExporter::populateUsdPlain(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
     );
+    
+
+    SdfPath rootPrimPath = SdfPath("/Model");
+
+    UsdGeomXform rootXform = UsdGeomXform::Define(stage, rootPrimPath);
+    SdfPath assemblyPath = rootPrimPath.AppendChild(TfToken("Assembly"));
+    SdfPath prototypesPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
+
     std::vector<TessResult> tessResults(defs.size());
 
     auto tessStart = Clock::now();
@@ -1048,17 +1070,17 @@ void UsdStepExporter::populateUsdPlain(
     });
     std::cerr << "\n";
 
-    if (!initUsdStage(stage))
+    if (!initUsdStage(stage, rootXform.GetPrim()))
         return;
 
     stage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
 
     LabelMap<SdfPath> prototypePaths;
-    std::unordered_map<std::string, int> protoNameCounts;
+    std::unordered_map<std::string, int> protoNameCounts; // Just for ensuring names don't overlap
     const int protoTotal = (int)defs.size();
     int protoCompleted = 0;
 
-    for (int i = 0; i < protoTotal; i++) {
+    for (int i = 0; i < defs.size(); i++) {
         const TessResult& r = tessResults[i];
         if (r.points.empty() && r.sketchCounts.empty()) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
@@ -1071,9 +1093,9 @@ void UsdStepExporter::populateUsdPlain(
         }
         int protoCount = protoNameCounts[rawName]++;
         std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
+        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
 
-        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode, i)) {
+        if (!writePrototypeGeometry(stage, protoPath, r, params, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
             continue;
         }
@@ -1084,15 +1106,15 @@ void UsdStepExporter::populateUsdPlain(
     }
     std::cerr << "\n";
 
-    // Hide /Model/Prototypes from renderers
+    // Hide /Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
-    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Model/Prototypes"));
+    UsdPrim prototypeRoot = stage->GetPrimAtPath(prototypesPath);
     if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
     }
 
-    std::vector<SdfPath> paths = computeInstancePaths(model.instances);
-    writeInstanceXforms(model.instances, stage, paths, prototypePaths);
+    std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyPath);
+    writeInstanceXforms(model.partNodes, stage, nodePaths, prototypePaths);
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)
@@ -1104,8 +1126,9 @@ void UsdStepExporter::populateUsdPlain(
 
 void UsdStepExporter::populateUsd(
     const StepModel& model, 
-    UsdStageRefPtr stage, 
-    const TessParams& params
+    UsdStageRefPtr stage, // stage to write prims to
+    const fs::path& stagePath,
+    UsdPrim& rootPrim // on the stage with the stronger opinions
 ) {
     
     using Clock = std::chrono::high_resolution_clock;
@@ -1117,14 +1140,77 @@ void UsdStepExporter::populateUsd(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
     );
-    std::vector<TessResult> tessResults(defs.size());
 
     auto tessStart = Clock::now();
     std::atomic<int> tessCompleted(0);
     const int total = (int)defs.size();
 
+    SdfPath rootPrimPath = rootPrim.GetPath();
+    SdfPath assemblyPath = rootPrimPath.AppendChild(TfToken("Assembly"));
+    SdfPath prototypesPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
+
+    // Write Xforms first so USD can resolve opinions that
+    // will later be populated by geometry later 
+
+    LabelMap<SdfPath> prototypePaths;
+    std::unordered_map<std::string, int> protoNameCounts;
+    const int protoTotal = (int)defs.size();
+    int protoCompleted = 0;
+
+    for (int i = 0; i < protoTotal; i++) {
+        std::string rawName = getLabelName(defs[i].first);
+        if (rawName.empty()) {
+            rawName = "Def_" + std::to_string(i);
+        }
+        int protoCount = protoNameCounts[rawName]++;
+        std::string name = sanitizeUsdName(rawName, protoCount);
+        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
+
+        if (!writePrototypeXform(stage, protoPath, i)) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+            continue;
+        }
+
+        prototypePaths[defs[i].first] = protoPath;
+        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
+        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+    }
+
+    std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyPath);
+    writeInstanceXforms(model.partNodes, stage, nodePaths, prototypePaths);
+    stage->Save();
+
+    rootPrim.GetPayloads().AddPayload(stagePath.filename().string());
+    rootPrim.GetStage()->GetRootLayer()->Save();
+    rootPrim.GetStage()->Reload();
+
+    rootPrim.GetStage()->Load(rootPrim.GetPath());
+
+    std::map<SdfPath, TessParams> paramsBank = resolveParams(rootPrim);
+    std::vector<TessResult> tessResults(defs.size());
+
+    for (const auto& p : paramsBank) {
+        std::cout << "Prim: " << p.first << std::endl;
+        const TessParams& tp = p.second;
+        std::cout << "  meshLinearDeflection: " << tp.meshLinearDeflection << std::endl;
+        std::cout << "  meshAngularDeflection: " << tp.meshAngularDeflection << std::endl;
+        std::cout << "  wireframeDeflection: " << tp.wireframeDeflection << std::endl;
+        std::cout << "  wireframeType: " << tp.wireframeMode.type << std::endl;
+        std::cout << "  wireframeSampling: " << tp.wireframeMode.sampling << std::endl;
+        std::cout << "  sketchDeflection: " << tp.sketchDeflection << std::endl;
+        std::cout << "  sketchType: " << tp.sketchMode.type << std::endl;
+        std::cout << "  sketchSampling: " << tp.sketchMode.sampling << std::endl;
+        std::cout << "  renderPurposeThreshold: " << tp.renderPurposeThreshold << std::endl;
+        std::cout << "  selfIntersectionThreshold: " << tp.selfIntersectionThreshold << std::endl;
+        std::cout << "  maxNumberRemeshPasses: " << tp.maxNumberRemeshPasses << std::endl;
+    }
+
     OSD_Parallel::For(0, total, [&](int i) {
         const TopoDS_Shape& defShape = defs[i].second;
+        const SdfPath& path = nodePaths[i];
+        SdfPath protoPath = prototypePaths[defs[i].first];
+        const TessParams& params = paramsBank.count(nodePaths[i]) ? paramsBank.at(nodePaths[i]) : TessParams{};
+            
         if (defShape.IsNull()) {
             int done = ++tessCompleted;
             std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
@@ -1153,18 +1239,12 @@ void UsdStepExporter::populateUsd(
         int done = ++tessCompleted;
         std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
     });
+
     std::cerr << "\n";
 
-    if (!initUsdStage(stage))
-        return;
-
     stage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
-
-    LabelMap<SdfPath> prototypePaths;
-    std::unordered_map<std::string, int> protoNameCounts;
-    const int protoTotal = (int)defs.size();
-    int protoCompleted = 0;
-
+    
+    protoCompleted = 0;
     for (int i = 0; i < protoTotal; i++) {
         const TessResult& r = tessResults[i];
         if (r.points.empty() && r.sketchCounts.empty()) {
@@ -1172,15 +1252,10 @@ void UsdStepExporter::populateUsd(
             continue;
         }
 
-        std::string rawName = getLabelName(defs[i].first);
-        if (rawName.empty()) {
-            rawName = "Def_" + std::to_string(i);
-        }
-        int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = SdfPath("/Model/Prototypes").AppendChild(TfToken(name));
+        SdfPath protoPath = prototypePaths[defs[i].first];
+        const TessParams& params = paramsBank.count(nodePaths[i]) ? paramsBank.at(nodePaths[i]) : TessParams{};
 
-        if (!writePrototypeGeometry(stage, protoPath, r, params.wireframeMode, params.sketchMode, i)) {
+        if (!writePrototypeGeometry(stage, protoPath, r, params, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
             continue;
         }
@@ -1191,15 +1266,14 @@ void UsdStepExporter::populateUsd(
     }
     std::cerr << "\n";
 
-    // Hide /Model/Prototypes from renderers
+    // Hide /Prototypes from renderers
     // Usd will complain and not define prims under an inactive parent
-    UsdPrim prototypeRoot = stage->GetPrimAtPath(SdfPath("/Model/Prototypes"));
+    UsdPrim prototypeRoot = stage->GetPrimAtPath(prototypesPath);
     if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
     }
 
-    std::vector<SdfPath> paths = computeInstancePaths(model.instances);
-    writeInstanceXforms(model.instances, stage, paths, prototypePaths);
+    //writeInstanceXforms(model.partNodes, stage, nodePaths, prototypePaths);
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)

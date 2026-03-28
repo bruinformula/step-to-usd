@@ -53,17 +53,17 @@ std::string getLabelName(const TDF_Label& label);
 
 struct StepModel {
 
-    enum class InstanceType {
+    enum class PartNodeType {
         Assembly,
         Leaf
     };
 
-    struct PartInstance {
-        InstanceType type;
+    struct PartNode {
+        PartNodeType type;
         TDF_Label definitionLabel; // this is the key into definitionShapes
         gp_Trsf localTransform;  // this node's transform relative to its parent only
-        int parentIdx;       // index into instances[], -1 if root
-        int firstChildIdx;   // first child index, children occupy contiguous range in instances[]
+        int parentIdx;       // index into partNodes[], -1 if root
+        int firstChildIdx;   // first child index, children occupy contiguous range in partNodes[]
         int childCount;
         int depth;
         bool visible = true;
@@ -95,8 +95,9 @@ struct StepModel {
     occt::handle<XCAFDoc_MaterialTool> materialTool;
     occt::handle<XCAFDoc_LayerTool> layerTool;
 
-    std::vector<PartInstance> instances;        // flat pre-order instance tree
+    std::vector<PartNode> partNodes;        // flat pre-order tree
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
+    
     double metersPerUnit;
 
 private:

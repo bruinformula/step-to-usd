@@ -37,6 +37,8 @@ struct CurveMode {
 };
 
 struct TessResult {
+    SdfPath targetLayer;
+
     VtArray<GfVec3f> points;
     VtArray<GfVec3f> normals;
     VtArray<int> faceVertexCounts;
@@ -56,7 +58,7 @@ struct TessResult {
 
     // Wireframe curves 
     VtArray<GfVec3f> curvePoints;
-    VtArray<int> curveCounts;
+    VtArray<int> wireframeCounts;
     VtArray<int> curveContinuity;
 
     // Sketch curves
@@ -86,36 +88,45 @@ struct TessParams {
     int maxNumberRemeshPasses = 3;
 };
 
-template <typename T>
-bool getInheritedAttribute(const UsdPrim& prim, const TfToken& attrName, T* value, const UsdTimeCode& time = UsdTimeCode::Default());
-
-template <typename T>
-void updateIfAuthored(const UsdAttribute& attr, T* value);
-
 struct UsdStepExporter {
+
+    static bool initUsdStage(UsdStageRefPtr stage, const UsdPrim& rootPrim);
 
     static void populateUsdPlain(const StepModel& model, UsdStageRefPtr stage, const TessParams& params);
     
     #ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
-    static void populateUsd(const StepModel& model, UsdStageRefPtr stage, const TessParams& params);
+    static void populateUsd(
+        const StepModel& model, 
+        UsdStageRefPtr stage, 
+        const fs::path& stagePath,
+        UsdPrim& modelPrim // Important this is on a different stage 
+    );
     #endif
 
 private:
-    static std::vector<SdfPath> computeInstancePaths(const std::vector<StepModel::PartInstance>& instances);
+    static std::vector<SdfPath> computeNodePaths(
+        const std::vector<StepModel::PartNode>& partNodes,
+        const SdfPath& assemblyPath
+    );
 
     static void writeInstanceXforms(
-        const std::vector<StepModel::PartInstance>& instances,
+        const std::vector<StepModel::PartNode>& instances,
         UsdStageRefPtr stage, 
         const std::vector<SdfPath>& paths, 
         const LabelMap<SdfPath>& prototypePaths
+    );
+
+    static bool writePrototypeXform(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath,
+        int defIdx
     );
 
     static bool writePrototypeGeometry(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
         const TessResult& r,
-        const CurveMode& wireframeMode,
-        const CurveMode& sketchMode,
+        const TessParams& params,
         int defIdx
     ); 
 };
