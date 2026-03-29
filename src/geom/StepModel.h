@@ -73,6 +73,7 @@ struct StepModel {
     };
 
     StepModel(
+        fs::path stepPath,
         occt::handle<TDocStd_Application> a,
         occt::handle<TDocStd_Document>    d,
         occt::handle<XCAFDoc_ShapeTool>   st,
@@ -80,7 +81,7 @@ struct StepModel {
         occt::handle<XCAFDoc_MaterialTool>   mt,
         occt::handle<XCAFDoc_LayerTool>   lt,
         double metersPerUnit
-    ) : app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt), layerTool(lt), metersPerUnit(metersPerUnit) {}
+    ) : stepPath(stepPath), app(a), doc(d), shapeTool(st), colorTool(ct), materialTool(mt), layerTool(lt), metersPerUnit(metersPerUnit) {}
 
     static std::optional<StepModel> loadFromFile(const fs::path& stepPath);
 
@@ -97,6 +98,8 @@ struct StepModel {
 
     std::vector<PartNode> partNodes;        // flat pre-order tree
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
+
+    fs::path stepPath;
     
     double metersPerUnit;
 

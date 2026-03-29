@@ -225,16 +225,9 @@ int main(int argc, char** argv) {
     //model.printDefinitionShapes();
     //model.writeMeshTest(inputArgs.outputDir);
 
-    UsdStageRefPtr stage = UsdStage::CreateNew(inputArgs.outputFile);
-    if (!stage) {
-        std::cerr << "Failed to create stage at " << inputArgs.outputFile << "\n";
-        return 1;
-    }
-
-    UsdStepExporter::populateUsdPlain(model, stage, inputArgs.tessParams);
+    UsdStepExporter::populateUsdPlain(model, inputArgs.outputFile, inputArgs.tessParams);
 
     std::cout << "Saving to " << inputArgs.outputFile << "...\n";
-    stage->GetRootLayer()->Save();
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;

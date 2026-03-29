@@ -88,28 +88,53 @@ struct TessParams {
     int maxNumberRemeshPasses = 3;
 };
 
+struct UVPatch {
+    std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
+    float uMin, uMax, vMin, vMax;
+};
+
 struct UsdStepExporter {
 
-    static bool initUsdStage(UsdStageRefPtr stage, const UsdPrim& rootPrim);
+    static UsdStageRefPtr initUsdStage(
+        const fs::path& newStagePath, 
+        const SdfPath& rootPrimPath,
+        bool writeCadPart = false
+    );
 
-    static void populateUsdPlain(const StepModel& model, UsdStageRefPtr stage, const TessParams& params);
+    static void populateUsdPlain(
+        const StepModel& model, 
+        const fs::path& newStagePath, 
+        const TessParams& params
+    );
     
     #ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
     static void populateUsd(
         const StepModel& model, 
-        UsdStageRefPtr stage, 
-        const fs::path& stagePath,
-        UsdPrim& modelPrim // Important this is on a different stage 
+        UsdStageRefPtr rootStage,
+        UsdPrim& rootPrim // on the stage with the stronger opinions
     );
     #endif
 
 private:
+
+    static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t);
+
+    static std::string sanitizeUsdName(const std::string_view& name, int idx);
+
+    static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches);
+
+    static bool tesselatePart(
+        TessResult& result, 
+        const TopoDS_Shape& defShape, 
+        const TessParams& params
+    );
+
     static std::vector<SdfPath> computeNodePaths(
         const std::vector<StepModel::PartNode>& partNodes,
         const SdfPath& assemblyPath
     );
 
-    static void writeInstanceXforms(
+    static void writeAssemblyXforms(
         const std::vector<StepModel::PartNode>& instances,
         UsdStageRefPtr stage, 
         const std::vector<SdfPath>& paths, 
@@ -129,4 +154,5 @@ private:
         const TessParams& params,
         int defIdx
     ); 
+
 };

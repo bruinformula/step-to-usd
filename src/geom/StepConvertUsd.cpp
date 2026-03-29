@@ -180,32 +180,9 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        fs::path assetPath   = sdfAssetPath.GetResolvedPath();
-        fs::path newStagePath = fs::path(assetPath).replace_extension("usda");
+        fs::path assetPath = sdfAssetPath.GetResolvedPath();
 
         std::cout << "Processing STEP file: " << assetPath << "\n";
-
-        // Prepare the output layer, clearing it if it already exists.
-        SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath);
-        if (layer) {
-            std::cout << "Layer already exists, clearing contents.\n";
-            layer->Clear();
-            layer->Save();
-        } else {
-            std::cout << "Creating new layer at " << newStagePath << "\n";
-            layer = SdfLayer::CreateNew(newStagePath);
-        }
-
-        UsdStageRefPtr newStage = UsdStage::Open(newStagePath);
-        if (!newStage) {
-            std::cerr << "Failed to open new stage at " << newStagePath << "\n";
-            continue;
-        }
-
-        if (!UsdStepExporter::initUsdStage(newStage, prim)) {
-            std::cerr << "Failed to initialize USD stage for " << newStagePath << "\n";
-            continue;
-        }
 
         // Load the model, using the cache to avoid re-parsing the same STEP file.
         auto iter = modelCache.find(sdfAssetPath);
@@ -217,12 +194,8 @@ int main(int argc, char** argv) {
         const StepModel& model = iter->second;
 
         TessParams params;
-        UsdStepExporter::populateUsd(model, newStage, newStagePath, prim);
-        newStage->Save();
-
-        UsdPayloads primPayloads = prim.GetPayloads();
-
-        primPayloads.AddPayload(newStagePath.filename());
+        UsdStepExporter::populateUsd(model,stage, prim);
+        stage->Save();
     }
 
     stage->GetRootLayer()->Save();

@@ -140,12 +140,12 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
             std::cout << "Step length unit (cached): " << metersPerUnit << " m\n";
         }
 
-        auto shapeTool    = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
-        auto colorTool    = XCAFDoc_DocumentTool::ColorTool(doc->Main());
+        auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+        auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
-        auto layerTool    = XCAFDoc_DocumentTool::LayerTool(doc->Main());
+        auto layerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
 
-        StepModel model(app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
+        StepModel model(stepPath, app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
         model.buildInstanceTree();
         return model;
     } catch (const Standard_Failure& e) {
