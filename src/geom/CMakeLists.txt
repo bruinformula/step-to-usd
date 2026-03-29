@@ -27,7 +27,6 @@ target_link_libraries(AutolibGeom PUBLIC
 )
 
 if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
-
     target_link_libraries(AutolibGeom PUBLIC
         autolibStepTessellation
     )
@@ -39,21 +38,23 @@ if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
     # StepConvertUsd
     add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
     target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
+
+    add_executable(test_schema test.cpp)
+
+    target_link_libraries(test_schema PRIVATE
+        autolibStepTessellation
+        tf 
+        sdf 
+        usd
+        AutolibGeom
+    )
 endif()
 
 # StepConvertUsdPlain
 add_executable(StepConvertUsdPlain "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsdPlain.cpp")
 target_link_libraries(StepConvertUsdPlain PRIVATE AutolibGeom)
 
-add_executable(test_schema test.cpp)
 
-target_link_libraries(test_schema PRIVATE
-    autolibStepTessellation
-    tf 
-    sdf 
-    usd
-    AutolibGeom
-)
 
 # TODO: Get to this later
 #add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/instant_meshes")
