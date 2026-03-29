@@ -1,8 +1,9 @@
+#include <pxr/usd/usd/inherits.h>
+
 #include "stepTessellationAPI.h"
 #include "tokens.h"
 
 #include "UsdStepExporter.h"
-#include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -62,63 +63,76 @@ void updateIfAuthored(const UsdAttribute& attr, CurveType* value, bool& primHasA
 }
 
 static void traverseForTessParams(
-    UsdPrim prim,
+    UsdPrim prim, 
     TessParams currentParams,
-    std::map<SdfPath, TessParams>& result
+    std::map<SdfPath, TessParams>& partNodes
 ) {
     AutolibStepTessellationAPI api(prim);
+
     bool hasAnyValue = false;
-
-    // Apply relationship-bound options first
-    // should this even be a relationship? 
-    UsdRelationship optionsRel = api.GetStepTessellationOptionsRel();
-    SdfPathVector targets;
-    if (optionsRel && optionsRel.GetForwardedTargets(&targets) && !targets.empty()) {
-        UsdPrim optionsPrim = prim.GetStage()->GetPrimAtPath(targets[0]);
-        if (optionsPrim.IsValid()) {
-            AutolibStepTessellationAPI optionsApi(optionsPrim);
-            updateIfAuthored(optionsApi.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepSketchTypeAttr(), &currentParams.sketchMode.type, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold, hasAnyValue);
-            updateIfAuthored(optionsApi.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses, hasAnyValue);
-        }
-    }
-
-    // Local authored attrs always win over the rel binding
     updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection, hasAnyValue);
     updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection, hasAnyValue);
     updateIfAuthored(api.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize, hasAnyValue);
+
     updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection, hasAnyValue);
     updateIfAuthored(api.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type, hasAnyValue);
     updateIfAuthored(api.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling, hasAnyValue);
+
     updateIfAuthored(api.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection, hasAnyValue);
     updateIfAuthored(api.GetStepSketchTypeAttr(), &currentParams.sketchMode.type, hasAnyValue);
     updateIfAuthored(api.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling, hasAnyValue);
+
     updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold, hasAnyValue);
     updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold, hasAnyValue);
     updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses, hasAnyValue);
 
-    result[prim.GetPath()] = currentParams;
+    partNodes[prim.GetPath()] = currentParams;
 
-    for (const auto& child : prim.GetChildren())
-        traverseForTessParams(child, currentParams, result);
+    // Avoid parts that inherit from /CADPart
+    for (const SdfPath& inheritPath : prim.GetInherits().GetAllDirectInherits()) {
+        if (inheritPath == SdfPath("/CADPart")) {
+            return;
+        }
+    }
+
+    for (const auto& child : prim.GetChildren()) {
+        traverseForTessParams(child, currentParams, partNodes);
+    }
 }
 
 std::map<SdfPath, TessParams> resolveParams(
-    const UsdPrim& rootPrim
+    const UsdPrim& rootPrim,
+    const TessParams& defaultParams
 ) {
-    TessParams defaultParams = {};
-
     std::map<SdfPath, TessParams> results;
     traverseForTessParams(rootPrim, defaultParams, results);
 
     return results;
+}
+
+TessParams getTessParams(
+    UsdPrim prim
+) {
+    AutolibStepTessellationAPI api(prim);
+
+    TessParams params;
+
+    bool hasAnyValue = false;
+    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection, hasAnyValue);
+    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection, hasAnyValue);
+    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize, hasAnyValue);
+
+    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection, hasAnyValue);
+    updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type, hasAnyValue);
+    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling, hasAnyValue);
+
+    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection, hasAnyValue);
+    updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type, hasAnyValue);
+    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling, hasAnyValue);
+
+    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold, hasAnyValue);
+    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold, hasAnyValue);
+    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses, hasAnyValue);
+
+    return params;
 }

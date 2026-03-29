@@ -29,15 +29,11 @@ class "StepFileContainerAPI" (
 
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters. Child prims will take on the opinions of the nearest parent prim"
+    doc = "Step tessellation quality parameters. Apply to prototypes only."
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    rel step:tessellationOptions (
-        doc = "Relationship to a StepTessellationOptions prim whose values override the local attrs"
-    )
-
     float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
         customData = { string variability = "SdfVariabilityUniform" }

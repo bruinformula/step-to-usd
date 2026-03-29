@@ -232,7 +232,7 @@ int main() {
         return 1;
     }
 
-    std::map<SdfPath, TessParams> params = resolveParams(car);
+    std::map<SdfPath, TessParams> params = resolveParams(car, {});
     /*
     std::string finalUsda;
     stage->ExportToString(&finalUsda);

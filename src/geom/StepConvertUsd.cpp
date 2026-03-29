@@ -20,10 +20,11 @@
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/base/work/loops.h>
 
+#ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
 #include "stepTessellationAPI.h"
 #include "stepFileContainerAPI.h"
 #include "stepFileContainer.h"
-#include "tokens.h"
+#endif
 
 #include "ArgumentHandler.h"
 #include "UsdStepExporter.h"
@@ -35,8 +36,8 @@ namespace fs = std::filesystem;
 const std::string argOptions =
     " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
-    "    --inputUsdFile <path>                                      Path to the input Usd file. \n"
-    "    --help                                                     Prints this message.\n";
+    "    --inputUsdFile <path>                  Path to the input Usd file. \n"
+    "    --help                                 Prints this message.\n";
 
 struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 

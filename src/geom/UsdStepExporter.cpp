@@ -2,13 +2,11 @@
 #include <chrono>
 #include <utility>
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <functional>
 #include <initializer_list>
 #include <ostream>
 #include <numeric>
-#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1186,7 +1184,12 @@ void UsdStepExporter::populateUsd(
 
     rootPrim.GetStage()->Load(rootPrim.GetPath());
 
-    std::map<SdfPath, TessParams> paramsBank = resolveParams(rootPrim);
+    UsdPrim prototypePrim = rootPrim.GetStage()->GetPrimAtPath(
+        rootPrim.GetPath().AppendChild(TfToken("Prototypes"))
+    );
+
+    TessParams rootParams = getTessParams(rootPrim);
+    std::map<SdfPath, TessParams> paramsBank = resolveParams(prototypePrim, rootParams);
     std::vector<TessResult> tessResults(defs.size());
 
     for (const auto& p : paramsBank) {
@@ -1209,7 +1212,7 @@ void UsdStepExporter::populateUsd(
         const TopoDS_Shape& defShape = defs[i].second;
         const SdfPath& path = nodePaths[i];
         SdfPath protoPath = prototypePaths[defs[i].first];
-        const TessParams& params = paramsBank.count(nodePaths[i]) ? paramsBank.at(nodePaths[i]) : TessParams{};
+        const TessParams& params = paramsBank.count(protoPath) ? paramsBank.at(protoPath) : TessParams{};
             
         if (defShape.IsNull()) {
             int done = ++tessCompleted;
@@ -1253,7 +1256,7 @@ void UsdStepExporter::populateUsd(
         }
 
         SdfPath protoPath = prototypePaths[defs[i].first];
-        const TessParams& params = paramsBank.count(nodePaths[i]) ? paramsBank.at(nodePaths[i]) : TessParams{};
+        const TessParams& params = paramsBank.count(protoPath) ? paramsBank.at(protoPath) : TessParams{};
 
         if (!writePrototypeGeometry(stage, protoPath, r, params, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
@@ -1280,4 +1283,5 @@ void UsdStepExporter::populateUsd(
             std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
 }
+
 #endif

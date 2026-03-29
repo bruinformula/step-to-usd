@@ -15,5 +15,8 @@ template <>
 void updateIfAuthored<CurveSampling>(const UsdAttribute& attr, CurveSampling* value);
 
 std::map<SdfPath, TessParams> resolveParams(
-    const UsdPrim& rootPrim
+    const UsdPrim& rootPrim,
+    const TessParams& defaultParams
 );
+
+TessParams getTessParams(UsdPrim prim);
