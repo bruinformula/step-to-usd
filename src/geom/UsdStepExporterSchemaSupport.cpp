@@ -1,3 +1,5 @@
+#include <string>
+
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/payloads.h>
@@ -171,8 +173,8 @@ void UsdStepExporter::populateUsd(
 ) {
     TfErrorMark mark;
 
-    fs::path prototypesStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-prototypes.usda");
-    fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usda");
+    fs::path prototypesStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-prototypes.usdc");
+    fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usdc");
     
     SdfPath assemblyPath("/Assembly");
     SdfPath prototypesPath("/Prototypes");
@@ -415,7 +417,8 @@ void UsdStepExporter::populateUsd(
 void UsdStepExporter::populateUsdVariant(
     const StepModel& model, 
     UsdStageRefPtr rootStage,
-    UsdPrim& rootPrim // on the stage with the stronger opinions
+    UsdPrim& rootPrim, // on the stage with the stronger opinions
+    const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames
 ) {
     TfErrorMark mark;
 
@@ -430,16 +433,16 @@ void UsdStepExporter::populateUsdVariant(
 
     // Pass rootPrimPath as the default prim anchor
     UsdVariantSets rootVariantSets = rootPrim.GetVariantSets();
-    std::vector<std::string> rootVariantSetNames;
-    rootVariantSets.GetNames(&rootVariantSetNames);
-
     std::vector<PrototypeContainer> prototypes;
 
     // Initialize Prototypes
-    
-    WorkParallelForEach(rootVariantSetNames.begin(), rootVariantSetNames.end(), [&](const std::string& set) -> void {
-        for (const auto& variant : rootVariantSets.GetVariantSet(set).GetVariantNames()) {
-            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usda";
+    std::mutex protoMutex;
+    WorkParallelForEach(variantSetNameToVariantNames.begin(), variantSetNameToVariantNames.end(), [&](const auto& entry) -> void {
+        const std::string& set = entry.first;
+        const std::vector<std::string>& rootVariantNames = entry.second;
+
+        for (const auto& variant : rootVariantNames) {
+            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usdc";
 
             UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, true);
             if (!prototypesStage) {
@@ -463,8 +466,10 @@ void UsdStepExporter::populateUsdVariant(
             container.variantName = variant;
             container.filePath = prototypesStageFilePath;
             container.stage = prototypesStage;
-
-            prototypes.push_back(container);
+            {
+                std::lock_guard<std::mutex> lock(protoMutex);
+                prototypes.push_back(container);
+            }
         }
     });
 

@@ -38,11 +38,16 @@ const std::string argOptions =
     " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
     "    --inputUsdFile <path>                  Path to the input Usd file. \n"
-    "    --help                                 Prints this message.\n";
+    "    --variantSet <variantSetName>          If the Usd file has variants, specify which variant to convert. If empty all will be converted\n"
+    "    --variant <variantName>                If the Usd file has variants, specify which variant in the set to convert. If empty all will be converted\n"
+    "    --help                                 Prints this message.\n"
+    "    usage: StepConvertUsd --inputUsdFile <path> [--variantSet <variantSetName> --variant <variantName>] \n";
 
 struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
+
+    std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -51,6 +56,23 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 if (nextToken.empty()) goto expectOption;
                 if (!inputUsdFile.empty()) goto alreadySet;
                 inputUsdFile = nextToken;
+                return SUCCESS_CONSUME_NEXT;
+            }
+
+            case hashString("--variantSet"): {
+                if (nextToken.empty()) goto expectOption;
+                variantSetNameToVariantNames[nextToken]; // default construct an entry for this variant set, we'll fill in the variants later when we parse the --variant options
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--variant"): {
+                if (nextToken.empty()) goto expectOption;
+                // Find the last added variant set and add this variant to it
+                if (variantSetNameToVariantNames.empty()) {
+                    std::cerr << "No variant set specified before variant: " << nextToken << std::endl;
+                    return FAILURE;
+                }
+                auto& lastVariantSet = variantSetNameToVariantNames.rbegin()->second;
+                lastVariantSet.push_back(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
@@ -200,9 +222,63 @@ int main(int argc, char** argv) {
         rootVariantSets.GetNames(&vsetNames);
 
         if (vsetNames.empty()) {
+            if (!inputArgs.variantSetNameToVariantNames.empty()) {
+                std::cerr << "The USD file does not have any variant sets. ignoring variant specifications.\n";
+            }
+
             UsdStepExporter::populateUsd(model,stage, prim);
+        }
+
+        if (inputArgs.variantSetNameToVariantNames.empty()) { 
+            std::cout << "Converting all variant sets found in USD file:\n";
+            for (const auto& set : vsetNames) {
+                std::cout << "  Variant Set: " << set << "\n";
+                std::vector<std::string> variantNames = rootVariantSets.GetVariantSet(set).GetVariantNames();
+                for (const auto& variant : variantNames) {
+                    std::cout << "    Variant: " << variant << "\n";
+                }
+            }
+
+            std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
+
+            for (const auto& name : vsetNames) {
+                variantSetNameToVariantNames[name] = rootVariantSets.GetVariantSet(name).GetVariantNames();
+            }
+            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames);
         } else {
-            UsdStepExporter::populateUsdVariant(model,stage, prim);
+            std::cout << "Converting only specified variant sets:\n";
+            for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
+                std::cout << "  Variant Set: " << set << "\n";
+                for (const auto& variant : variants) {
+                    std::cout << "    Variant: " << variant << "\n";
+                }
+            }
+
+            // Filter the variant sets and variants to 
+            // only those specified in the input arguments
+
+            std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
+            for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
+                if (std::find(vsetNames.begin(), vsetNames.end(), set) == vsetNames.end()) {
+                    std::cerr << "Variant set specified in arguments not found in USD file: " << set << "\n";
+                    continue;
+                }
+
+                std::vector<std::string> validVariants;
+                for (const auto& variant : variants) {
+                    if (std::find(rootVariantSets.GetVariantSet(set).GetVariantNames().begin(), rootVariantSets.GetVariantSet(set).GetVariantNames().end(), variant) == rootVariantSets.GetVariantSet(set).GetVariantNames().end()) {
+                        std::cerr << "Variant specified in arguments not found in USD file under set " << set << ": " << variant << "\n";
+                        continue;
+                    }
+                    validVariants.push_back(variant);
+                }
+
+                if (!validVariants.empty()) {
+                    variantSetNameToVariantNames[set] = validVariants;
+                }
+            }
+
+            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames);
         }
 
         stage->Save();

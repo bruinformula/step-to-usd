@@ -117,7 +117,8 @@ struct UsdStepExporter {
     static void populateUsdVariant(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
-        UsdPrim& rootPrim // on the stage with the stronger opinions
+        UsdPrim& rootPrim, // on the stage with the stronger opinions
+        const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames
     );
     #endif
 
