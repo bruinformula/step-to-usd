@@ -162,4 +162,27 @@ private:
         int defIdx
     ); 
 
+    static void tessellateGeometry(
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const LabelMap<SdfPath>& prototypePaths,
+        const SdfPath& prototypesPath,
+        const SdfPath& prototypesInRootPath,
+        const std::string& logLabel,
+        const TessParams& rootParams,
+        std::vector<TessResult>& outResults,
+        const std::map<SdfPath, TessParams>& paramsBank = {} // Optional for standard export
+    );
+
+    static void writeGeometry(
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const LabelMap<SdfPath>& prototypePaths,
+        const SdfPath& prototypesPath,
+        const SdfPath& prototypesInRootPath,
+        UsdStageRefPtr targetStage,
+        const std::string& logLabel,
+        const TessParams& rootParams,
+        const std::vector<TessResult>& tessResults,
+        const std::map<SdfPath, TessParams>& paramsBank = {} // Optional
+    );
+
 };

@@ -66,6 +66,7 @@
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/references.h>
 #include <pxr/usd/usd/payloads.h>
+#include <pxr/base/work/loops.h>
 
 #include <pxr/usd/sdf/changeBlock.h>
 #include <pxr/usd/sdf/types.h>
@@ -1003,6 +1004,92 @@ void UsdStepExporter::writeAssemblyXforms(
             }
         } // SdfChangeBlock
         std::cerr << "\r[" << ++completed << "/" << total << "] Writing partNodes..." << std::flush;
+    }
+    std::cerr << "\n";
+}
+
+void UsdStepExporter::tessellateGeometry(
+    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+    const LabelMap<SdfPath>& prototypePaths,
+    const SdfPath& prototypesPath,
+    const SdfPath& prototypesInRootPath,
+    const std::string& logLabel,
+    const TessParams& rootParams,
+    std::vector<TessResult>& outResults,
+    const std::map<SdfPath, TessParams>& paramsBank // Optional for standard export
+) {
+    auto findParams = [&](const SdfPath& path) -> const TessParams& {
+        SdfPath p = path;
+        while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
+            auto it = paramsBank.find(p);
+            if (it != paramsBank.end()) return it->second;
+            p = p.GetParentPath();
+        }
+        return rootParams;
+    };
+
+    const int total = (int)defs.size();
+    std::atomic<int> tessCompleted(0);
+
+    WorkParallelForN(total, [&](int start, int end) {
+        for (int i = start; i < end; i++) {
+            SdfPath protoPath = prototypePaths.at(defs[i].first);
+            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
+            
+            const TessParams& params = findParams(protoPathInRoot);
+            const TopoDS_Shape& defShape = defs[i].second;
+
+            if (!defShape.IsNull()) {
+                try {
+                    TessResult result;
+                    if (tesselatePart(result, defShape, params)) {
+                        outResults[i] = std::move(result);
+                    }
+                } catch (const Standard_Failure& e) {
+                    std::cerr << "\nOCC exception: " << e.GetMessageString() << "\n";
+                }
+            }
+            std::cerr << "\r[" << ++tessCompleted << "/" << total << "] Tessellating " << logLabel << "..." << std::flush;
+        }
+    });
+
+    std::cerr << "\n";
+}
+
+void UsdStepExporter::writeGeometry(
+    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+    const LabelMap<SdfPath>& prototypePaths,
+    const SdfPath& prototypesPath,
+    const SdfPath& prototypesInRootPath,
+    UsdStageRefPtr targetStage,
+    const std::string& logLabel,
+    const TessParams& rootParams,
+    const std::vector<TessResult>& tessResults,
+    const std::map<SdfPath, TessParams>& paramsBank // Optional
+) {
+    auto findParams = [&](const SdfPath& path) -> const TessParams& {
+        SdfPath p = path;
+        while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
+            auto it = paramsBank.find(p);
+            if (it != paramsBank.end()) return it->second;
+            p = p.GetParentPath();
+        }
+        return rootParams;
+    };
+
+    const int total = (int)defs.size();
+    int completed = 0;
+
+    for (int i = 0; i < total; i++) {
+        SdfPath protoPath = prototypePaths.at(defs[i].first);
+        SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
+        
+        const TessParams& params = findParams(protoPathInRoot);
+
+        if (!writePrototypeGeometry(targetStage, protoPath, tessResults[i], params, i)) {
+            continue;
+        }
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing " << logLabel << "..." << std::flush;
     }
     std::cerr << "\n";
 }

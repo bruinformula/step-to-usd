@@ -10,7 +10,6 @@
 
 #include <pxr/base/work/loops.h>
 
-#include <opencascade/OSD_Parallel.hxx>
 #include <opencascade/TopExp_Explorer.hxx>
 
 #include "stepTessellationAPI.h"
@@ -337,66 +336,18 @@ void UsdStepExporter::populateUsd(
     TessParams rootParams = getTessParams(rootPrim);
     std::map<SdfPath, TessParams> paramsBank = resolveParams(prototypePrim, rootParams);
     std::vector<TessResult> tessResults(defs.size());
-    
-    OSD_Parallel::For(0, total, [&](int i) {
-        const TopoDS_Shape& defShape = defs[i].second;
-        SdfPath protoPath = prototypePaths[defs[i].first];
+    std::string logName = "";
+    std::map<SdfPath, TessParams> emptyBank;
 
-        // Translate /Prototypes/plate0 -> /Wonderful/Prototypes/plate0
-        // so it matches the keys in paramsBank which come from the root stage
-        SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
+    tessellateGeometry(
+        defs, prototypePaths, prototypesPath, prototypesInRootPath,
+        logName, rootParams, tessResults, emptyBank
+    );
 
-        const TessParams& params = paramsBank.count(protoPathInRoot) ? paramsBank.at(protoPathInRoot) : rootParams;
-        
-        if (defShape.IsNull()) {
-            int done = ++tessCompleted;
-            std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
-            return;
-        }
-
-        auto partStart = Clock::now();
-        std::string partName = getLabelName(defs[i].first);
-
-        try {
-            TessResult result;
-            if (tesselatePart(result, defShape, params))
-                tessResults[i] = std::move(result);
-        } catch (const Standard_Failure& e) {
-            std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
-        }
-
-        double elapsed = Seconds(Clock::now() - partStart).count();
-        if (elapsed > 10.0) {
-            std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
-                    << "  time=" << elapsed << "s"
-                    << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
-                    << "\n";
-        }
-
-        int done = ++tessCompleted;
-        std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
-    });
-
-    std::cerr << "\n";
-    
-    protoCompleted = 0;
-    for (int i = 0; i < protoTotal; i++) {
-        SdfPath protoPath = prototypePaths[defs[i].first];
-        SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
-
-        const TessParams& params = paramsBank.count(protoPathInRoot) ? paramsBank.at(protoPathInRoot) : rootParams;
-        const TessResult& r = tessResults[i];
-
-        if (!writePrototypeGeometry(prototypesStage, protoPath, r, params, i)) {
-            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-            continue;
-        }
-
-        prototypePaths[defs[i].first] = protoPath;
-        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
-        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-    }
-    std::cerr << "\n";
+    writeGeometry(
+        defs, prototypePaths, prototypesPath, prototypesInRootPath,
+        prototypesStage, logName, rootParams, tessResults, emptyBank
+    );
 
     // Hide /Prototypes from renderers via the root stage override,
     // not on the prototypes stage itself (which would break re-runs)
@@ -633,103 +584,23 @@ void UsdStepExporter::populateUsdVariant(
         variantWork[vi].tessResults.resize(defs.size());
     }
 
-    // Tessellate each variant
+    // Tessellate each variant sequentially
     for (VariantWork& work : variantWork) {
-        const TessParams& rootParams = work.rootParams;
-
-        // /Wonderful/Prototypes is inactive in the root layer so USD does not
-        // compose its children — paramsBank will only ever contain the parent
-        // path itself. Walk up from the prototype path to the nearest ancestor
-        // that is in the bank before falling back to rootParams. This means
-        // params authored on /Wonderful/Prototypes propagate to all prototypes,
-        // and any future per-prototype `over` blocks will still win because the
-        // exact path hits first.
-        auto findParams = [&](const SdfPath& path) -> const TessParams& {
-            SdfPath p = path;
-            while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
-                auto it = work.paramsBank.find(p);
-                if (it != work.paramsBank.end()) return it->second;
-                p = p.GetParentPath();
-            }
-            return rootParams;
-        };
-
-        std::atomic<int> tessCompleted(0);
-
-        OSD_Parallel::For(0, total, [&](int i) {
-            const TopoDS_Shape& defShape = defs[i].second;
-            SdfPath protoPath = prototypePaths[defs[i].first];
-
-            // Change the prim references from 
-            // /Prototypes/plate0 -> /Wonderful/Prototypes/plate0
-            // so it matches the keys in paramsBank which come from the root stage
-            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
-
-            const TessParams& params = findParams(protoPathInRoot);
-
-            if (defShape.IsNull()) {
-                int done = ++tessCompleted;
-                std::cerr << "\r[" << done << "/" << total << "] Tessellating " << work.proto->variantName << "..." << std::flush;
-                return;
-            }
-
-            auto partStart = Clock::now();
-            std::string partName = getLabelName(defs[i].first);
-
-            try {
-                TessResult result;
-                if (tesselatePart(result, defShape, params))
-                    work.tessResults[i] = std::move(result);
-            } catch (const Standard_Failure& e) {
-                std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
-            }
-
-            double elapsed = Seconds(Clock::now() - partStart).count();
-            if (elapsed > 10.0) {
-                std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
-                        << "  time=" << elapsed << "s"
-                        << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
-                        << "\n";
-            }
-
-            int done = ++tessCompleted;
-            std::cerr << "\r[" << done << "/" << total << "] Tessellating " << work.proto->variantName << "..." << std::flush;
-        });
-
-        std::cerr << "\n";
+        std::string logLabel = "variant " + work.proto->variantSetName + ", " + work.proto->variantName;
+        tessellateGeometry(
+            defs, prototypePaths, prototypesPath, prototypesInRootPath,
+            logLabel, work.rootParams, work.tessResults, work.paramsBank
+        );
     }
 
-    // Write geometry for all variants in parallelz
+    // Write geometry for all variants in parallel
     WorkParallelForEach(variantWork.begin(), variantWork.end(), [&](VariantWork& work) {
-        const TessParams& rootParams = work.rootParams;
-
-        auto findParams = [&](const SdfPath& path) -> const TessParams& {
-            SdfPath p = path;
-            while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
-                auto it = work.paramsBank.find(p);
-                if (it != work.paramsBank.end()) return it->second;
-                p = p.GetParentPath();
-            }
-            return rootParams;
-        };
-
-        int completed = 0;
-        for (int i = 0; i < protoTotal; i++) {
-            SdfPath protoPath = prototypePaths[defs[i].first];
-            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
-
-            const TessParams& params = findParams(protoPathInRoot);
-            const TessResult& r = work.tessResults[i];
-
-            if (!writePrototypeGeometry(work.proto->stage, protoPath, r, params, i)) {
-                std::cerr << "\r[" << ++completed << "/" << protoTotal << "] Writing " << work.proto->variantName << "..." << std::flush;
-                continue;
-            }
-
-            std::cerr << "\r[" << ++completed << "/" << protoTotal << "] Writing " << work.proto->variantName << "..." << std::flush;
-        }
-        std::cerr << "\n";
-
+        std::string logLabel = "variant " + work.proto->variantSetName + ", " + work.proto->variantName;
+        writeGeometry(
+            defs, prototypePaths, prototypesPath, prototypesInRootPath,
+            work.proto->stage, logLabel, work.rootParams, 
+            work.tessResults, work.paramsBank
+        );
         work.proto->stage->Save();
     });
 
