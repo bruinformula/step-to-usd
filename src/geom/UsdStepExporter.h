@@ -98,7 +98,7 @@ struct UsdStepExporter {
     static UsdStageRefPtr initUsdStage(
         const fs::path& newStagePath, 
         const SdfPath& rootPrimPath,
-        bool writeCadPart = false
+        bool clearExisting
     );
 
     static void populateUsdPlain(
@@ -111,14 +111,16 @@ struct UsdStepExporter {
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
-        UsdPrim& rootPrim // on the stage with the stronger opinions
+        UsdPrim& rootPrim, // on the stage with the stronger opinions
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
 
     static void populateUsdVariant(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
         UsdPrim& rootPrim, // on the stage with the stronger opinions
-        const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames
+        const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
     #endif
 
@@ -170,7 +172,8 @@ private:
         const std::string& logLabel,
         const TessParams& rootParams,
         std::vector<TessResult>& outResults,
-        const std::map<SdfPath, TessParams>& paramsBank = {} // Optional for standard export
+        const std::map<SdfPath, TessParams>& paramsBank = {}, // Optional for standard export
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
 
     static void writeGeometry(
@@ -182,7 +185,8 @@ private:
         const std::string& logLabel,
         const TessParams& rootParams,
         const std::vector<TessResult>& tessResults,
-        const std::map<SdfPath, TessParams>& paramsBank = {} // Optional
+        const std::map<SdfPath, TessParams>& paramsBank, // Optional
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
 
 };

@@ -40,7 +40,7 @@ const std::string argOptions =
     "    --inputUsdFile <path>                  Path to the input Usd file. \n"
     "    --variantSet <variantSetName>          If the Usd file has variants, specify which variant to convert. If empty all will be converted\n"
     "    --variant <variantName>                If the Usd file has variants, specify which variant in the set to convert. If empty all will be converted\n"
-    "    --prototype <nameOfPrototype           Only tesselate the prototype with the given name (the name of the prototype prim in USD, not the STEP file name). Can be used multiple times to specify multiple prototypes. If empty, all prototypes will be converted.\n"
+    "    --prototype <nameOfPrototype>          Only tesselate the prototype with the given name within /Prototypes (eg: rod). Can be used multiple times to specify multiple prototypes. If empty, all prototypes will be converted.\n"
     "    --help                                 Prints this message.\n"
     "    usage: StepConvertUsd --inputUsdFile <path> [--variantSet <variantSetName> --variant <variantName>] \n";
 
@@ -49,6 +49,7 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
     std::filesystem::path inputUsdFile;
 
     std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
+    std::unordered_set<std::string> prototypeFilter;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
 
@@ -74,6 +75,12 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 }
                 auto& lastVariantSet = variantSetNameToVariantNames.rbegin()->second;
                 lastVariantSet.push_back(nextToken);
+                return SUCCESS_CONSUME_NEXT;
+            }
+            case hashString("--prototype"): {
+                if (nextToken.empty()) goto expectOption;
+
+                prototypeFilter.insert(nextToken);
                 return SUCCESS_CONSUME_NEXT;
             }
             case hashString("--help"): {
@@ -216,7 +223,16 @@ int main(int argc, char** argv) {
         }
 
         const StepModel& model = iter->second;
-        
+
+        // Prototypes
+
+        std::unordered_set<SdfPath, SdfPath::Hash> prototypeFilter;
+
+        for (const std::string& prototype : inputArgs.prototypeFilter) {
+            prototypeFilter.insert(SdfPath("/Prototypes/" + prototype));
+        }
+
+        // Variants
         UsdVariantSets rootVariantSets = prim.GetVariantSets();
 
         std::vector<std::string> vsetNames;
@@ -227,10 +243,8 @@ int main(int argc, char** argv) {
                 std::cerr << "The USD file does not have any variant sets. ignoring variant specifications.\n";
             }
 
-            UsdStepExporter::populateUsd(model,stage, prim);
-        }
-
-        if (inputArgs.variantSetNameToVariantNames.empty()) { 
+            UsdStepExporter::populateUsd(model,stage, prim, prototypeFilter);
+        } else if (inputArgs.variantSetNameToVariantNames.empty()) { 
             std::cout << "Converting all variant sets found in USD file:\n";
             for (const auto& set : vsetNames) {
                 std::cout << "  Variant Set: " << set << "\n";
@@ -245,7 +259,7 @@ int main(int argc, char** argv) {
             for (const auto& name : vsetNames) {
                 variantSetNameToVariantNames[name] = rootVariantSets.GetVariantSet(name).GetVariantNames();
             }
-            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames);
+            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames, prototypeFilter);
         } else {
             std::cout << "Converting only specified variant sets:\n";
             for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
@@ -279,7 +293,7 @@ int main(int argc, char** argv) {
                 }
             }
 
-            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames);
+            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames, prototypeFilter);
         }
 
         stage->Save();

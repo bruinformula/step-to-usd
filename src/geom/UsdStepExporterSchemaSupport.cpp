@@ -116,9 +116,12 @@ std::map<SdfPath, TessParams> resolveParams(
     const UsdPrim& rootPrim,
     const TessParams& defaultParams
 ) {
+    bool initialValue = rootPrim.IsActive();
+    rootPrim.SetActive(true);
     std::map<SdfPath, TessParams> results;
     traverseForTessParams(rootPrim, defaultParams, results);
 
+    rootPrim.SetActive(initialValue);
     return results;
 }
 
@@ -168,7 +171,8 @@ struct VariantWork {
 void UsdStepExporter::populateUsd(
     const StepModel& model, 
     UsdStageRefPtr rootStage,
-    UsdPrim& rootPrim // on the stage with the stronger opinions
+    UsdPrim& rootPrim, // on the stage with the stronger opinions
+    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
 ) {
     TfErrorMark mark;
 
@@ -182,19 +186,37 @@ void UsdStepExporter::populateUsd(
     SdfPath assemblyInRootPath = rootPrimPath.AppendChild(TfToken("Assembly"));
     SdfPath prototypesInRootPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
 
+    bool makeFreshStage = prototypesFilter.empty();
+
     // Pass rootPrimPath as the default prim anchor
-    UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, true);
+    UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
     if (!prototypesStage) {
         std::cerr << "Failed to initialize USD stage for " << prototypesStageFilePath << "\n";
         return;
     }
+
+    // Use the stage API to rebuild the class/scaffolding
+    // for a stage that may already exist
+    // This ensures the Prim Objects are valid and not "Expired"
+    UsdPrim cadPartClass = prototypesStage->CreateClassPrim(SdfPath("/CADPart"));
+    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    auto makeClassChild = [&](const char* name) {
+        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
+        UsdPrim child = prototypesStage->DefinePrim(childPath);
+        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+    };
+
+    makeClassChild("Mesh");
+    makeClassChild("Wireframe");
+    makeClassChild("Sketch");
 
     UsdPrim existingPrototypesRoot = prototypesStage->GetPrimAtPath(prototypesPath);
     if (existingPrototypesRoot.IsValid() && !existingPrototypesRoot.IsActive()) {
         existingPrototypesRoot.SetActive(true);
     }
 
-    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, rootPrimPath);
+    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, rootPrimPath, makeFreshStage);
     if (!assemblyStage) {
         std::cerr << "Failed to initialize USD stage for " << assemblyStageFilePath << "\n";
         return;
@@ -209,9 +231,10 @@ void UsdStepExporter::populateUsd(
     prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
     assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
 
-    // Create /Wonderful in both files, and nest the scopes underneath
+    // Create def /Prototypes in prototypes stage
     UsdGeomScope prototypesScope = UsdGeomScope::Define(prototypesStage, prototypesPath);
     
+    // Create over /(root_prim)/Assembly in assembly stage
     UsdPrim assemblyRoot = assemblyStage->OverridePrim(rootPrimPath);
     UsdGeomScope assemblyScope = UsdGeomScope::Define(assemblyStage, assemblyInRootPath);
 
@@ -268,24 +291,34 @@ void UsdStepExporter::populateUsd(
         int protoCount = protoNameCounts[rawName]++;
         std::string name = sanitizeUsdName(rawName, protoCount);
         SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
+        SdfPath assemblyProtoPath = prototypesInRootPath.AppendChild(TfToken(name));
+
+        // Always register so tessellate/write phases can find this def
+        prototypePaths[defs[i].first] = protoPath;
+        prototypeInAssemblyPaths[defs[i].first] = assemblyProtoPath;
+
+        if (!prototypesFilter.empty() && prototypesFilter.find(protoPath) != prototypesFilter.end()) {
+            prototypesStage->RemovePrim(protoPath);
+        }
+
+        // Skip writing the xform scaffolding if it already exists on a partial retess
+        if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
+            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+            continue;
+        }
 
         if (!writePrototypeXform(prototypesStage, protoPath, i)) {
             std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
             continue;
         }
 
-        SdfPath assemblyProtoPath = prototypesInRootPath.AppendChild(TfToken(name));
-
         assemblyStage->OverridePrim(assemblyProtoPath);
-
-        prototypePaths[defs[i].first] = protoPath;
-        prototypeInAssemblyPaths[defs[i].first] = assemblyProtoPath;
-        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
         std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
     }
 
     std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
-    writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
+    if (makeFreshStage)
+        writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
 
     // Save both stages before adding the payload so 
     // the root stage can see the full composed 
@@ -337,16 +370,15 @@ void UsdStepExporter::populateUsd(
     std::map<SdfPath, TessParams> paramsBank = resolveParams(prototypePrim, rootParams);
     std::vector<TessResult> tessResults(defs.size());
     std::string logName = "";
-    std::map<SdfPath, TessParams> emptyBank;
 
     tessellateGeometry(
         defs, prototypePaths, prototypesPath, prototypesInRootPath,
-        logName, rootParams, tessResults, emptyBank
+        logName, rootParams, tessResults, paramsBank, prototypesFilter
     );
 
     writeGeometry(
         defs, prototypePaths, prototypesPath, prototypesInRootPath,
-        prototypesStage, logName, rootParams, tessResults, emptyBank
+        prototypesStage, logName, rootParams, tessResults, paramsBank, prototypesFilter
     );
 
     // Hide /Prototypes from renderers via the root stage override,
@@ -369,7 +401,8 @@ void UsdStepExporter::populateUsdVariant(
     const StepModel& model, 
     UsdStageRefPtr rootStage,
     UsdPrim& rootPrim, // on the stage with the stronger opinions
-    const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames
+    const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
 ) {
     TfErrorMark mark;
 
@@ -385,6 +418,10 @@ void UsdStepExporter::populateUsdVariant(
     // Pass rootPrimPath as the default prim anchor
     UsdVariantSets rootVariantSets = rootPrim.GetVariantSets();
     std::vector<PrototypeContainer> prototypes;
+    
+    // if the user specifies a prototype to remesh
+    // don't clean house with the ones that are already there
+    bool makeFreshStage = prototypesFilter.empty();
 
     // Initialize Prototypes
     std::mutex protoMutex;
@@ -395,7 +432,7 @@ void UsdStepExporter::populateUsdVariant(
         for (const auto& variant : rootVariantNames) {
             fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usdc";
 
-            UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, true);
+            UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
             if (!prototypesStage) {
                 std::cerr << "Failed to initialize USD stage for " << prototypesStageFilePath << "\n";
                 return;
@@ -425,7 +462,7 @@ void UsdStepExporter::populateUsdVariant(
     });
 
     // Initialize Assembly
-    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, rootPrimPath);
+    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, rootPrimPath, makeFreshStage);
     if (!assemblyStage) {
         std::cerr << "Failed to initialize USD stage for " << assemblyStageFilePath << "\n";
         return;
@@ -506,7 +543,8 @@ void UsdStepExporter::populateUsdVariant(
     }
 
     std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
-    writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
+    if (makeFreshStage)
+        writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
 
     // Save both stages before adding the payload so 
     // the root stage can see the full composed 
@@ -589,7 +627,7 @@ void UsdStepExporter::populateUsdVariant(
         std::string logLabel = "variant " + work.proto->variantSetName + ", " + work.proto->variantName;
         tessellateGeometry(
             defs, prototypePaths, prototypesPath, prototypesInRootPath,
-            logLabel, work.rootParams, work.tessResults, work.paramsBank
+            logLabel, work.rootParams, work.tessResults, work.paramsBank, prototypesFilter
         );
     }
 
@@ -599,7 +637,7 @@ void UsdStepExporter::populateUsdVariant(
         writeGeometry(
             defs, prototypePaths, prototypesPath, prototypesInRootPath,
             work.proto->stage, logLabel, work.rootParams, 
-            work.tessResults, work.paramsBank
+            work.tessResults, work.paramsBank, prototypesFilter
         );
         work.proto->stage->Save();
     });
