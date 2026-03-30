@@ -1,6 +1,12 @@
+#include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/payloads.h>
+#include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/usd/editContext.h>
+
 #include <pxr/usd/usdGeom/scope.h>
+
+#include <pxr/base/work/loops.h>
 
 #include <opencascade/OSD_Parallel.hxx>
 #include <opencascade/TopExp_Explorer.hxx>
@@ -100,7 +106,7 @@ static void traverseForTessParams(
         }
     }
 
-    for (const auto& child : prim.GetChildren()) {
+    for (const auto& child : prim.GetFilteredChildren(UsdPrimAllPrimsPredicate)) {
         traverseForTessParams(child, currentParams, partNodes);
     }
 }
@@ -142,6 +148,21 @@ TessParams getTessParams(
     return params;
 }
 
+struct PrototypeContainer {
+    std::string variantSetName;
+    std::string variantName;
+    fs::path filePath;
+    UsdStageRefPtr stage;
+};
+
+// All data needed to write one variant's geometry, collected during the
+// sequential phases so the write phase can run in parallel.
+struct VariantWork {
+    const PrototypeContainer* proto = nullptr;
+    TessParams rootParams;
+    std::map<SdfPath, TessParams> paramsBank;
+    std::vector<TessResult> tessResults;
+};
 
 void UsdStepExporter::populateUsd(
     const StepModel& model, 
@@ -384,6 +405,337 @@ void UsdStepExporter::populateUsd(
     }
 
     prototypesStage->Save();
+
+    if (!mark.IsClean()) {
+        for (const auto& error : mark)
+            std::cerr << "Usd: " << error.GetCommentary() << "\n";
+    }
+}
+
+void UsdStepExporter::populateUsdVariant(
+    const StepModel& model, 
+    UsdStageRefPtr rootStage,
+    UsdPrim& rootPrim // on the stage with the stronger opinions
+) {
+    TfErrorMark mark;
+
+    std::string basePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-");
+    fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usdc");
+
+    SdfPath prototypesPath("/Prototypes");
+
+    SdfPath rootPrimPath = rootPrim.GetPath();
+    SdfPath assemblyInRootPath = rootPrimPath.AppendChild(TfToken("Assembly"));
+    SdfPath prototypesInRootPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
+
+    // Pass rootPrimPath as the default prim anchor
+    UsdVariantSets rootVariantSets = rootPrim.GetVariantSets();
+    std::vector<std::string> rootVariantSetNames;
+    rootVariantSets.GetNames(&rootVariantSetNames);
+
+    std::vector<PrototypeContainer> prototypes;
+
+    // Initialize Prototypes
+    
+    WorkParallelForEach(rootVariantSetNames.begin(), rootVariantSetNames.end(), [&](const std::string& set) -> void {
+        for (const auto& variant : rootVariantSets.GetVariantSet(set).GetVariantNames()) {
+            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usda";
+
+            UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, true);
+            if (!prototypesStage) {
+                std::cerr << "Failed to initialize USD stage for " << prototypesStageFilePath << "\n";
+                return;
+            }
+
+            UsdPrim existingPrototypesRoot = prototypesStage->GetPrimAtPath(prototypesPath);
+            if (existingPrototypesRoot.IsValid() && !existingPrototypesRoot.IsActive()) {
+                existingPrototypesRoot.SetActive(true);
+            }
+
+            prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
+            UsdGeomScope prototypesScope = UsdGeomScope::Define(prototypesStage, prototypesPath);
+            prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
+
+            prototypesStage->Save();
+
+            PrototypeContainer container;
+            container.variantSetName = set;
+            container.variantName = variant;
+            container.filePath = prototypesStageFilePath;
+            container.stage = prototypesStage;
+
+            prototypes.push_back(container);
+        }
+    });
+
+    // Initialize Assembly
+    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, rootPrimPath);
+    if (!assemblyStage) {
+        std::cerr << "Failed to initialize USD stage for " << assemblyStageFilePath << "\n";
+        return;
+    }
+
+    rootPrim = rootStage->GetPrimAtPath(rootPrimPath);
+    if (!rootPrim.IsValid()) {
+        std::cerr << "Root prim invalid after stage init (shared layer recomposition)\n";
+        return;
+    }
+
+    assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
+
+    UsdPrim assemblyRoot = assemblyStage->OverridePrim(rootPrimPath);
+    UsdGeomScope::Define(assemblyStage, assemblyInRootPath);
+
+    assemblyStage->SetDefaultPrim(assemblyRoot);
+
+    SdfLayerHandle rootLayer = rootStage->GetRootLayer();
+    std::string assemblyFileName = assemblyStageFilePath.filename().string();
+
+    // Check if it's already there before adding
+    SdfSubLayerProxy subLayers = rootLayer->GetSubLayerPaths();
+    bool alreadyExists = false;
+    for (const auto& path : subLayers) {
+        if (path == assemblyFileName) {
+            alreadyExists = true;
+            break;
+        }
+    }
+
+    if (!alreadyExists) {
+        rootLayer->InsertSubLayerPath(assemblyFileName);
+    }
+
+    assemblyStage->Save();
+
+    using Clock = std::chrono::high_resolution_clock;
+    using Seconds = std::chrono::duration<double>;
+
+    std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(
+        model.definitionShapes.begin(),
+        model.definitionShapes.end()
+    );
+
+    const int total = (int)defs.size();
+
+    // Write Xforms first so USD can resolve opinions that
+    // will later be populated by geometry later 
+    LabelMap<SdfPath> prototypePaths;
+    LabelMap<SdfPath> prototypeInAssemblyPaths;
+
+    std::unordered_map<std::string, int> protoNameCounts;
+    const int protoTotal = (int)defs.size();
+    int protoCompleted = 0;
+
+    for (int i = 0; i < protoTotal; i++) {
+        std::string rawName = getLabelName(defs[i].first);
+        if (rawName.empty()) {
+            rawName = "Def_" + std::to_string(i);
+        }
+        int protoCount = protoNameCounts[rawName]++;
+        std::string name = sanitizeUsdName(rawName, protoCount);
+        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
+        SdfPath assemblyProtoPath = prototypesInRootPath.AppendChild(TfToken(name));
+
+        prototypePaths[defs[i].first] = protoPath;
+        prototypeInAssemblyPaths[defs[i].first] = assemblyProtoPath;
+
+        assemblyStage->OverridePrim(assemblyProtoPath);
+
+        for (const auto& proto : prototypes) {
+            if (!writePrototypeXform(proto.stage, protoPath, i)) {
+                continue;
+            }
+        }
+        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+    }
+
+    std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
+    writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
+
+    // Save both stages before adding the payload so 
+    // the root stage can see the full composed 
+    // hierarchy on reload
+
+    for (const auto& proto : prototypes) {
+        proto.stage->Save();
+    }
+    assemblyStage->Save();
+
+    // Add the prototypes stage as the payload
+
+    for (const auto& proto : prototypes) {
+        std::string payloadPath = proto.filePath.filename().string();
+
+        UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
+        varSet.SetVariantSelection(proto.variantName);
+
+        UsdEditContext ctx(varSet.GetVariantEditContext());
+        UsdPrim prototypesPrimOnRoot = rootStage->OverridePrim(prototypesInRootPath);
+
+        SdfPrimSpecHandle protoSpec = rootStage->GetEditTarget().GetPrimSpecForScenePath(prototypesInRootPath);
+
+        bool payloadAlreadyAuthored = false;
+        if (protoSpec) {
+            for (const SdfPayload& p : protoSpec->GetPayloadList().GetAddedOrExplicitItems()) {
+                if (p.GetAssetPath() == payloadPath) {
+                    payloadAlreadyAuthored = true;
+                    break;
+                }
+            }
+        }
+
+        if (!payloadAlreadyAuthored) {
+            prototypesPrimOnRoot.GetPayloads().AddPayload(payloadPath);
+        }
+    }
+
+    rootStage->GetRootLayer()->Save();
+    // Still need to reload to pick up freshly written prototypes geometry
+    rootStage->Reload();
+
+    rootPrim = rootStage->GetPrimAtPath(rootPrimPath);
+    if (!rootPrim.IsValid()) {
+        std::cerr << "Root prim became invalid after reload!\n";
+        return;
+    }
+
+    // LoadNone means payloads don't load automatically — force load so
+    // traversal below can walk /Wonderful/Assembly/... and /Wonderful/Prototypes/...
+    rootStage->Load(rootPrim.GetPath());
+
+    // Resolve tessellation params from the prototypes 
+    // prim on the root stage so that per-prototype 
+    // `over` blocks authored in the usd are visible 
+    // and win over the root defaults.
+
+    // The variant loop is split into three sequential phases before the
+    // parallel write so that thread-safety constraints are respected:
+
+    std::vector<VariantWork> variantWork(prototypes.size());
+
+    // Resolve params for every variant
+    for (size_t vi = 0; vi < prototypes.size(); vi++) {
+        const PrototypeContainer& proto = prototypes[vi];
+        variantWork[vi].proto = &proto;
+
+        UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
+        varSet.SetVariantSelection(proto.variantName);
+
+        UsdPrim prototypePrim = rootStage->GetPrimAtPath(prototypesInRootPath);
+
+        variantWork[vi].rootParams = getTessParams(rootPrim);
+        variantWork[vi].paramsBank = resolveParams(prototypePrim, variantWork[vi].rootParams);
+        variantWork[vi].tessResults.resize(defs.size());
+    }
+
+    // Tessellate each variant
+    for (VariantWork& work : variantWork) {
+        const TessParams& rootParams = work.rootParams;
+
+        // /Wonderful/Prototypes is inactive in the root layer so USD does not
+        // compose its children — paramsBank will only ever contain the parent
+        // path itself. Walk up from the prototype path to the nearest ancestor
+        // that is in the bank before falling back to rootParams. This means
+        // params authored on /Wonderful/Prototypes propagate to all prototypes,
+        // and any future per-prototype `over` blocks will still win because the
+        // exact path hits first.
+        auto findParams = [&](const SdfPath& path) -> const TessParams& {
+            SdfPath p = path;
+            while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
+                auto it = work.paramsBank.find(p);
+                if (it != work.paramsBank.end()) return it->second;
+                p = p.GetParentPath();
+            }
+            return rootParams;
+        };
+
+        std::atomic<int> tessCompleted(0);
+
+        OSD_Parallel::For(0, total, [&](int i) {
+            const TopoDS_Shape& defShape = defs[i].second;
+            SdfPath protoPath = prototypePaths[defs[i].first];
+
+            // Change the prim references from 
+            // /Prototypes/plate0 -> /Wonderful/Prototypes/plate0
+            // so it matches the keys in paramsBank which come from the root stage
+            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
+
+            const TessParams& params = findParams(protoPathInRoot);
+
+            if (defShape.IsNull()) {
+                int done = ++tessCompleted;
+                std::cerr << "\r[" << done << "/" << total << "] Tessellating " << work.proto->variantName << "..." << std::flush;
+                return;
+            }
+
+            auto partStart = Clock::now();
+            std::string partName = getLabelName(defs[i].first);
+
+            try {
+                TessResult result;
+                if (tesselatePart(result, defShape, params))
+                    work.tessResults[i] = std::move(result);
+            } catch (const Standard_Failure& e) {
+                std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
+            }
+
+            double elapsed = Seconds(Clock::now() - partStart).count();
+            if (elapsed > 10.0) {
+                std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
+                        << "  time=" << elapsed << "s"
+                        << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
+                        << "\n";
+            }
+
+            int done = ++tessCompleted;
+            std::cerr << "\r[" << done << "/" << total << "] Tessellating " << work.proto->variantName << "..." << std::flush;
+        });
+
+        std::cerr << "\n";
+    }
+
+    // Write geometry for all variants in parallelz
+    WorkParallelForEach(variantWork.begin(), variantWork.end(), [&](VariantWork& work) {
+        const TessParams& rootParams = work.rootParams;
+
+        auto findParams = [&](const SdfPath& path) -> const TessParams& {
+            SdfPath p = path;
+            while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
+                auto it = work.paramsBank.find(p);
+                if (it != work.paramsBank.end()) return it->second;
+                p = p.GetParentPath();
+            }
+            return rootParams;
+        };
+
+        int completed = 0;
+        for (int i = 0; i < protoTotal; i++) {
+            SdfPath protoPath = prototypePaths[defs[i].first];
+            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
+
+            const TessParams& params = findParams(protoPathInRoot);
+            const TessResult& r = work.tessResults[i];
+
+            if (!writePrototypeGeometry(work.proto->stage, protoPath, r, params, i)) {
+                std::cerr << "\r[" << ++completed << "/" << protoTotal << "] Writing " << work.proto->variantName << "..." << std::flush;
+                continue;
+            }
+
+            std::cerr << "\r[" << ++completed << "/" << protoTotal << "] Writing " << work.proto->variantName << "..." << std::flush;
+        }
+        std::cerr << "\n";
+
+        work.proto->stage->Save();
+    });
+
+    // Hide /Prototypes from renderers via the root stage override,
+    // not on the prototypes stage itself so that the geometry is still
+    // visible when editing the prototypes stage directly.
+    UsdPrim prototypeRoot = rootStage->GetPrimAtPath(prototypesInRootPath);
+    if (prototypeRoot.IsValid()) {
+        prototypeRoot.SetActive(false);
+        rootStage->GetRootLayer()->Save();
+    }
 
     if (!mark.IsClean()) {
         for (const auto& error : mark)

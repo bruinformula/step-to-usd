@@ -278,6 +278,8 @@ bool UsdStepExporter::tesselatePart(
 
     auto tesselateStart = Clock::now();
 
+    BRepTools::Clean(defShape);
+
     Bnd_Box bbox;
     BRepBndLib::Add(defShape, bbox);
     double xmin, ymin, zmin, xmax, ymax, zmax;

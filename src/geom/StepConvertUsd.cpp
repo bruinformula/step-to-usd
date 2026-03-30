@@ -15,6 +15,7 @@
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/variantSets.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/payloads.h>
 #include <pxr/usd/sdf/schema.h>
@@ -192,9 +193,18 @@ int main(int argc, char** argv) {
         }
 
         const StepModel& model = iter->second;
+        
+        UsdVariantSets rootVariantSets = prim.GetVariantSets();
 
-        TessParams params;
-        UsdStepExporter::populateUsd(model,stage, prim);
+        std::vector<std::string> vsetNames;
+        rootVariantSets.GetNames(&vsetNames);
+
+        if (vsetNames.empty()) {
+            UsdStepExporter::populateUsd(model,stage, prim);
+        } else {
+            UsdStepExporter::populateUsdVariant(model,stage, prim);
+        }
+
         stage->Save();
     }
 

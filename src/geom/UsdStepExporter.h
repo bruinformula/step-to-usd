@@ -113,6 +113,12 @@ struct UsdStepExporter {
         UsdStageRefPtr rootStage,
         UsdPrim& rootPrim // on the stage with the stronger opinions
     );
+
+    static void populateUsdVariant(
+        const StepModel& model, 
+        UsdStageRefPtr rootStage,
+        UsdPrim& rootPrim // on the stage with the stronger opinions
+    );
     #endif
 
 private:
