@@ -26,6 +26,12 @@ target_link_libraries(AutolibGeom PUBLIC
     ${OpenCASCADE_LIBRARIES}
 )
 
+install(TARGETS AutolibGeom
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+
 if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
     target_link_libraries(AutolibGeom PUBLIC
         autolibStepTessellation
@@ -38,6 +44,12 @@ if(AUTOLIB_BUILD_STEP_USD_SCHEMA)
     # StepConvertUsd
     add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
     target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
+
+    install(TARGETS StepConvertUsd
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+    )
 
     add_executable(test_schema test.cpp)
 

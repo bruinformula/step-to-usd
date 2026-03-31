@@ -730,8 +730,8 @@ bool UsdStepExporter::tesselatePart(
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.
-    if (result.points.empty() && result.sketchCounts.empty()) {
-        std::cerr << "  Warning: def produced no geometry or sketch curves\n";
+    if (result.points.empty() && result.sketchCounts.empty() && result.wireframeCounts.empty()) {
+        //std::cerr << "  Warning: def produced no geometry or sketch curves\n";
         return false;
     }
 
@@ -1016,6 +1016,8 @@ void UsdStepExporter::tessellateGeometry(
 
     const int total = (int)defs.size();
     std::atomic<int> tessCompleted(0);
+    std::vector<std::string> warnings;
+    std::mutex warnMutex;
 
     WorkParallelForN(total, [&](int start, int end) {
         for (int i = start; i < end; i++) {
@@ -1030,25 +1032,32 @@ void UsdStepExporter::tessellateGeometry(
 
             const TessParams& params = findParams(protoPathInRoot);
             const TopoDS_Shape& defShape = defs[i].second;
-
-            std::cout << protoPath << std::endl;
-            std::cout << params.meshAngularDeflection << std::endl;
-
+            
             if (!defShape.IsNull()) {
                 try {
                     TessResult result;
                     if (tesselatePart(result, defShape, params)) {
                         outResults[i] = std::move(result);
+                    } else {
+                        std::lock_guard<std::mutex> lock(warnMutex);
+                        warnings.push_back("  def " + protoPath.GetString() + " produced no geometry or sketch curves");
                     }
                 } catch (const Standard_Failure& e) {
-                    std::cerr << "\nOCC exception: " << e.GetMessageString() << "\n";
+                    std::lock_guard<std::mutex> lock(warnMutex);
+                    warnings.push_back("  OCC exception on " + protoPath.GetString() + ": " + e.GetMessageString());
                 }
             }
-            std::cerr << "\r[" << ++tessCompleted << "/" << total << "] Tessellating " << logLabel << "..." << std::flush;
+            {
+                std::lock_guard<std::mutex> lock(warnMutex);
+                std::cerr << "\r[" << ++tessCompleted << "/" << total << "] Tessellating " << logLabel << "..." << std::flush;
+            }
         }
     });
 
     std::cerr << "\n";
+
+    for (const auto& w : warnings)
+        std::cerr << "  Warning: " << w << "\n";
 }
 
 void UsdStepExporter::writeGeometry(

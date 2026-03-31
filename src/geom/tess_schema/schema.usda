@@ -29,7 +29,7 @@ class "StepFileContainerAPI" (
 
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters. Apply to prototypes only."
+    doc = "Step tessellation quality parameters. Child prims will take on the opinions of the nearest parent prim"
     customData = {
         token apiSchemaType = "singleApply"
     }
