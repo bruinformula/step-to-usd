@@ -21,11 +21,9 @@
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/base/work/loops.h>
 
-#ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
 #include "stepTessellationAPI.h"
 #include "stepFileContainerAPI.h"
 #include "stepFileContainer.h"
-#endif
 
 #include "ArgumentHandler.h"
 #include "UsdStepExporter.h"

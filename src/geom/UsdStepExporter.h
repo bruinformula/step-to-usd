@@ -10,6 +10,8 @@
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/timeCode.h>
 
+#include <pxr/usd/sdf/reference.h>
+
 #include <pxr/base/vt/array.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec2f.h>
@@ -107,7 +109,6 @@ struct UsdStepExporter {
         const TessParams& params
     );
     
-    #ifdef AUTOLIB_BUILD_STEP_USD_SCHEMA
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
@@ -122,7 +123,6 @@ struct UsdStepExporter {
         const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
-    #endif
 
 private:
 
@@ -131,6 +131,8 @@ private:
     static std::string sanitizeUsdName(const std::string_view& name, int idx);
 
     static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches);
+
+    static std::optional<SdfReference> getPrototypesDefaultParams(const UsdPrim& rootPrim);
 
     static bool tesselatePart(
         TessResult& result, 
@@ -144,10 +146,33 @@ private:
     );
 
     static void writeAssemblyXforms(
-        const std::vector<StepModel::PartNode>& instances,
         UsdStageRefPtr stage, 
+        const SdfPath& rootPrimPath,
+        const std::vector<StepModel::PartNode>& instances,
         const std::vector<SdfPath>& paths, 
         const LabelMap<SdfPath>& prototypePaths
+    );
+
+    static void writePrototypeXforms(
+        UsdStageRefPtr prototypesStage,
+        UsdStageRefPtr assemblyStage,
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const SdfPath& prototypesPath,
+        const SdfPath& rootPath,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
+        bool makeFreshStage,
+        LabelMap<SdfPath>& prototypePaths
+    );
+
+    static void writePrototypeGeometries(
+        UsdStageRefPtr stage,
+        const SdfPath& rootPrimPath,
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const LabelMap<SdfPath>& prototypePaths,
+        const std::vector<TessResult>& tessResults,
+        const TessParams& rootParams,
+        const std::map<SdfPath, TessParams>& paramsBank,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
 
     static bool writePrototypeXform(
@@ -188,5 +213,4 @@ private:
         const std::map<SdfPath, TessParams>& paramsBank, // Optional
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
-
 };

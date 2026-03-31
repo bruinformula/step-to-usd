@@ -738,32 +738,73 @@ bool UsdStepExporter::tesselatePart(
     return true;
 }
 
-bool UsdStepExporter::writePrototypeXform(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    int defIdx
+void UsdStepExporter::writePrototypeXforms(
+    UsdStageRefPtr prototypesStage,
+    UsdStageRefPtr assemblyStage,
+    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+    const SdfPath& prototypesPath,
+    const SdfPath& rootPath,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
+    bool makeFreshStage,
+    LabelMap<SdfPath>& prototypePaths
 ) {
-    UsdGeomXform::Define(stage, protoPath);
-    // Re-fetch: Define may trigger recomposition on second run,
-    // expiring the handle returned directly from Define()
-    UsdPrim protoPrim = stage->GetPrimAtPath(protoPath);
+    std::unordered_map<std::string, int> protoNameCounts;
+    const int total = (int)defs.size();
+    int completed = 0;
 
-    if (!protoPrim.IsValid()) {
-        std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
-        return false;
+    for (int defIdx = 0; defIdx < total; defIdx++) {
+        std::string rawName = getLabelName(defs[defIdx].first);
+        if (rawName.empty()) {
+            rawName = "Def_" + std::to_string(defIdx);
+        }
+
+        int protoCount = protoNameCounts[rawName]++;
+        std::string name = sanitizeUsdName(rawName, protoCount);
+
+        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
+
+        prototypePaths[defs[defIdx].first] = protoPath;
+
+        if (prototypesStage) {
+
+            if (!prototypesFilter.empty() && prototypesFilter.count(protoPath)) {
+                prototypesStage->RemovePrim(protoPath);
+            }
+
+            if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
+                std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
+                continue;
+            }
+
+            UsdGeomXform protoXformPrim = UsdGeomXform::Define(prototypesStage, protoPath);
+
+            UsdPrim protoPrim = protoXformPrim.GetPrim();
+
+            if (!protoPrim.IsValid()) {
+                std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
+                continue;
+            }
+
+            { // SdfChangeBlock
+                SdfChangeBlock changeBlock;
+
+                // Clear existing inherits before adding to avoid duplicates on re-run
+                protoPrim.GetInherits().ClearInherits();
+                protoPrim.GetInherits().AddInherit(SdfPath("/CADPart"));
+
+                protoPrim.CreateAttribute(TfToken("step:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
+            }
+        }
+
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
+
+        if (assemblyStage) {
+            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPath);
+            assemblyStage->OverridePrim(assemblyProtoPath);
+        }
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
     }
-
-    { // SdfChangeBlock
-        SdfChangeBlock changeBlock;
-
-        // Clear existing inherits before adding to avoid duplicates on re-run
-        protoPrim.GetInherits().ClearInherits();
-        protoPrim.GetInherits().AddInherit(SdfPath("/CADPart"));
-
-        protoPrim.CreateAttribute(TfToken("step:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
-    }
-
-    return true;
+    std::cerr << "\n";
 }
 
 bool UsdStepExporter::writePrototypeGeometry(
@@ -927,9 +968,53 @@ bool UsdStepExporter::writePrototypeGeometry(
     return true;
 }
 
+void UsdStepExporter::writePrototypeGeometries(
+    UsdStageRefPtr stage,
+    const SdfPath& rootPrimPath,
+    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+    const LabelMap<SdfPath>& prototypePaths,
+    const std::vector<TessResult>& tessResults,
+    const TessParams& rootParams,
+    const std::map<SdfPath, TessParams>& paramsBank,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
+) {
+    const int total = (int)defs.size();
+    int completed = 0;
+
+    for (int i = 0; i < total; i++) {
+        auto protoIter = prototypePaths.find(defs[i].first);
+        if (protoIter == prototypePaths.end()) {
+            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
+            continue;
+        }
+
+        const SdfPath& protoPath = protoIter->second;
+
+        if (!prototypesFilter.empty() && !prototypesFilter.count(protoPath)) {
+            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
+            continue;
+        }
+
+        SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
+
+        const TessParams& params = paramsBank.count(assemblyProtoPath)
+                ? paramsBank.at(assemblyProtoPath)
+                : rootParams;
+
+        if (!writePrototypeGeometry(stage, protoPath, tessResults[i], params, i)) {
+            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
+            continue;
+        }
+
+        std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
+    }
+    std::cerr << "\n";
+}
+
 void UsdStepExporter::writeAssemblyXforms(
-    const std::vector<StepModel::PartNode>& partNodes,
     UsdStageRefPtr stage, 
+    const SdfPath& rootPrimPath,
+    const std::vector<StepModel::PartNode>& partNodes,
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths
 ) {
@@ -961,7 +1046,10 @@ void UsdStepExporter::writeAssemblyXforms(
                     std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
                     continue;
                 }
-                xform.GetPrim().GetReferences().AddInternalReference(protoIter->second);
+
+                SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
+
+                xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
                 if (!hasChildren[i]) {
                     xform.GetPrim().SetInstanceable(true);
@@ -1133,149 +1221,4 @@ std::vector<SdfPath> UsdStepExporter::computeNodePaths(
     }
 
     return paths;
-}
-
-void UsdStepExporter::populateUsdPlain(
-    const StepModel& model, 
-    const fs::path& newStagePath, 
-    const TessParams& params
-) {
-    
-    using Clock = std::chrono::high_resolution_clock;
-    using Seconds = std::chrono::duration<double>;
-    auto totalStart = Clock::now();
-    TfErrorMark mark;
-
-    std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(
-        model.definitionShapes.begin(),
-        model.definitionShapes.end()
-    );
-    
-    SdfPath rootPrimPath = SdfPath("/Model");
-
-    UsdStageRefPtr stage = initUsdStage(newStagePath, rootPrimPath, true);
-
-    if (!stage) {
-        std::cerr << "Failed to create or open USD stage at " << newStagePath << "\n";
-        return;
-    }
-
-    // Use the stage API to rebuild the class/scaffolding
-    // for a stage that may already exist
-    // This ensures the Prim Objects are valid and not "Expired"
-    UsdPrim cadPartClass = stage->CreateClassPrim(SdfPath("/CADPart"));
-    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-
-    auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
-        UsdPrim child = stage->DefinePrim(childPath);
-        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-    };
-
-    makeClassChild("Mesh");
-    makeClassChild("Wireframe");
-    makeClassChild("Sketch");
-
-    SdfPath assemblyPath = rootPrimPath.AppendChild(TfToken("Assembly"));
-    if (!UsdGeomXform::Define(stage, assemblyPath)) {
-        std::cerr << "Failed to define /Assembly" << assemblyPath << std::endl;
-        return;
-    }
-
-    SdfPath prototypesPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
-    if (!UsdGeomXform::Define(stage, prototypesPath)) {
-        std::cerr << "Failed to define " << prototypesPath << std::endl;
-        return;
-    }
-
-    UsdGeomXform rootXform = UsdGeomXform::Define(stage, rootPrimPath);
-
-    std::vector<TessResult> tessResults(defs.size());
-
-    auto tessStart = Clock::now();
-    std::atomic<int> tessCompleted(0);
-    const int total = (int)defs.size();
-
-    OSD_Parallel::For(0, total, [&](int i) {
-        const TopoDS_Shape& defShape = defs[i].second;
-        if (defShape.IsNull()) {
-            int done = ++tessCompleted;
-            std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
-            return;
-        }
-
-        auto partStart = Clock::now();
-        std::string partName = getLabelName(defs[i].first);
-
-        try {
-            TessResult result;
-            if (tesselatePart(result, defShape, params))
-                tessResults[i] = std::move(result);
-        } catch (const Standard_Failure& e) {
-            std::cerr << "\nOCC exception during tessellation of def " << i << ": " << e.GetMessageString() << "\n";
-        }
-
-        double elapsed = Seconds(Clock::now() - partStart).count();
-        if (elapsed > 10.0) {
-            std::cerr << "\n[SLOW] def " << i << " (" << partName << ")"
-                    << "  time=" << elapsed << "s"
-                    << "  faces=" << [&]{ int n=0; for(TopExp_Explorer e(defShape,TopAbs_FACE);e.More();e.Next()) n++; return n; }()
-                    << "\n";
-        }
-
-        int done = ++tessCompleted;
-        std::cerr << "\r[" << done << "/" << total << "] Tessellating..." << std::flush;
-    });
-    std::cerr << "\n";
-
-    stage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
-
-    LabelMap<SdfPath> prototypePaths;
-    std::unordered_map<std::string, int> protoNameCounts; // Just for ensuring names don't overlap
-    const int protoTotal = (int)defs.size();
-    int protoCompleted = 0;
-
-    for (int i = 0; i < defs.size(); i++) {
-        const TessResult& r = tessResults[i];
-        if (r.points.empty() && r.sketchCounts.empty()) {
-            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-            continue;
-        }
-
-        std::string rawName = getLabelName(defs[i].first);
-        if (rawName.empty()) {
-            rawName = "Def_" + std::to_string(i);
-        }
-        int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
-
-        if (!writePrototypeGeometry(stage, protoPath, r, params, i)) {
-            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-            continue;
-        }
-
-        prototypePaths[defs[i].first] = protoPath;
-        //std::cout << "  Prototype " << protoPath << " -> " << r.points.size() << " verts\n";
-        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-    }
-    std::cerr << "\n";
-
-    // Hide /Prototypes from renderers
-    // Usd will complain and not define prims under an inactive parent
-    UsdPrim prototypeRoot = stage->GetPrimAtPath(prototypesPath);
-    if (prototypeRoot.IsValid()) {
-        prototypeRoot.SetActive(false);
-    }
-
-    std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyPath);
-    writeAssemblyXforms(model.partNodes, stage, nodePaths, prototypePaths);
-
-    if (!mark.IsClean()) {
-        for (const auto& error : mark)
-            std::cerr << "Usd: " << error.GetCommentary() << "\n";
-    }
-
-    stage->GetRootLayer()->Save();
-
 }

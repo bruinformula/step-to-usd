@@ -8,7 +8,7 @@
 
 over "GLOBAL" (
     customData = {
-        string libraryName = "stepellation"
+        string libraryName = "stepTessellation"
         string libraryPath = "."
         string libraryPrefix = "Autolib"
     }
@@ -21,6 +21,12 @@ class "StepFileContainerAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
+
+    rel step:defaultParams (
+        doc = "Relationship to a prim that carries the default tessellation parameters for this STEP file. This is intended to point to a StepTessellationOptions prim, but can technically point to any prim. If not specified, defaults will be used."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+
     asset step:sourceAsset (
         doc = "Path to the source STEP file. This is for informational purposes only and is not automatically resolved or loaded by the exporter."
         customData = { string variability = "SdfVariabilityUniform" }

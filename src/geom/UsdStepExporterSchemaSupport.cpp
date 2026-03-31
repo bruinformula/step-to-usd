@@ -1,10 +1,14 @@
+#include <iostream>
+#include <optional>
 #include <string>
 
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/payloads.h>
+#include <pxr/usd/usd/references.h>
 #include <pxr/usd/usd/variantSets.h>
 #include <pxr/usd/usd/editContext.h>
+#include <pxr/usd/usd/specializes.h>
 
 #include <pxr/usd/usdGeom/scope.h>
 
@@ -13,6 +17,8 @@
 #include <opencascade/TopExp_Explorer.hxx>
 
 #include "stepTessellationAPI.h"
+#include "stepFileContainerAPI.h"
+
 #include "tokens.h"
 
 #include "UsdStepExporter.h"
@@ -152,6 +158,36 @@ TessParams getTessParams(
     return params;
 }
 
+std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& rootPrim) {
+    AutolibStepFileContainerAPI api(rootPrim);
+
+    SdfPathVector targets;
+    api.GetStepDefaultParamsRel().GetForwardedTargets(&targets);
+
+    if (targets.empty()) {
+        std::cerr << "Warning: No default params target specified on root prim. Using hardcoded defaults.\n";
+        return std::nullopt;
+    }
+
+    UsdPrim targetPrim = rootPrim.GetStage()->GetPrimAtPath(targets[0]);
+
+    if (!targetPrim.IsValid()) {
+        std::cerr << "Warning: Default params target " << targets[0] << " is invalid. Using hardcoded defaults.\n";
+        return std::nullopt;
+    }
+
+    SdfPrimSpecHandleVector stack = targetPrim.GetPrimStack();
+
+    if (stack.empty()) {
+        std::cerr << "Warning: Default params target " << targets[0] << " has empty prim stack. Using hardcoded defaults.\n";
+        return std::nullopt;
+    }
+
+    SdfReference reference(stack[0]->GetLayer()->GetIdentifier(), stack[0]->GetPath());
+
+    return reference;
+}
+
 struct PrototypeContainer {
     std::string variantSetName;
     std::string variantName;
@@ -176,7 +212,7 @@ void UsdStepExporter::populateUsd(
 ) {
     TfErrorMark mark;
 
-    fs::path prototypesStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-prototypes.usdc");
+    fs::path prototypesStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-prototypes.usda");
     fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usdc");
     
     SdfPath assemblyPath("/Assembly");
@@ -277,48 +313,17 @@ void UsdStepExporter::populateUsd(
     // Write Xforms first so USD can resolve opinions that
     // will later be populated by geometry later 
     LabelMap<SdfPath> prototypePaths;
-    LabelMap<SdfPath> prototypeInAssemblyPaths;
 
-    std::unordered_map<std::string, int> protoNameCounts;
-    const int protoTotal = (int)defs.size();
-    int protoCompleted = 0;
-
-    for (int i = 0; i < protoTotal; i++) {
-        std::string rawName = getLabelName(defs[i].first);
-        if (rawName.empty()) {
-            rawName = "Def_" + std::to_string(i);
-        }
-        int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
-        SdfPath assemblyProtoPath = prototypesInRootPath.AppendChild(TfToken(name));
-
-        // Always register so tessellate/write phases can find this def
-        prototypePaths[defs[i].first] = protoPath;
-        prototypeInAssemblyPaths[defs[i].first] = assemblyProtoPath;
-
-        if (!prototypesFilter.empty() && prototypesFilter.find(protoPath) != prototypesFilter.end()) {
-            prototypesStage->RemovePrim(protoPath);
-        }
-
-        // Skip writing the xform scaffolding if it already exists on a partial retess
-        if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
-            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-            continue;
-        }
-
-        if (!writePrototypeXform(prototypesStage, protoPath, i)) {
-            std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-            continue;
-        }
-
-        assemblyStage->OverridePrim(assemblyProtoPath);
-        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
-    }
+    writePrototypeXforms(
+        prototypesStage, assemblyStage,
+        defs, prototypesPath, prototypesInRootPath,
+        prototypesFilter, makeFreshStage,
+        prototypePaths
+    );
 
     std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
     if (makeFreshStage)
-        writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
+        writeAssemblyXforms(assemblyStage, rootPrim.GetPrimPath(), model.partNodes,nodePaths, prototypePaths);
 
     // Save both stages before adding the payload so 
     // the root stage can see the full composed 
@@ -367,6 +372,7 @@ void UsdStepExporter::populateUsd(
     UsdPrim prototypePrim = rootStage->GetPrimAtPath(prototypesInRootPath);
 
     TessParams rootParams = getTessParams(rootPrim);
+
     std::map<SdfPath, TessParams> paramsBank = resolveParams(prototypePrim, rootParams);
     std::vector<TessResult> tessResults(defs.size());
     std::string logName = "";
@@ -376,9 +382,10 @@ void UsdStepExporter::populateUsd(
         logName, rootParams, tessResults, paramsBank, prototypesFilter
     );
 
-    writeGeometry(
-        defs, prototypePaths, prototypesPath, prototypesInRootPath,
-        prototypesStage, logName, rootParams, tessResults, paramsBank, prototypesFilter
+    writePrototypeGeometries(
+        prototypesStage, rootPrim.GetPrimPath(),
+        defs, prototypePaths,
+        tessResults, rootParams, paramsBank, prototypesFilter
     );
 
     // Hide /Prototypes from renderers via the root stage override,
@@ -513,38 +520,28 @@ void UsdStepExporter::populateUsdVariant(
     // Write Xforms first so USD can resolve opinions that
     // will later be populated by geometry later 
     LabelMap<SdfPath> prototypePaths;
-    LabelMap<SdfPath> prototypeInAssemblyPaths;
 
-    std::unordered_map<std::string, int> protoNameCounts;
-    const int protoTotal = (int)defs.size();
-    int protoCompleted = 0;
+    // Populate prototypePaths and prototypeInRootPaths, and write assembly overrides
+    writePrototypeXforms(
+        nullptr, assemblyStage,
+        defs, prototypesPath, rootPrim.GetPrimPath(),
+        prototypesFilter, makeFreshStage,
+        prototypePaths
+    );
 
-    for (int i = 0; i < protoTotal; i++) {
-        std::string rawName = getLabelName(defs[i].first);
-        if (rawName.empty()) {
-            rawName = "Def_" + std::to_string(i);
-        }
-        int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUsdName(rawName, protoCount);
-        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
-        SdfPath assemblyProtoPath = prototypesInRootPath.AppendChild(TfToken(name));
-
-        prototypePaths[defs[i].first] = protoPath;
-        prototypeInAssemblyPaths[defs[i].first] = assemblyProtoPath;
-
-        assemblyStage->OverridePrim(assemblyProtoPath);
-
-        for (const auto& proto : prototypes) {
-            if (!writePrototypeXform(proto.stage, protoPath, i)) {
-                continue;
-            }
-        }
-        std::cerr << "\r[" << ++protoCompleted << "/" << protoTotal << "] Writing prototypes..." << std::flush;
+    // Write xforms into each variant's prototypes stage
+    for (const auto& proto : prototypes) {
+        writePrototypeXforms(
+            proto.stage, nullptr,
+            defs, prototypesPath, rootPrim.GetPrimPath(),
+            prototypesFilter, makeFreshStage,
+            prototypePaths
+        );
     }
 
     std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
     if (makeFreshStage)
-        writeAssemblyXforms(model.partNodes, assemblyStage, nodePaths, prototypeInAssemblyPaths);
+        writeAssemblyXforms(assemblyStage, rootPrim.GetPrimPath(), model.partNodes, nodePaths, prototypePaths);
 
     // Save both stages before adding the payload so 
     // the root stage can see the full composed 
@@ -633,11 +630,10 @@ void UsdStepExporter::populateUsdVariant(
 
     // Write geometry for all variants in parallel
     WorkParallelForEach(variantWork.begin(), variantWork.end(), [&](VariantWork& work) {
-        std::string logLabel = "variant " + work.proto->variantSetName + ", " + work.proto->variantName;
-        writeGeometry(
-            defs, prototypePaths, prototypesPath, prototypesInRootPath,
-            work.proto->stage, logLabel, work.rootParams, 
-            work.tessResults, work.paramsBank, prototypesFilter
+        writePrototypeGeometries(
+            work.proto->stage, rootPrim.GetPrimPath(),
+            defs, prototypePaths,
+            work.tessResults, work.rootParams, work.paramsBank, prototypesFilter
         );
         work.proto->stage->Save();
     });
