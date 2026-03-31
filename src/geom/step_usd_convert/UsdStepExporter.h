@@ -9,6 +9,7 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/timeCode.h>
+#include <pxr/usd/usd/attribute.h>
 
 #include <pxr/usd/sdf/reference.h>
 
@@ -223,6 +224,10 @@ void updateIfAuthored<CurveType>(const UsdAttribute& attr, CurveType* value);
 
 template <>
 void updateIfAuthored<CurveSampling>(const UsdAttribute& attr, CurveSampling* value);
+
+extern template void updateIfAuthored<float>(const UsdAttribute&, float*);
+extern template void updateIfAuthored<double>(const UsdAttribute&, double*);
+extern template void updateIfAuthored<int>(const UsdAttribute&, int*);
 
 std::map<SdfPath, TessParams> resolveParams(
     const UsdPrim& rootPrim,

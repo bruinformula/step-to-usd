@@ -1,3 +1,10 @@
+#include <cassert>
+#include <filesystem>
+#include <unordered_map>
+#include <exception>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
 
 #include <opencascade/BinXCAFDrivers.hxx>
 #include <opencascade/STEPCAFControl_Reader.hxx>
@@ -30,13 +37,6 @@
 #include <opencascade/Quantity_Color.hxx>
 #include <opencascade/Standard_Handle.hxx>
 #include <opencascade/TDataStd_Name.hxx>
-#include <cassert>
-#include <filesystem>
-#include <unordered_map>
-#include <exception>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 
 #include "StepModel.h"
 

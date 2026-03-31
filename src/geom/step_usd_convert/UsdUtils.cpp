@@ -22,6 +22,7 @@
 #include <pxr/usd/sdf/primSpec.h>
 
 #include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/inherits.h>
@@ -38,6 +39,8 @@
 #include <pxr/base/gf/vec2f.h>
 
 #pragma pop_macro("Handle")
+
+#include "tokens.h"
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
@@ -222,3 +225,59 @@ UsdStageRefPtr UsdStepExporter::initUsdStage(
     stage->Save();
     return stage;
 }
+
+template <typename T>
+void updateIfAuthored(const UsdAttribute& attr, T* value) {
+    bool hasValue = attr.HasValue();
+    if (hasValue) {
+        attr.Get(value);
+    }
+}
+
+// Helper to read a token attr and convert to CurveType
+template <>
+void updateIfAuthored(const UsdAttribute& attr, CurveSampling* value) {
+    bool hasValue = attr.HasValue();
+    if (!hasValue) return;
+
+    TfToken token;
+    if (!attr.Get(&token)) {
+        *value = CurveSampling::Underlying;
+        return;
+    }
+
+    if (token == AutolibTokens->underlying) {
+        *value = CurveSampling::Underlying;
+        return;
+    } else if (token == AutolibTokens->resampled) {
+        *value = CurveSampling::Resampled;
+        return;
+    }
+}
+
+template <>
+void updateIfAuthored(const UsdAttribute& attr, CurveType* value) {
+    bool hasValue = attr.HasValue();
+    if (!hasValue) return;
+
+    TfToken token;
+    if (!attr.Get(&token)) {
+        *value = CurveType::None;
+        return;
+    }
+
+    if (token == AutolibTokens->none) {
+        *value = CurveType::None;
+        return;
+    } else if (token == AutolibTokens->linear) {
+        *value = CurveType::Linear;
+        return;
+    } else if (token == AutolibTokens->catmullRom) {
+        *value = CurveType::CatmullRom;
+        return;
+    }
+}
+
+template void updateIfAuthored<float>(const UsdAttribute&, float*);
+template void updateIfAuthored<double>(const UsdAttribute&, double*);
+template void updateIfAuthored<int>(const UsdAttribute&, int*);

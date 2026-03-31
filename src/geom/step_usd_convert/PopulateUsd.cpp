@@ -19,7 +19,6 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/editTarget.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primFlags.h>
@@ -54,67 +53,11 @@
 
 #include "stepTessellationAPI.h"
 #include "stepFileContainerAPI.h"
-#include "tokens.h"
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-template <typename T>
-void updateIfAuthored(const UsdAttribute& attr, T* value, bool& primHasAnyValue) {
-    bool hasValue = attr.HasValue();
-    primHasAnyValue |= hasValue;
-    if (hasValue) {
-        attr.Get(value);
-    }
-}
-
-// Helper to read a token attr and convert to CurveType
-template <>
-void updateIfAuthored(const UsdAttribute& attr, CurveSampling* value, bool& primHasAnyValue) {
-    bool hasValue = attr.HasValue();
-    primHasAnyValue |= hasValue;
-    if (!hasValue) return;
-
-    TfToken token;
-    if (!attr.Get(&token)) {
-        *value = CurveSampling::Underlying;
-        return;
-    }
-
-    if (token == AutolibTokens->underlying) {
-        *value = CurveSampling::Underlying;
-        return;
-    } else if (token == AutolibTokens->resampled) {
-        *value = CurveSampling::Resampled;
-        return;
-    }
-}
-
-template <>
-void updateIfAuthored(const UsdAttribute& attr, CurveType* value, bool& primHasAnyValue) {
-    bool hasValue = attr.HasValue();
-    primHasAnyValue |= hasValue;
-    if (!hasValue) return;
-
-    TfToken token;
-    if (!attr.Get(&token)) {
-        *value = CurveType::None;
-        return;
-    }
-
-    if (token == AutolibTokens->none) {
-        *value = CurveType::None;
-        return;
-    } else if (token == AutolibTokens->linear) {
-        *value = CurveType::Linear;
-        return;
-    } else if (token == AutolibTokens->catmullRom) {
-        *value = CurveType::CatmullRom;
-        return;
-    }
-}
 
 static void traverseForTessParams(
     UsdPrim prim, 
@@ -122,23 +65,22 @@ static void traverseForTessParams(
     std::map<SdfPath, TessParams>& partNodes
 ) {
     AutolibStepTessellationAPI api(prim);
+    
+    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection);
+    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection);
+    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize);
 
-    bool hasAnyValue = false;
-    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize, hasAnyValue);
+    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection);
+    updateIfAuthored(api.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type);
+    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling);
 
-    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type, hasAnyValue);
-    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling, hasAnyValue);
+    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection);
+    updateIfAuthored(api.GetStepSketchTypeAttr(), &currentParams.sketchMode.type);
+    updateIfAuthored(api.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling);
 
-    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepSketchTypeAttr(), &currentParams.sketchMode.type, hasAnyValue);
-    updateIfAuthored(api.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling, hasAnyValue);
-
-    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold, hasAnyValue);
-    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold, hasAnyValue);
-    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses, hasAnyValue);
+    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold);
+    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold);
+    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses);
 
     partNodes[prim.GetPath()] = currentParams;
 
@@ -175,21 +117,21 @@ TessParams getTessParams(
     TessParams params;
 
     bool hasAnyValue = false;
-    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize, hasAnyValue);
+    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
+    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
+    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize);
 
-    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type, hasAnyValue);
-    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling, hasAnyValue);
+    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection);
+    updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type);
+    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling);
 
-    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection, hasAnyValue);
-    updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type, hasAnyValue);
-    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling, hasAnyValue);
+    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
+    updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
+    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
 
-    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold, hasAnyValue);
-    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold, hasAnyValue);
-    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses, hasAnyValue);
+    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
+    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold);
+    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses);
 
     return params;
 }

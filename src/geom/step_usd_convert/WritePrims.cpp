@@ -50,6 +50,7 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+// Prototype Xforms
 void UsdStepExporter::writePrototypeXforms(
     UsdStageRefPtr prototypesStage,
     UsdStageRefPtr assemblyStage,
@@ -119,6 +120,7 @@ void UsdStepExporter::writePrototypeXforms(
     std::cerr << "\n";
 }
 
+// Prototype Geometry
 static void writeMeshGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -310,6 +312,7 @@ void UsdStepExporter::writePrototypeGeometries(
     std::cerr << "\n";
 }
 
+// Assembly Xforms
 void UsdStepExporter::writeAssemblyXforms(
     UsdStageRefPtr stage, 
     const SdfPath& rootPrimPath,
