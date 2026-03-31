@@ -1,27 +1,63 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <chrono>
+#include <filesystem>
+#include <map>
+#include <mutex>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+#include <stddef.h>
 
-#include <pxr/usd/sdf/assetPath.h>
+#include <opencascade/TDF_Label.hxx>
+#include <opencascade/TopoDS_Shape.hxx>
+
+#pragma push_macro("Handle")
+#undef Handle
+
+#include <pxr/pxr.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/editTarget.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/primFlags.h>
+#include <pxr/usd/usd/relationship.h>
+
+#include <pxr/base/work/loops.h>
+#include <pxr/base/work/workTBB/loops_impl.h>
+#include <pxr/base/tf/error.h>
+#include <pxr/base/tf/errorMark.h>
+#include <pxr/base/tf/staticData.h>
+#include <pxr/base/tf/token.h>
+
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/payloads.h>
-#include <pxr/usd/usd/references.h>
 #include <pxr/usd/usd/variantSets.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/specializes.h>
 
 #include <pxr/usd/usdGeom/scope.h>
+#include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdGeom/tokens.h>
 
-#include <pxr/base/work/loops.h>
+#include <pxr/usd/sdf/declareHandles.h>
+#include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/payload.h>
+#include <pxr/usd/sdf/primSpec.h>
+#include <pxr/usd/sdf/proxyTypes.h>
+#include <pxr/usd/sdf/reference.h>
 
-#include <opencascade/TopExp_Explorer.hxx>
+#pragma pop_macro("Handle")
 
 #include "stepTessellationAPI.h"
 #include "stepFileContainerAPI.h"
-
 #include "tokens.h"
 
 #include "UsdStepExporter.h"
+#include "StepModel.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -263,7 +299,7 @@ void UsdStepExporter::populateUsd(
         std::cerr << "Root prim invalid after stage init (shared layer recomposition)\n";
         return;
     }
-
+    
     prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
     assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
 
@@ -305,10 +341,6 @@ void UsdStepExporter::populateUsd(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
     );
-
-    auto tessStart = Clock::now();
-    std::atomic<int> tessCompleted(0);
-    const int total = (int)defs.size();
 
     // Write Xforms first so USD can resolve opinions that
     // will later be populated by geometry later 

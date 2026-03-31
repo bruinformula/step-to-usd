@@ -3,7 +3,7 @@
 #include <limits>
 #include <vector>
 
-#pragma push_macro("Handle") // pxr, CGAL, and occt all define Handle as a macro
+#pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/usd/sdf/path.h>
@@ -140,6 +140,18 @@ private:
         const TessParams& params
     );
 
+    static void tessellateGeometry(
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const LabelMap<SdfPath>& prototypePaths,
+        const SdfPath& prototypesPath,
+        const SdfPath& prototypesInRootPath,
+        const std::string& logLabel,
+        const TessParams& rootParams,
+        std::vector<TessResult>& outResults,
+        const std::map<SdfPath, TessParams>& paramsBank = {}, // Optional for standard export
+        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
+    );
+
     static std::vector<SdfPath> computeNodePaths(
         const std::vector<StepModel::PartNode>& partNodes,
         const SdfPath& assemblyPath
@@ -189,18 +201,6 @@ private:
         int defIdx
     ); 
 
-    static void tessellateGeometry(
-        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const LabelMap<SdfPath>& prototypePaths,
-        const SdfPath& prototypesPath,
-        const SdfPath& prototypesInRootPath,
-        const std::string& logLabel,
-        const TessParams& rootParams,
-        std::vector<TessResult>& outResults,
-        const std::map<SdfPath, TessParams>& paramsBank = {}, // Optional for standard export
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
-    );
-
     static void writeGeometry(
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const LabelMap<SdfPath>& prototypePaths,
@@ -214,3 +214,19 @@ private:
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
 };
+
+template <typename T>
+void updateIfAuthored(const UsdAttribute& attr, T* value);
+
+template <>
+void updateIfAuthored<CurveType>(const UsdAttribute& attr, CurveType* value);
+
+template <>
+void updateIfAuthored<CurveSampling>(const UsdAttribute& attr, CurveSampling* value);
+
+std::map<SdfPath, TessParams> resolveParams(
+    const UsdPrim& rootPrim,
+    const TessParams& defaultParams
+);
+
+TessParams getTessParams(UsdPrim prim);

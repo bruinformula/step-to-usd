@@ -1,16 +1,19 @@
-#include <iostream>
-#include <pxr/usd/usd/common.h>
 #include <stddef.h>
+#include <iostream>
 #include <chrono>
 #include <utility>
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <initializer_list>
-#include <ostream>
-#include <numeric>
 #include <unordered_map>
 #include <unordered_set>
+#include <atomic>
+#include <limits>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
 
 #include <opencascade/TDF_Label.hxx>
 #include <opencascade/TopLoc_Location.hxx>
@@ -29,7 +32,6 @@
 #include <opencascade/GCPnts_QuasiUniformDeflection.hxx>
 #include <opencascade/BRepExtrema_SelfIntersection.hxx>
 #include <opencascade/BRepTools.hxx>
-#include <opencascade/OSD_Parallel.hxx>
 #include <opencascade/BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
 #include <opencascade/Bnd_Box.hxx>
 #include <opencascade/GeomAbs_Shape.hxx>
@@ -39,7 +41,6 @@
 #include <opencascade/NCollection_List.hxx>
 #include <opencascade/Poly_PolygonOnTriangulation.hxx>
 #include <opencascade/Poly_Triangle.hxx>
-#include <opencascade/Quantity_Color.hxx>
 #include <opencascade/Standard_Failure.hxx>
 #include <opencascade/Standard_Handle.hxx>
 #include <opencascade/TopAbs_Orientation.hxx>
@@ -56,201 +57,22 @@
 #undef Handle
 
 #include <pxr/pxr.h>
-
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/editContext.h>
-#include <pxr/usd/usd/variantSets.h>
-#include <pxr/usd/usd/modelAPI.h>
-#include <pxr/usd/usd/inherits.h>
-#include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/usd/references.h>
-#include <pxr/usd/usd/payloads.h>
 #include <pxr/base/work/loops.h>
-
-#include <pxr/usd/sdf/changeBlock.h>
-#include <pxr/usd/sdf/types.h>
-
-#include <pxr/usd/usdGeom/metrics.h>
-#include <pxr/usd/usdGeom/mesh.h>
-#include <pxr/usd/usdGeom/xform.h>
-#include <pxr/usd/usdGeom/tokens.h>
-#include <pxr/usd/usdGeom/primvarsAPI.h>
-#include <pxr/usd/usdGeom/basisCurves.h>
-#include <pxr/usd/usdGeom/imageable.h>
-#include <pxr/usd/usdGeom/subset.h>
-#include <pxr/usd/usdGeom/primvar.h>
-#include <pxr/usd/usdGeom/xformOp.h>
+#include <pxr/base/work/workTBB/loops_impl.h>
 
 #include <pxr/base/vt/array.h>
-#include <pxr/base/vt/types.h>
-#include <pxr/base/tf/error.h>
-#include <pxr/base/tf/staticData.h>
-#include <pxr/base/tf/errorMark.h>
-#include <pxr/base/tf/token.h>
-#include <pxr/base/gf/vec4f.h>
 #include <pxr/base/gf/vec3f.h>
+#include <pxr/base/gf/vec2f.h>
+#include <pxr/usd/sdf/path.h>
 
 #pragma pop_macro("Handle")
 
 #include "UsdStepExporter.h"
+#include "StepModel.h"
 
 class Geom_Surface;
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-// Utils 
-// rotation block: transposed relative to OCC Value(row,col) convention
-// translation: from TranslationPart() into the last row
-GfMatrix4d UsdStepExporter::trsfToGfMatrix(const gp_Trsf& t) {
-    gp_XYZ trans = t.TranslationPart();
-    auto clean = [](double v) { return std::abs(v) < 1e-10 ? 0.0 : v; };
-    return GfMatrix4d(
-        clean(t.Value(1,1)), clean(t.Value(2,1)), clean(t.Value(3,1)), 0.0,
-        clean(t.Value(1,2)), clean(t.Value(2,2)), clean(t.Value(3,2)), 0.0,
-        clean(t.Value(1,3)), clean(t.Value(2,3)), clean(t.Value(3,3)), 0.0,
-        clean(trans.X()),    clean(trans.Y()),    clean(trans.Z()),    1.0
-    );
-}
-
-std::string UsdStepExporter::sanitizeUsdName(const std::string_view& name, int idx) {
-    if (name.empty()) return "Node_" + std::to_string(idx);
-
-    std::string result;
-    result.reserve(name.size());
-
-    for (char c : name) {
-        if (std::isalnum(c) || c == '_') result += c;
-        else result += '_'; // replace hyphens, spaces, dots, etc.
-    }
-
-    // Usd prim names must start with a letter or underscore
-    if (!result.empty() && std::isdigit(result[0]))
-        result = "_" + result;
-
-    if (result.empty()) 
-        return "Node_";
-
-    return result + std::to_string(idx);
-}
-
-VtArray<GfVec2f> UsdStepExporter::packUVAtlas(std::vector<UVPatch>& patches) {
-    
-    int n = (int)patches.size();
-
-    // Each patch's needs to have normalized UVs to local [0,1]
-    std::vector<float> tileWidths(n), tileHeights(n);
-    for (int i = 0; i < n; i++) {
-        float uRange = std::max(patches[i].uMax - patches[i].uMin, 1e-10f);
-        float vRange = std::max(patches[i].vMax - patches[i].vMin, 1e-10f);
-        for (auto& uv : patches[i].uvs) {
-            uv[0] = (uv[0] - patches[i].uMin) / uRange;
-            uv[1] = (uv[1] - patches[i].vMin) / vRange;
-        }
-        // Tile dims proportional to param range
-        float area = std::sqrt(uRange * vRange);
-        tileWidths[i] = uRange / area;
-        tileHeights[i] = vRange / area;
-    }
-
-    // Scale so patches roughly tile a unit square
-    float invSqrtN = 1.0f / std::sqrt((float)std::max(n, 1));
-    for (int i = 0; i < n; i++) { 
-        tileWidths[i] *= invSqrtN; 
-        tileHeights[i] *= invSqrtN; 
-    }
-
-    // sorting
-    std::vector<int> order(n);
-    std::iota(order.begin(), order.end(), 0); // fills an array 0,1,2,3...
-    std::sort(
-        order.begin(), 
-        order.end(), 
-        [&](int a, int b) { 
-            return tileHeights[a] > tileHeights[b]; 
-        }
-    );
-
-    constexpr float padding = 0.001f;
-    std::vector<GfVec4f> placements(n); // (x, y, w, h)
-    float shelfX = 0, shelfY = 0, shelfH = 0;
-    float atlasW = 0, atlasH = 0;
-
-    for (int idx : order) {
-        if (shelfX + tileWidths[idx] > 1.0f + 1e-5f) {
-            shelfY += shelfH + padding;
-            shelfX = 0;
-            shelfH = 0;
-        }
-        placements[idx] = GfVec4f(shelfX, shelfY, tileWidths[idx], tileHeights[idx]);
-        shelfX += tileWidths[idx] + padding;
-        shelfH = std::max(shelfH, tileHeights[idx]);
-        atlasW = std::max(atlasW, shelfX);
-        atlasH = std::max(atlasH, shelfY + shelfH);
-    }
-
-    atlasW = std::max(atlasW, 1e-10f);
-    atlasH = std::max(atlasH, 1e-10f);
-
-    int totalFaceVerts = 0;
-    for (auto& p : patches) totalFaceVerts += (int)p.uvs.size();
-
-    VtArray<GfVec2f> result(totalFaceVerts);
-    int offset = 0;
-    for (int i = 0; i < n; i++) {
-        float px = placements[i][0] / atlasW;
-        float py = placements[i][1] / atlasH;
-        float pw = placements[i][2] / atlasW;
-        float ph = placements[i][3] / atlasH;
-        for (const auto& uv : patches[i].uvs)
-            result[offset++] = GfVec2f(px + uv[0] * pw, py + uv[1] * ph);
-    }
-    return result;
-}
-
-// Usd Export
-UsdStageRefPtr UsdStepExporter::initUsdStage(
-    const fs::path& newStagePath, 
-    const SdfPath& rootPrimPath,
-    bool clearExisting
-) {
-    SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath.string());
-    
-    if (!layer) {
-        //std::cout << "Creating new layer at " << newStagePath << "\n";
-        layer = SdfLayer::CreateNew(newStagePath.string());
-    } else if (clearExisting) {
-        //std::cout << "Cleaning internal contents of: " << rootPrimPath << "\n";
-        
-        if (SdfPrimSpecHandle rootSpec = layer->GetPrimAtPath(rootPrimPath)) {
-            auto children = rootSpec->GetNameChildren();
-            for (const auto& childName : children) {
-                rootSpec->RemoveNameChild(childName);
-            }
-            
-            auto props = rootSpec->GetProperties();
-            for (const auto& prop : props) {
-                rootSpec->RemoveProperty(prop);
-            }
-        }
-    }
-
-    if (!layer) return nullptr;
-
-    // Set metadata on the layer so composition knows where to look
-    layer->SetDefaultPrim(rootPrimPath.GetNameToken());
-    layer->SetField(SdfPath::AbsoluteRootPath(), UsdGeomTokens->upAxis, VtValue(UsdGeomTokens->z));
-
-    // Open the stage. 
-    UsdStageRefPtr stage = UsdStage::Open(layer);
-
-    if (!stage->GetPrimAtPath(rootPrimPath)) {
-        stage->DefinePrim(rootPrimPath);
-    }
-
-    stage->Save();
-    return stage;
-}
 
 bool UsdStepExporter::tesselatePart(
     TessResult& result, 
@@ -738,349 +560,6 @@ bool UsdStepExporter::tesselatePart(
     return true;
 }
 
-void UsdStepExporter::writePrototypeXforms(
-    UsdStageRefPtr prototypesStage,
-    UsdStageRefPtr assemblyStage,
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const SdfPath& prototypesPath,
-    const SdfPath& rootPath,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
-    bool makeFreshStage,
-    LabelMap<SdfPath>& prototypePaths
-) {
-    std::unordered_map<std::string, int> protoNameCounts;
-    const int total = (int)defs.size();
-    int completed = 0;
-
-    for (int defIdx = 0; defIdx < total; defIdx++) {
-        std::string rawName = getLabelName(defs[defIdx].first);
-        if (rawName.empty()) {
-            rawName = "Def_" + std::to_string(defIdx);
-        }
-
-        int protoCount = protoNameCounts[rawName]++;
-        std::string name = sanitizeUsdName(rawName, protoCount);
-
-        SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
-
-        prototypePaths[defs[defIdx].first] = protoPath;
-
-        if (prototypesStage) {
-
-            if (!prototypesFilter.empty() && prototypesFilter.count(protoPath)) {
-                prototypesStage->RemovePrim(protoPath);
-            }
-
-            if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
-                std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
-                continue;
-            }
-
-            UsdGeomXform protoXformPrim = UsdGeomXform::Define(prototypesStage, protoPath);
-
-            UsdPrim protoPrim = protoXformPrim.GetPrim();
-
-            if (!protoPrim.IsValid()) {
-                std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
-                continue;
-            }
-
-            { // SdfChangeBlock
-                SdfChangeBlock changeBlock;
-
-                // Clear existing inherits before adding to avoid duplicates on re-run
-                protoPrim.GetInherits().ClearInherits();
-                protoPrim.GetInherits().AddInherit(SdfPath("/CADPart"));
-
-                protoPrim.CreateAttribute(TfToken("step:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
-            }
-        }
-
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
-
-        if (assemblyStage) {
-            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPath);
-            assemblyStage->OverridePrim(assemblyProtoPath);
-        }
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
-    }
-    std::cerr << "\n";
-}
-
-bool UsdStepExporter::writePrototypeGeometry(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessResult& r,
-    const TessParams& params,
-    int defIdx
-) {
-    if (stage->GetPrimAtPath(protoPath).IsValid())
-        stage->RemovePrim(protoPath);
-
-    UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
-    UsdPrim protoPrim = protoXform.GetPrim();
-
-    if (r.renderOnly) {
-        UsdGeomImageable imageable(protoPrim);
-        imageable.CreatePurposeAttr().Set(UsdGeomTokens->render);
-    }
-
-    if (!r.points.empty()) {
-        UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
-
-        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
-            int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
-            
-            VtIntArray indices(count);
-            std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
-
-            UsdGeomSubset::CreateGeomSubset(
-                proto,
-                TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)),
-                UsdGeomTokens->face,
-                indices,
-                TfToken("materialBind"),
-                UsdGeomTokens->nonOverlapping 
-            );
-        }
-
-        { // SdfChangeBlock
-            SdfChangeBlock changeBlock;
-            proto.GetPointsAttr().Set(r.points);
-            proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-            proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-            proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-            proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-            proto.GetNormalsAttr().Set(r.normals);
-
-            UsdGeomPrimvarsAPI api(proto);
-
-            UsdGeomPrimvar primUV = api.CreatePrimvar(
-                TfToken("st"),
-                SdfValueTypeNames->TexCoord2fArray,
-                UsdGeomTokens->faceVarying
-            );
-
-            UsdGeomPrimvar primSurfaceID = api.CreatePrimvar(
-                TfToken("surfaceID"),
-                SdfValueTypeNames->IntArray,
-                UsdGeomTokens->uniform
-            );
-
-            UsdGeomPrimvar primIsBoundaryVertex = api.CreatePrimvar(
-                TfToken("isBoundaryVertex"),
-                SdfValueTypeNames->BoolArray,
-                UsdGeomTokens->vertex
-            );
-
-            primUV.Set(r.perSurfaceUVs);
-            primSurfaceID.Set(r.surfaceIDs);
-            primIsBoundaryVertex.Set(r.isBoundaryVertex);
-        } // SdfChangeBlock
-    }
-
-    if (!r.wireframeCounts.empty()) {
-        int pointOffset = 0;
-        SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
-        UsdGeomXform curveXform = UsdGeomXform::Define(stage, wireframePath);
-        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
-            int count = r.wireframeCounts[ci];
-
-            VtArray<GfVec3f> pts(
-                r.curvePoints.begin() + pointOffset,
-                r.curvePoints.begin() + pointOffset + count
-            );
-
-            SdfPath wireframeCurvePath = wireframePath.AppendChild(
-                TfToken("Wireframe_" + std::to_string(ci))
-            );
-
-            UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(stage, wireframeCurvePath);
-            {
-                SdfChangeBlock changeBlock;
-                if (params.wireframeMode.type == CurveType::CatmullRom) {
-                    curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                    curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-                } else {
-                    curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
-                }
-                curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-                curve.GetPointsAttr().Set(pts);
-                curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-
-                VtArray<float> widths(count, 0.1f);
-                curve.CreateWidthsAttr().Set(widths);
-
-                VtArray<GfVec3f> color = {{0.8f, 0.8f, 0.8f}};
-                curve.GetDisplayColorAttr().Set(color);
-
-                if (ci < (int)r.curveContinuity.size()) {
-                    UsdGeomPrimvarsAPI curveAPI(curve);
-                    curveAPI.CreatePrimvar(
-                        TfToken("continuityType"),
-                        SdfValueTypeNames->IntArray,
-                        UsdGeomTokens->uniform
-                    ).Set(VtIntArray{r.curveContinuity[ci]});
-                }
-            }
-            pointOffset += count;
-        }
-    }
-
-    if (!r.sketchCounts.empty()) {
-        int pointOffset = 0;
-        SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
-        UsdGeomXform sketchXform = UsdGeomXform::Define(stage, sketchPath);
-        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
-            int count = r.sketchCounts[ci];
-
-            VtArray<GfVec3f> pts(
-                r.sketchPoints.begin() + pointOffset,
-                r.sketchPoints.begin() + pointOffset + count
-            );
-
-            SdfPath curvePath = sketchPath.AppendChild(
-                TfToken("Sketch_" + std::to_string(ci))
-            );
-            UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(stage, curvePath);
-            {
-                SdfChangeBlock changeBlock;
-                if (params.sketchMode.type == CurveType::CatmullRom) {
-                    sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                    sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-                } else {
-                    sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
-                }
-                sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-                sketchCurve.GetPointsAttr().Set(pts);
-                sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-
-                VtArray<float> sketchWidths(count, 0.1f);
-                sketchCurve.CreateWidthsAttr().Set(sketchWidths);
-
-                VtArray<GfVec3f> sketchColor = {{0.4f, 0.7f, 1.0f}};
-                sketchCurve.GetDisplayColorAttr().Set(sketchColor);
-            }
-            pointOffset += count;
-        }
-    }
-
-    return true;
-}
-
-void UsdStepExporter::writePrototypeGeometries(
-    UsdStageRefPtr stage,
-    const SdfPath& rootPrimPath,
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const LabelMap<SdfPath>& prototypePaths,
-    const std::vector<TessResult>& tessResults,
-    const TessParams& rootParams,
-    const std::map<SdfPath, TessParams>& paramsBank,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
-) {
-    const int total = (int)defs.size();
-    int completed = 0;
-
-    for (int i = 0; i < total; i++) {
-        auto protoIter = prototypePaths.find(defs[i].first);
-        if (protoIter == prototypePaths.end()) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
-            continue;
-        }
-
-        const SdfPath& protoPath = protoIter->second;
-
-        if (!prototypesFilter.empty() && !prototypesFilter.count(protoPath)) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
-            continue;
-        }
-
-        SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
-
-        const TessParams& params = paramsBank.count(assemblyProtoPath)
-                ? paramsBank.at(assemblyProtoPath)
-                : rootParams;
-
-        if (!writePrototypeGeometry(stage, protoPath, tessResults[i], params, i)) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
-            continue;
-        }
-
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry..." << std::flush;
-    }
-    std::cerr << "\n";
-}
-
-void UsdStepExporter::writeAssemblyXforms(
-    UsdStageRefPtr stage, 
-    const SdfPath& rootPrimPath,
-    const std::vector<StepModel::PartNode>& partNodes,
-    const std::vector<SdfPath>& paths, 
-    const LabelMap<SdfPath>& prototypePaths
-) {
-    
-    // pre compute which instances have children
-    std::vector<bool> hasChildren(partNodes.size(), false);
-    for (size_t i = 0; i < partNodes.size(); i++) {
-        if (partNodes[i].parentIdx != -1)
-            hasChildren[partNodes[i].parentIdx] = true;
-    }
-    // Define all xform nodes, wire references, and author transforms
-    const int total = (int)partNodes.size();
-    int completed = 0;
-    for (size_t i = 0; i < partNodes.size(); i++) {
-        const StepModel::PartNode& node = partNodes[i];
-        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
-        if (!xform) {
-            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
-            continue;
-        }
-        {
-            SdfChangeBlock changeBlock;
-            // Usd composes the full world transform later
-            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform));
-            if (node.type == StepModel::PartNodeType::Leaf) {
-                auto protoIter = prototypePaths.find(node.definitionLabel);
-                if (protoIter == prototypePaths.end()) {
-                    std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
-                    continue;
-                }
-
-                SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
-
-                xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
-                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
-                if (!hasChildren[i]) {
-                    xform.GetPrim().SetInstanceable(true);
-                }
-                if (node.color.has_value()) {
-                    VtArray<GfVec3f> displayColor = {{
-                        static_cast<float>(node.color->Red()),
-                        static_cast<float>(node.color->Green()),
-                        static_cast<float>(node.color->Blue())
-                    }};
-                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
-                        TfToken("primvars:displayColor"),
-                        SdfValueTypeNames->Color3fArray,
-                        false
-                    );
-                    colorAttr.Set(displayColor);
-                }
-                if (!node.visible) {
-                    UsdGeomImageable(xform.GetPrim())
-                        .CreateVisibilityAttr()
-                        .Set(UsdGeomTokens->invisible);
-                }
-            } else {
-                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
-            }
-        } // SdfChangeBlock
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
-    }
-    std::cerr << "\n";
-}
-
 void UsdStepExporter::tessellateGeometry(
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const LabelMap<SdfPath>& prototypePaths,
@@ -1146,79 +625,4 @@ void UsdStepExporter::tessellateGeometry(
 
     for (const auto& w : warnings)
         std::cerr << "  Warning: " << w << "\n";
-}
-
-void UsdStepExporter::writeGeometry(
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const LabelMap<SdfPath>& prototypePaths,
-    const SdfPath& prototypesPath,
-    const SdfPath& prototypesInRootPath,
-    UsdStageRefPtr targetStage,
-    const std::string& logLabel,
-    const TessParams& rootParams,
-    const std::vector<TessResult>& tessResults,
-    const std::map<SdfPath, TessParams>& paramsBank, // Optional
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter
-) {
-    auto findParams = [&](const SdfPath& path) -> const TessParams& {
-        SdfPath p = path;
-        while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
-            auto it = paramsBank.find(p);
-            if (it != paramsBank.end()) return it->second;
-            p = p.GetParentPath();
-        }
-        return rootParams;
-    };
-
-    const int total = (int)defs.size();
-    int completed = 0;
-
-    for (int i = 0; i < total; i++) {
-        if (prototypePaths.find(defs[i].first) == prototypePaths.end())
-            continue;
-
-        SdfPath protoPath = prototypePaths.at(defs[i].first);
-
-        if (!prototypeFilter.empty() && prototypeFilter.find(protoPath) == prototypeFilter.end()) 
-            continue;
-
-        SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
-        
-        const TessParams& params = findParams(protoPathInRoot);
-
-        if (!writePrototypeGeometry(targetStage, protoPath, tessResults[i], params, i)) {
-            std::cerr << "Failed to write prototype geometry for " << protoPathInRoot << std::endl;
-            continue;
-        }
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing " << logLabel << "..." << std::flush;
-    }
-    std::cerr << "\n";
-}
-
-std::vector<SdfPath> UsdStepExporter::computeNodePaths(
-    const std::vector<StepModel::PartNode>& partNodes,
-    const SdfPath& assemblyPath
-) {
-    std::unordered_map<std::string, int> nameCounts;
-    std::vector<SdfPath> paths(partNodes.size());
-
-    // pre-order guarantees parent path is always assigned before we 
-    // reach any of its children or Usd will omplain about missing 
-    // parent prims when we try to define them
-    for (size_t i = 0; i < partNodes.size(); i++) {
-        const StepModel::PartNode& node = partNodes[i];
-
-        SdfPath parentPath;
-        if (partNodes[i].parentIdx == -1) {
-            parentPath = assemblyPath;
-        } else {
-            parentPath = paths[partNodes[i].parentIdx];
-        }
-
-        int count = nameCounts[node.name]++;
-        std::string finalName = sanitizeUsdName(node.name, count);
-        paths[i] = parentPath.AppendChild(TfToken(finalName));
-    }
-
-    return paths;
 }

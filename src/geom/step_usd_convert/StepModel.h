@@ -13,6 +13,7 @@
 #include <opencascade/TopoDS_Shape.hxx>
 #include <opencascade/Quantity_Color.hxx>
 #include <opencascade/Standard_Handle.hxx>
+#include <opencascade/TDF_Label.hxx>
 
 class TDocStd_Application;
 class TDocStd_Document;

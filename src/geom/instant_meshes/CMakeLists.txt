@@ -16,3 +16,6 @@ find_package(TBB REQUIRED)
 
 target_link_libraries(AutolibInstantMeshes PUBLIC Eigen3::Eigen)
 target_link_libraries(AutolibInstantMeshes PUBLIC TBB::tbb)
+
+add_executable(InstantMeshes "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cc")
+target_link_libraries(InstantMeshes PRIVATE AutolibInstantMeshes)
