@@ -98,23 +98,6 @@ std::map<SdfPath, TessParams> resolveParams(
         results[prim.GetPath()] = getTessParams(prim, defaultParams);
     }
 
-    for (const auto& params : results) {
-        std::cout << "Params for " << params.first << ":\n";
-        std::cout << "  meshLinearDeflection: " << params.second.meshLinearDeflection << "\n";
-        std::cout << "  meshAngularDeflection: " << params.second.meshAngularDeflection << "\n";
-        std::cout << "  meshMinSize: " << params.second.meshMinSize << "\n";
-        std::cout << "  wireframeDeflection: " << params.second.wireframeDeflection << "\n";
-        std::cout << "  wireframeMode.type: " << static_cast<int>(params.second.wireframeMode.type) << "\n";
-        std::cout << "  wireframeMode.sampling: " << static_cast<int>(params.second.wireframeMode.sampling) << "\n";
-        std::cout << "  sketchDeflection: " << params.second.sketchDeflection << "\n";
-        std::cout << "  sketchMode.type: " << static_cast<int>(params.second.sketchMode.type) << "\n";
-        std::cout << "  sketchMode.sampling: " << static_cast<int>(params.second.sketchMode.sampling) << "\n";
-        std::cout << "  renderPurposeThreshold: " << params.second.renderPurposeThreshold << "\n";
-        std::cout << "  selfIntersectionThreshold: " << params.second.selfIntersectionThreshold << "\n";
-        std::cout << "  maxNumberRemeshPasses: " << params.second.maxNumberRemeshPasses << "\n";
-    }
-        
-
     rootPrim.SetActive(initialValue);
     return results;
 }
@@ -173,9 +156,13 @@ void UsdStepExporter::populateUsd(
 ) {
     TfErrorMark mark;
 
-    fs::path prototypesStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-prototypes.usda");
-    fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usdc");
-    
+    fs::path rootFilePath = model.stepPath.parent_path();
+
+    fs::path prototypesStageFilePath = rootFilePath / (model.stepPath.stem().string() + "-prototypes.usdc");
+    fs::path assemblyStageFilePath = rootFilePath / (model.stepPath.stem().string() + "-assembly.usdc");
+
+    std::cout << assemblyStageFilePath <<std::endl;
+
     SdfPath assemblyPath("/Assembly");
     SdfPath prototypesPath("/Prototypes");
 
@@ -222,20 +209,20 @@ void UsdStepExporter::populateUsd(
     assemblyStage->SetDefaultPrim(assemblyRoot);
 
     SdfLayerHandle rootLayer = rootStage->GetRootLayer();
-    std::string assemblyFileName = assemblyStageFilePath.filename().string();
-    
+    std::string assemblyRelativeFilePath = fs::relative(assemblyStageFilePath, rootFilePath).string();
+
     // Check if it's already there before adding
     SdfSubLayerProxy subLayers = rootLayer->GetSubLayerPaths();
     bool alreadyExists = false;
     for (const auto& path : subLayers) {
-        if (path == assemblyFileName) {
+        if (path == assemblyRelativeFilePath) {
             alreadyExists = true;
             break;
         }
     }
 
     if (!alreadyExists) {
-        rootLayer->InsertSubLayerPath(assemblyFileName);
+        rootLayer->InsertSubLayerPath(assemblyRelativeFilePath);
     }
 
     prototypesStage->Save();
@@ -254,10 +241,22 @@ void UsdStepExporter::populateUsd(
     // will later be populated by geometry later 
     LabelMap<SdfPath> prototypePaths;
 
-    writePrototypeXforms(
-        prototypesStage, assemblyStage, rootPrim,
+    writeCadPart(
+        prototypesStage, rootPrim,
+        SdfPath("/CADPart")
+    );
+
+    writePrototypeXformsInPrototypesStage(
+        prototypesStage, rootPrim,
         defs, prototypesPath,
-        prototypesFilter, makeFreshStage,
+        prototypesFilter,
+        prototypePaths,
+        "",
+        makeFreshStage
+    );
+
+    writePrototypeOverridesInAssemblyStage(
+        assemblyStage, rootPrim,
         prototypePaths
     );
 
@@ -272,7 +271,7 @@ void UsdStepExporter::populateUsd(
     assemblyStage->Save();
 
     // Add the prototypes stage as the payload
-    std::string payloadPath = prototypesStageFilePath.filename().string();
+    std::string payloadPath = fs::relative(prototypesStageFilePath, rootFilePath).string();
     SdfPrimSpecHandle protoSpec = rootStage->GetRootLayer()->GetPrimAtPath(prototypesInRootPath);
 
     bool payloadAlreadyAuthored = false;
@@ -317,6 +316,25 @@ void UsdStepExporter::populateUsd(
     std::vector<TessResult> tessResults(defs.size());
     std::string logName = "";
 
+    bool debugParams = false;
+    if (debugParams) {
+        for (const auto& params : paramsBank) {
+            std::cout << "Params for " << params.first << ":\n";
+            std::cout << "  meshLinearDeflection: " << params.second.meshLinearDeflection << "\n";
+            std::cout << "  meshAngularDeflection: " << params.second.meshAngularDeflection << "\n";
+            std::cout << "  meshMinSize: " << params.second.meshMinSize << "\n";
+            std::cout << "  wireframeDeflection: " << params.second.wireframeDeflection << "\n";
+            std::cout << "  wireframeMode.type: " << static_cast<int>(params.second.wireframeMode.type) << "\n";
+            std::cout << "  wireframeMode.sampling: " << static_cast<int>(params.second.wireframeMode.sampling) << "\n";
+            std::cout << "  sketchDeflection: " << params.second.sketchDeflection << "\n";
+            std::cout << "  sketchMode.type: " << static_cast<int>(params.second.sketchMode.type) << "\n";
+            std::cout << "  sketchMode.sampling: " << static_cast<int>(params.second.sketchMode.sampling) << "\n";
+            std::cout << "  renderPurposeThreshold: " << params.second.renderPurposeThreshold << "\n";
+            std::cout << "  selfIntersectionThreshold: " << params.second.selfIntersectionThreshold << "\n";
+            std::cout << "  maxNumberRemeshPasses: " << params.second.maxNumberRemeshPasses << "\n";
+        }
+    }     
+
     tessellateGeometry(
         defs, prototypePaths, prototypesPath, prototypesInRootPath,
         logName, rootParams, tessResults, paramsBank, prototypesFilter
@@ -325,7 +343,7 @@ void UsdStepExporter::populateUsd(
     writePrototypeGeometries(
         prototypesStage, rootPrim.GetPrimPath(),
         defs, prototypePaths,
-        tessResults, rootParams, paramsBank, prototypesFilter
+        tessResults, rootParams, "", paramsBank, prototypesFilter
     );
 
     // Hide /Prototypes from renderers via the root stage override,
@@ -353,8 +371,12 @@ void UsdStepExporter::populateUsdVariant(
 ) {
     TfErrorMark mark;
 
-    std::string basePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-");
-    fs::path assemblyStageFilePath = model.stepPath.parent_path() / (model.stepPath.stem().string() + "-assembly.usdc");
+    fs::path rootFilePath = fs::canonical(rootStage->GetRootLayer()->GetResolvedPath().GetPathString()).remove_filename();
+
+    std::string baseName = (model.stepPath.stem().string() + "-");
+
+    std::string assemblyFileName = baseName + "assembly.usdc";
+    fs::path assemblyStageFilePath = rootFilePath / assemblyFileName;
 
     SdfPath prototypesPath("/Prototypes");
 
@@ -370,14 +392,26 @@ void UsdStepExporter::populateUsdVariant(
     // don't clean house with the ones that are already there
     bool makeFreshStage = prototypesFilter.empty();
 
+
     // Initialize Prototypes
     std::mutex protoMutex;
     WorkParallelForEach(variantSetNameToVariantNames.begin(), variantSetNameToVariantNames.end(), [&](const auto& entry) -> void {
         const std::string& set = entry.first;
         const std::vector<std::string>& rootVariantNames = entry.second;
 
+        fs::path variantSubPath = rootFilePath / set;
+
+        if (!fs::exists(variantSubPath)) {
+            if (!fs::create_directory(variantSubPath)) {
+                std::cerr << "Error: Failed to create directory " << variantSubPath << "\n";
+                return;
+            }
+        }
+
         for (const auto& variant : rootVariantNames) {
-            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usda";
+            std::string prototypesStageFileName = baseName + set + "-" + variant + "-prototypes.usdc";
+
+            fs::path prototypesStageFilePath = variantSubPath / prototypesStageFileName;
 
             UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
             if (!prototypesStage) {
@@ -429,20 +463,20 @@ void UsdStepExporter::populateUsdVariant(
     assemblyStage->SetDefaultPrim(assemblyRoot);
 
     SdfLayerHandle rootLayer = rootStage->GetRootLayer();
-    std::string assemblyFileName = assemblyStageFilePath.filename().string();
+    std::string assemblyRelativeFilePath = fs::relative(assemblyStageFilePath, rootFilePath).string();
 
     // Check if it's already there before adding
     SdfSubLayerProxy subLayers = rootLayer->GetSubLayerPaths();
     bool alreadyExists = false;
     for (const auto& path : subLayers) {
-        if (path == assemblyFileName) {
+        if (path == assemblyRelativeFilePath) {
             alreadyExists = true;
             break;
         }
     }
 
     if (!alreadyExists) {
-        rootLayer->InsertSubLayerPath(assemblyFileName);
+        rootLayer->InsertSubLayerPath(assemblyRelativeFilePath);
     }
 
     assemblyStage->Save();
@@ -460,22 +494,30 @@ void UsdStepExporter::populateUsdVariant(
     LabelMap<SdfPath> prototypePaths;
 
     // Populate prototypePaths and prototypeInRootPaths, and write assembly overrides
-    writePrototypeXforms(
-        nullptr, assemblyStage,
-        rootPrim, defs, prototypesPath,
-        prototypesFilter, makeFreshStage,
-        prototypePaths
-    );
 
     // Write xforms into each variant's prototypes stage
     for (const auto& proto : prototypes) {
-        writePrototypeXforms(
-            proto.stage, nullptr,
-            rootPrim, defs, prototypesPath,
-            prototypesFilter, makeFreshStage,
-            prototypePaths
+        std::string logLabel = "variant " + proto.variantSetName + ", " + proto.variantName;
+
+        writeCadPart(
+            proto.stage, rootPrim,
+            SdfPath("/CADPart")
+        );
+
+        writePrototypeXformsInPrototypesStage(
+            proto.stage, rootPrim,
+            defs, prototypesPath,
+            prototypesFilter,
+            prototypePaths,
+            logLabel,
+            makeFreshStage
         );
     }
+
+    writePrototypeOverridesInAssemblyStage(
+        assemblyStage, rootPrim,
+        prototypePaths
+    );
 
     std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInRootPath);
     if (makeFreshStage)
@@ -493,7 +535,7 @@ void UsdStepExporter::populateUsdVariant(
     // Add the prototypes stage as the payload
 
     for (const auto& proto : prototypes) {
-        std::string payloadPath = proto.filePath.filename().string();
+        std::string payloadPath = fs::relative(proto.filePath, rootFilePath).string();
 
         UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
         varSet.SetVariantSelection(proto.variantName);
@@ -571,10 +613,11 @@ void UsdStepExporter::populateUsdVariant(
 
     // Write geometry for all variants in parallel
     WorkParallelForEach(variantWork.begin(), variantWork.end(), [&](VariantWork& work) {
+        std::string logLabel = "variant " + work.proto->variantSetName + ", " + work.proto->variantName;
         writePrototypeGeometries(
             work.proto->stage, rootPrim.GetPrimPath(),
             defs, prototypePaths,
-            work.tessResults, work.rootParams, work.paramsBank, prototypesFilter
+            work.tessResults, work.rootParams, logLabel, work.paramsBank, prototypesFilter
         );
         work.proto->stage->Save();
     });

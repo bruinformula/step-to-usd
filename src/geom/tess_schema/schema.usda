@@ -114,7 +114,7 @@ class "StepTessellationOptions" (
     token step:wireframeType = "linear"
     token step:wireframeSampling = "underlying"
     float step:wireframeDeflection = 0.01
-    token step:sketchType = "none"
+    token step:sketchType = "linear"
     token step:sketchSampling = "underlying"
     float step:sketchDeflection = 0.005
     float step:renderPurposeThreshold = 0.0

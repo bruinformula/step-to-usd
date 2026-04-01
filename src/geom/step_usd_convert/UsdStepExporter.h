@@ -166,15 +166,27 @@ private:
         const LabelMap<SdfPath>& prototypePaths
     );
 
-    static void writePrototypeXforms(
-        UsdStageRefPtr prototypesStage,
+    static void writePrototypeOverridesInAssemblyStage(
         UsdStageRefPtr assemblyStage,
+        const UsdPrim& rootPrim,
+        LabelMap<SdfPath>& prototypePaths
+    );
+
+    static void writeCadPart(
+        UsdStageRefPtr prototypesStage,
+        const UsdPrim& rootPrim,
+        const SdfPath cadPartPath
+    );
+
+    static void writePrototypeXformsInPrototypesStage(
+        UsdStageRefPtr prototypesStage,
         const UsdPrim& rootPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
-        bool makeFreshStage,
-        LabelMap<SdfPath>& prototypePaths
+        LabelMap<SdfPath>& prototypePaths,
+        const std::string& logLabel,
+        bool makeFreshStage
     );
 
     static void writePrototypeGeometries(
@@ -184,6 +196,7 @@ private:
         const LabelMap<SdfPath>& prototypePaths,
         const std::vector<TessResult>& tessResults,
         const TessParams& rootParams,
+        const std::string& logLabel,
         const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
