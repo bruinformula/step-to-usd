@@ -96,6 +96,12 @@ struct UVPatch {
     float uMin, uMax, vMin, vMax;
 };
 
+struct ProtoGeomJob {
+    SdfPath protoPath;
+    TessResult result;
+    TessParams params;
+};
+
 struct UsdStepExporter {
 
     static UsdStageRefPtr initUsdStage(
@@ -113,14 +119,7 @@ struct UsdStepExporter {
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
-        UsdPrim& rootPrim, // on the stage with the stronger opinions
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
-    );
-
-    static void populateUsdVariant(
-        const StepModel& model, 
-        UsdStageRefPtr rootStage,
-        UsdPrim& rootPrim, // on the stage with the stronger opinions
+        UsdPrim& rootPrim,
         const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
@@ -149,7 +148,7 @@ private:
         const std::string& logLabel,
         const TessParams& rootParams,
         std::vector<TessResult>& outResults,
-        const std::map<SdfPath, TessParams>& paramsBank = {}, // Optional for standard export
+        const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
 
@@ -191,13 +190,8 @@ private:
 
     static void writePrototypeGeometries(
         UsdStageRefPtr stage,
-        const SdfPath& rootPrimPath,
-        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const LabelMap<SdfPath>& prototypePaths,
-        const std::vector<TessResult>& tessResults,
-        const TessParams& rootParams,
+        const std::vector<ProtoGeomJob>& jobs,
         const std::string& logLabel,
-        const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
     );
 
@@ -224,7 +218,7 @@ private:
         const std::string& logLabel,
         const TessParams& rootParams,
         const std::vector<TessResult>& tessResults,
-        const std::map<SdfPath, TessParams>& paramsBank, // Optional
+        const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );
 };

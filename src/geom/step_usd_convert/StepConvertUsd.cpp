@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    pxr::UsdStageRefPtr stage = pxr::UsdStage::Open(inputArgs.inputUsdFile, UsdStage::LoadNone);
+    UsdStageRefPtr stage = UsdStage::Open(inputArgs.inputUsdFile, UsdStage::LoadNone);
     if (!stage) {
         std::cerr << "Failed to create stage at " << inputArgs.inputUsdFile << "\n";
         return 1;
@@ -252,7 +252,8 @@ int main(int argc, char** argv) {
                 std::cerr << "The USD file does not have any variant sets. ignoring variant specifications.\n";
             }
 
-            UsdStepExporter::populateUsd(model,stage, prim, prototypeFilter);
+            std::map<std::string, std::vector<std::string>> emptyVariants;
+            UsdStepExporter::populateUsd(model, stage, prim, emptyVariants, prototypeFilter);
         } else if (inputArgs.variantSetNameToVariantNames.empty()) { 
             std::cout << "Converting all variant sets found in USD file:\n";
             for (const auto& set : vsetNames) {
@@ -268,7 +269,7 @@ int main(int argc, char** argv) {
             for (const auto& name : vsetNames) {
                 variantSetNameToVariantNames[name] = rootVariantSets.GetVariantSet(name).GetVariantNames();
             }
-            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames, prototypeFilter);
+            UsdStepExporter::populateUsd(model, stage, prim, variantSetNameToVariantNames, prototypeFilter);
         } else {
             std::cout << "Converting only specified variant sets:\n";
             for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
@@ -302,7 +303,7 @@ int main(int argc, char** argv) {
                 }
             }
 
-            UsdStepExporter::populateUsdVariant(model,stage, prim, variantSetNameToVariantNames, prototypeFilter);
+            UsdStepExporter::populateUsd(model, stage, prim, variantSetNameToVariantNames, prototypeFilter);
         }
 
         stage->Save();

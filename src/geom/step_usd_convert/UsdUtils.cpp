@@ -194,19 +194,8 @@ UsdStageRefPtr UsdStepExporter::initUsdStage(
         //std::cout << "Creating new layer at " << newStagePath << "\n";
         layer = SdfLayer::CreateNew(newStagePath.string());
     } else if (clearExisting) {
-        //std::cout << "Cleaning internal contents of: " << rootPrimPath << "\n";
-        
-        if (SdfPrimSpecHandle rootSpec = layer->GetPrimAtPath(rootPrimPath)) {
-            auto children = rootSpec->GetNameChildren();
-            for (const auto& childName : children) {
-                rootSpec->RemoveNameChild(childName);
-            }
-            
-            auto props = rootSpec->GetProperties();
-            for (const auto& prop : props) {
-                rootSpec->RemoveProperty(prop);
-            }
-        }
+        //std::cout << "Cleaning internal contents of layer: " << newStagePath << "\n";
+        layer->Clear();
     }
 
     if (!layer) return nullptr;

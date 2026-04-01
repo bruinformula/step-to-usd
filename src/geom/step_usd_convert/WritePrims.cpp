@@ -3,7 +3,6 @@
 #include <utility>
 #include <unordered_map>
 #include <unordered_set>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -22,6 +21,8 @@
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/references.h>
+#include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/usd/editContext.h>
 
 #include <pxr/usd/sdf/changeBlock.h>
 #include <pxr/usd/sdf/types.h>
@@ -52,25 +53,7 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-static  UsdPrim addCadPart(
-    UsdStageRefPtr prototypesStage,
-    SdfPath cadPartPath = SdfPath("/CADPart")
-) {
-    UsdPrim cadPartClass = prototypesStage->CreateClassPrim(cadPartPath);
-    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-
-    auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = cadPartPath.AppendChild(TfToken(name));
-        UsdPrim child = prototypesStage->DefinePrim(childPath);
-        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-    };
-
-    makeClassChild("Mesh");
-    makeClassChild("Wireframe");
-    makeClassChild("Sketch");
-    return cadPartClass;
-}
-
+// Write CAD pat
 void UsdStepExporter::writeCadPart(
     UsdStageRefPtr prototypesStage,
     const UsdPrim& rootPrim,
@@ -87,7 +70,18 @@ void UsdStepExporter::writeCadPart(
 
     fs::path relativePath = fs::relative(rootStagePath, prototypesStagePath.parent_path());
 
-    UsdPrim cadPart = addCadPart(prototypesStage);
+    UsdPrim cadPart = prototypesStage->CreateClassPrim(cadPartPath);
+    UsdGeomImageable(cadPart).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    auto makeClassChild = [&](const char* name) {
+        SdfPath childPath = cadPartPath.AppendChild(TfToken(name));
+        UsdPrim child = prototypesStage->DefinePrim(childPath);
+        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+    };
+
+    makeClassChild("Mesh");
+    makeClassChild("Wireframe");
+    makeClassChild("Sketch");
     
     if (defaultParamsRef.has_value()) {
         cadPart.GetReferences().AddReference(
@@ -188,7 +182,8 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
 static void writeMeshGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r
+    const TessResult& r,
+    const TessParams& params
 ) {
     UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
@@ -318,65 +313,83 @@ static void writeSketchGeometry(
 
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
-    const SdfPath& rootPrimPath,
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const LabelMap<SdfPath>& prototypePaths,
-    const std::vector<TessResult>& tessResults,
-    const TessParams& rootParams,
+    const std::vector<ProtoGeomJob>& jobs,
     const std::string& logLabel,
-    const std::map<SdfPath, TessParams>& paramsBank,
     const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
 ) {
-    const int total = (int)defs.size();
+    const int total = (int)jobs.size();
     int completed = 0;
 
     for (int i = 0; i < total; i++) {
-        auto protoIter = prototypePaths.find(defs[i].first);
-        if (protoIter == prototypePaths.end()) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
-            continue;
-        }
-
-        const SdfPath& protoPath = protoIter->second;
+        const SdfPath& protoPath = jobs[i].protoPath;
+        const TessResult& r = jobs[i].result;
+        const TessParams& params = jobs[i].params;
 
         if (!prototypesFilter.empty() && !prototypesFilter.count(protoPath)) {
             std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
             continue;
         }
 
-        SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
-
-        const TessParams& params = paramsBank.count(assemblyProtoPath) ? paramsBank.at(assemblyProtoPath) : rootParams;
-
-        // Remove only the geometry children
-        for (const TfToken& childName : {TfToken("Mesh"), TfToken("Wireframe"), TfToken("Sketch")}) {
-            SdfPath childPath = protoPath.AppendChild(childName);
-            if (stage->GetPrimAtPath(childPath).IsValid()) {
-                stage->RemovePrim(childPath);
+        UsdGeomXform protoXform;
+        
+        auto variantSelection = protoPath.GetVariantSelection();
+        if (!variantSelection.first.empty()) {
+            // Strip variant selection to get the base prim path
+            SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
+            
+            UsdPrim basePrim = stage->GetPrimAtPath(baseProtoPath);
+            if (!basePrim) {
+                protoXform = UsdGeomXform::Define(stage, baseProtoPath);
+                basePrim = protoXform.GetPrim();
+            } else {
+                protoXform = UsdGeomXform(basePrim);
             }
-        }
+            
+            // Ensure the variant set exists
+            UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+            vset.AddVariant(variantSelection.second);
+            vset.SetVariantSelection(variantSelection.second);
+            
+            // Switch to the edit context of this variant to write geometry
+            UsdEditContext ctx(vset.GetVariantEditContext());
+            
+            if (r.renderOnly) {
+                UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
+            }
 
-        UsdGeomXform protoXform = UsdGeomXform::Get(stage, protoPath);
-        if (!protoXform) { // fallback
-            protoXform = UsdGeomXform::Define(stage, protoPath);
-        }
+            if (!r.points.empty()) {
+                writeMeshGeometry(stage, baseProtoPath, r, params);
+            }
 
-        const TessResult& r = tessResults[i];
+            if (!r.wireframeCounts.empty()) {
+                writeWireframeGeometry(stage, baseProtoPath, r, params);
+            }
 
-        if (r.renderOnly) {
-            UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
-        }
+            if (!r.sketchCounts.empty()) {
+                writeSketchGeometry(stage, baseProtoPath, r, params);
+            }
 
-        if (!r.points.empty()) {
-            writeMeshGeometry(stage, protoPath, r);
-        }
+        } else {
+            protoXform = UsdGeomXform::Get(stage, protoPath);
+            if (!protoXform) { // fallback
+                protoXform = UsdGeomXform::Define(stage, protoPath);
+            }
 
-        if (!r.wireframeCounts.empty()) {
-            writeWireframeGeometry(stage, protoPath, r, params);
-        }
+            if (r.renderOnly) {
+                UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
+            }
 
-        if (!r.sketchCounts.empty()) {
-            writeSketchGeometry(stage, protoPath, r, params);
+            if (!r.points.empty()) {
+                writeMeshGeometry(stage, protoPath, r, params);
+            }
+
+            if (!r.wireframeCounts.empty()) {
+                writeWireframeGeometry(stage, protoPath, r, params);
+            }
+
+            if (!r.sketchCounts.empty()) {
+                writeSketchGeometry(stage, protoPath, r, params);
+            }
         }
 
         std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
