@@ -45,18 +45,40 @@
 
 #pragma pop_macro("Handle")
 
+#include "stepTessellationAPI.h"
+
 #include "UsdStepExporter.h"
 #include "StepModel.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+static  UsdPrim addCadPart(
+    UsdStageRefPtr prototypesStage,
+    SdfPath cadPartPath = SdfPath("/CADPart")
+) {
+    UsdPrim cadPartClass = prototypesStage->CreateClassPrim(cadPartPath);
+    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    auto makeClassChild = [&](const char* name) {
+        SdfPath childPath = cadPartPath.AppendChild(TfToken(name));
+        UsdPrim child = prototypesStage->DefinePrim(childPath);
+        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+    };
+
+    makeClassChild("Mesh");
+    makeClassChild("Wireframe");
+    makeClassChild("Sketch");
+    return cadPartClass;
+}
+
+
 // Prototype Xforms
 void UsdStepExporter::writePrototypeXforms(
     UsdStageRefPtr prototypesStage,
     UsdStageRefPtr assemblyStage,
+    const UsdPrim& rootPrim,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
-    const SdfPath& rootPath,
     const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
     bool makeFreshStage,
     LabelMap<SdfPath>& prototypePaths
@@ -64,6 +86,35 @@ void UsdStepExporter::writePrototypeXforms(
     std::unordered_map<std::string, int> protoNameCounts;
     const int total = (int)defs.size();
     int completed = 0;
+
+    std::optional<SdfReference> defaultParamsRef;
+    fs::path relativePath;
+    
+    SdfPath cadPartPath("/CADPart");
+
+    if (prototypesStage) {
+        defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(rootPrim);
+
+        fs::path rootStagePath = fs::canonical(
+            rootPrim.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
+        );
+        fs::path prototypesStagePath = fs::canonical(
+            prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString()
+        );
+
+        relativePath = fs::relative(rootStagePath, prototypesStagePath.parent_path());
+
+        UsdPrim cadPart = addCadPart(prototypesStage);
+        
+        if (defaultParamsRef.has_value()) {
+            cadPart.GetReferences().AddReference(
+                relativePath.string(),
+                defaultParamsRef->GetPrimPath(),
+                defaultParamsRef->GetLayerOffset()
+            );
+        }
+
+    }
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         std::string rawName = getLabelName(defs[defIdx].first);
@@ -103,18 +154,21 @@ void UsdStepExporter::writePrototypeXforms(
 
                 // Clear existing inherits before adding to avoid duplicates on re-run
                 protoPrim.GetInherits().ClearInherits();
-                protoPrim.GetInherits().AddInherit(SdfPath("/CADPart"));
+                protoPrim.GetInherits().AddInherit(cadPartPath);
 
-                protoPrim.CreateAttribute(TfToken("step:defIndex"), SdfValueTypeNames->Int, true).Set(defIdx);
+                AutolibStepTessellationAPI api(protoPrim);
+
+                api.CreateStepDefIndexAttr().Set(defIdx);
             }
         }
 
         std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
 
         if (assemblyStage) {
-            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPath);
+            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrim.GetPath());
             assemblyStage->OverridePrim(assemblyProtoPath);
         }
+        
         std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes..." << std::flush;
     }
     std::cerr << "\n";
@@ -283,11 +337,18 @@ void UsdStepExporter::writePrototypeGeometries(
 
         const TessParams& params = paramsBank.count(assemblyProtoPath) ? paramsBank.at(assemblyProtoPath) : rootParams;
 
-        if (stage->GetPrimAtPath(protoPath).IsValid()) {
-            stage->RemovePrim(protoPath);
+        // Remove only the geometry children
+        for (const TfToken& childName : {TfToken("Mesh"), TfToken("Wireframe"), TfToken("Sketch")}) {
+            SdfPath childPath = protoPath.AppendChild(childName);
+            if (stage->GetPrimAtPath(childPath).IsValid()) {
+                stage->RemovePrim(childPath);
+            }
         }
 
-        UsdGeomXform protoXform = UsdGeomXform::Define(stage, protoPath);
+        UsdGeomXform protoXform = UsdGeomXform::Get(stage, protoPath);
+        if (!protoXform) { // fallback
+            protoXform = UsdGeomXform::Define(stage, protoPath);
+        }
 
         const TessResult& r = tessResults[i];
 

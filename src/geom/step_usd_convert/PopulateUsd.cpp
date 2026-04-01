@@ -59,64 +59,14 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-static void traverseForTessParams(
-    UsdPrim prim, 
-    TessParams currentParams,
-    std::map<SdfPath, TessParams>& partNodes
-) {
-    AutolibStepTessellationAPI api(prim);
-    
-    updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &currentParams.meshLinearDeflection);
-    updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &currentParams.meshAngularDeflection);
-    updateIfAuthored(api.GetStepMeshMinSizeAttr(), &currentParams.meshMinSize);
-
-    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &currentParams.wireframeDeflection);
-    updateIfAuthored(api.GetStepWireframeTypeAttr(), &currentParams.wireframeMode.type);
-    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &currentParams.wireframeMode.sampling);
-
-    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &currentParams.sketchDeflection);
-    updateIfAuthored(api.GetStepSketchTypeAttr(), &currentParams.sketchMode.type);
-    updateIfAuthored(api.GetStepSketchSamplingAttr(), &currentParams.sketchMode.sampling);
-
-    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &currentParams.renderPurposeThreshold);
-    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &currentParams.selfIntersectionThreshold);
-    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &currentParams.maxNumberRemeshPasses);
-
-    partNodes[prim.GetPath()] = currentParams;
-
-    // Avoid parts that inherit from /CADPart
-    for (const SdfPath& inheritPath : prim.GetInherits().GetAllDirectInherits()) {
-        if (inheritPath == SdfPath("/CADPart")) {
-            return;
-        }
-    }
-
-    for (const auto& child : prim.GetFilteredChildren(UsdPrimAllPrimsPredicate)) {
-        traverseForTessParams(child, currentParams, partNodes);
-    }
-}
-
-std::map<SdfPath, TessParams> resolveParams(
-    const UsdPrim& rootPrim,
+TessParams getTessParams(
+    UsdPrim prim,
     const TessParams& defaultParams
 ) {
-    bool initialValue = rootPrim.IsActive();
-    rootPrim.SetActive(true);
-    std::map<SdfPath, TessParams> results;
-    traverseForTessParams(rootPrim, defaultParams, results);
-
-    rootPrim.SetActive(initialValue);
-    return results;
-}
-
-TessParams getTessParams(
-    UsdPrim prim
-) {
     AutolibStepTessellationAPI api(prim);
 
-    TessParams params;
+    TessParams params = defaultParams;
 
-    bool hasAnyValue = false;
     updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
     updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
     updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize);
@@ -134,6 +84,39 @@ TessParams getTessParams(
     updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses);
 
     return params;
+}
+
+std::map<SdfPath, TessParams> resolveParams(
+    const UsdPrim& rootPrim, // prototypes
+    const TessParams& defaultParams
+) {
+    bool initialValue = rootPrim.IsActive();
+    rootPrim.SetActive(true);
+    std::map<SdfPath, TessParams> results;
+
+    for (const UsdPrim& prim : rootPrim.GetChildren()) {
+        results[prim.GetPath()] = getTessParams(prim, defaultParams);
+    }
+
+    for (const auto& params : results) {
+        std::cout << "Params for " << params.first << ":\n";
+        std::cout << "  meshLinearDeflection: " << params.second.meshLinearDeflection << "\n";
+        std::cout << "  meshAngularDeflection: " << params.second.meshAngularDeflection << "\n";
+        std::cout << "  meshMinSize: " << params.second.meshMinSize << "\n";
+        std::cout << "  wireframeDeflection: " << params.second.wireframeDeflection << "\n";
+        std::cout << "  wireframeMode.type: " << static_cast<int>(params.second.wireframeMode.type) << "\n";
+        std::cout << "  wireframeMode.sampling: " << static_cast<int>(params.second.wireframeMode.sampling) << "\n";
+        std::cout << "  sketchDeflection: " << params.second.sketchDeflection << "\n";
+        std::cout << "  sketchMode.type: " << static_cast<int>(params.second.sketchMode.type) << "\n";
+        std::cout << "  sketchMode.sampling: " << static_cast<int>(params.second.sketchMode.sampling) << "\n";
+        std::cout << "  renderPurposeThreshold: " << params.second.renderPurposeThreshold << "\n";
+        std::cout << "  selfIntersectionThreshold: " << params.second.selfIntersectionThreshold << "\n";
+        std::cout << "  maxNumberRemeshPasses: " << params.second.maxNumberRemeshPasses << "\n";
+    }
+        
+
+    rootPrim.SetActive(initialValue);
+    return results;
 }
 
 std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& rootPrim) {
@@ -208,23 +191,6 @@ void UsdStepExporter::populateUsd(
         std::cerr << "Failed to initialize USD stage for " << prototypesStageFilePath << "\n";
         return;
     }
-
-    // Use the stage API to rebuild the class/scaffolding
-    // for a stage that may already exist
-    // This ensures the Prim Objects are valid and not "Expired"
-    UsdPrim cadPartClass = prototypesStage->CreateClassPrim(SdfPath("/CADPart"));
-    UsdGeomImageable(cadPartClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-
-    auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = SdfPath("/CADPart").AppendChild(TfToken(name));
-        UsdPrim child = prototypesStage->DefinePrim(childPath);
-        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-    };
-
-    makeClassChild("Mesh");
-    makeClassChild("Wireframe");
-    makeClassChild("Sketch");
-
     UsdPrim existingPrototypesRoot = prototypesStage->GetPrimAtPath(prototypesPath);
     if (existingPrototypesRoot.IsValid() && !existingPrototypesRoot.IsActive()) {
         existingPrototypesRoot.SetActive(true);
@@ -289,8 +255,8 @@ void UsdStepExporter::populateUsd(
     LabelMap<SdfPath> prototypePaths;
 
     writePrototypeXforms(
-        prototypesStage, assemblyStage,
-        defs, prototypesPath, prototypesInRootPath,
+        prototypesStage, assemblyStage, rootPrim,
+        defs, prototypesPath,
         prototypesFilter, makeFreshStage,
         prototypePaths
     );
@@ -411,7 +377,7 @@ void UsdStepExporter::populateUsdVariant(
         const std::vector<std::string>& rootVariantNames = entry.second;
 
         for (const auto& variant : rootVariantNames) {
-            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usdc";
+            fs::path prototypesStageFilePath = basePath + set + "-" + variant + "-prototypes.usda";
 
             UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
             if (!prototypesStage) {
@@ -488,9 +454,7 @@ void UsdStepExporter::populateUsdVariant(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
     );
-
-    const int total = (int)defs.size();
-
+    
     // Write Xforms first so USD can resolve opinions that
     // will later be populated by geometry later 
     LabelMap<SdfPath> prototypePaths;
@@ -498,7 +462,7 @@ void UsdStepExporter::populateUsdVariant(
     // Populate prototypePaths and prototypeInRootPaths, and write assembly overrides
     writePrototypeXforms(
         nullptr, assemblyStage,
-        defs, prototypesPath, rootPrim.GetPrimPath(),
+        rootPrim, defs, prototypesPath,
         prototypesFilter, makeFreshStage,
         prototypePaths
     );
@@ -507,7 +471,7 @@ void UsdStepExporter::populateUsdVariant(
     for (const auto& proto : prototypes) {
         writePrototypeXforms(
             proto.stage, nullptr,
-            defs, prototypesPath, rootPrim.GetPrimPath(),
+            rootPrim, defs, prototypesPath,
             prototypesFilter, makeFreshStage,
             prototypePaths
         );
@@ -589,7 +553,10 @@ void UsdStepExporter::populateUsdVariant(
         UsdPrim prototypePrim = rootStage->GetPrimAtPath(prototypesInRootPath);
 
         variantWork[vi].rootParams = getTessParams(rootPrim);
-        variantWork[vi].paramsBank = resolveParams(prototypePrim, variantWork[vi].rootParams);
+
+        TessParams variantLevelParams = getTessParams(prototypePrim, variantWork[vi].rootParams);
+
+        variantWork[vi].paramsBank = resolveParams(prototypePrim, variantLevelParams);
         variantWork[vi].tessResults.resize(defs.size());
     }
 

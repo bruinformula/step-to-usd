@@ -169,9 +169,9 @@ private:
     static void writePrototypeXforms(
         UsdStageRefPtr prototypesStage,
         UsdStageRefPtr assemblyStage,
+        const UsdPrim& rootPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
-        const SdfPath& rootPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
         bool makeFreshStage,
         LabelMap<SdfPath>& prototypePaths
@@ -234,4 +234,4 @@ std::map<SdfPath, TessParams> resolveParams(
     const TessParams& defaultParams
 );
 
-TessParams getTessParams(UsdPrim prim);
+static TessParams getTessParams(UsdPrim prim, const TessParams& defaultParams = {});

@@ -40,6 +40,11 @@ class "StepTessellationAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
+    int step:defIndex = 0 (
+        doc = "Unique index of the prototype. Used for debugging"
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+
     float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
         customData = { string variability = "SdfVariabilityUniform" }
@@ -123,7 +128,7 @@ class "StepFileContainer" (
     doc = """Concrete Xform prim that identifies a STEP file root. 
              It inherits all default tessellation settings and provides 
              the target asset path."""
-    prepend apiSchemas = ["StepFileContainerAPI", "StepTessellationAPI"]
+    prepend apiSchemas = ["StepFileContainerAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }

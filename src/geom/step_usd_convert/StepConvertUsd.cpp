@@ -51,7 +51,7 @@ const std::string argOptions =
     "    --variant <variantName>                If the Usd file has variants, specify which variant in the set to convert. If empty all will be converted\n"
     "    --prototype <nameOfPrototype>          Only tesselate the prototype with the given name within /Prototypes (eg: rod). Can be used multiple times to specify multiple prototypes. If empty, all prototypes will be converted.\n"
     "    --help                                 Prints this message.\n"
-    "    usage: StepConvertUsd --inputUsdFile <path> [--variantSet <variantSetName> --variant <variantName>] \n";
+    "    usage: StepConvertUsd --inputUsdFile <path> [--variantSet <variantSetName> --variant <variantName>] --prototype <nameOfPrototype>\n";
 
 struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 
