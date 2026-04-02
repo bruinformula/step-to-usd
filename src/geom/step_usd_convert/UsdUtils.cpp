@@ -270,3 +270,4 @@ void updateIfAuthored(const UsdAttribute& attr, CurveType* value) {
 template void updateIfAuthored<float>(const UsdAttribute&, float*);
 template void updateIfAuthored<double>(const UsdAttribute&, double*);
 template void updateIfAuthored<int>(const UsdAttribute&, int*);
+template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);

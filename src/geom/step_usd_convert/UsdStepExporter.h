@@ -89,6 +89,11 @@ struct TessParams {
 
     double selfIntersectionThreshold = 1e-3;
     int maxNumberRemeshPasses = 3;
+
+    // Timeout in milliseconds
+    uint64_t fixTimeout = 3000;
+    uint64_t meshTimeout = 3000;
+    uint64_t remeshTimeout = 3000;
 };
 
 struct UsdStepExporter {
@@ -111,6 +116,21 @@ private:
     struct UVPatch {
         std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
         float uMin, uMax, vMin, vMax;
+    };
+
+    struct PrototypeContainer {
+        std::string variantSetName;
+        std::string variantName;
+        fs::path filePath;
+        UsdStageRefPtr stage;
+    };
+
+    struct TessellationJob {
+        const PrototypeContainer* proto;
+        int defIndex;
+        SdfPath prototypePath;
+        TessParams params;
+        TessResult result;
     };
 
     struct ProtoGeomJob {
@@ -144,19 +164,15 @@ private:
     static bool tesselatePart(
         TessResult& result, 
         const TopoDS_Shape& defShape, 
-        const TessParams& params
+        const TessParams& params,
+        bool parallel = false
     );
 
     static void tessellateGeometry(
+        std::vector<TessellationJob>& tessJobs,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const LabelMap<SdfPath>& prototypePaths,
-        const SdfPath& prototypesPath,
-        const SdfPath& prototypesInRootPath,
-        const std::string& logLabel,
-        const TessParams& rootParams,
-        std::vector<TessResult>& outResults,
-        const std::map<SdfPath, TessParams>& paramsBank,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+        const SdfPath& rootPrimPath
     );
 
     static std::vector<SdfPath> computeNodePaths(
@@ -246,6 +262,7 @@ void updateIfAuthored<CurveSampling>(const UsdAttribute& attr, CurveSampling* va
 extern template void updateIfAuthored<float>(const UsdAttribute&, float*);
 extern template void updateIfAuthored<double>(const UsdAttribute&, double*);
 extern template void updateIfAuthored<int>(const UsdAttribute&, int*);
+extern template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
 
 std::map<SdfPath, TessParams> resolveParams(
     const UsdPrim& rootPrim,

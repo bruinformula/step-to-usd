@@ -5,6 +5,8 @@
 #include <unordered_set>
 #include <string>
 #include <vector>
+#include <mutex>
+#include <atomic>
 
 #include <opencascade/TDF_Label.hxx>
 #include <opencascade/Quantity_Color.hxx>
@@ -37,6 +39,9 @@
 #include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdGeom/primvar.h>
 #include <pxr/usd/usdGeom/xformOp.h>
+
+#include <pxr/usd/sdf/copyUtils.h>
+#include <pxr/base/work/loops.h>
 
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
@@ -202,7 +207,7 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
 }
 
 // Prototype Geometry
-static void writeMeshGeometry(
+static void defineMeshGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -211,42 +216,52 @@ static void writeMeshGeometry(
     UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
     for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+        UsdGeomSubset::Define(
+            stage,
+            proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
+        );
+    }
+    
+    UsdGeomPrimvarsAPI api(proto);
+    api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
+    api.CreatePrimvar(TfToken("surfaceID"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
+    api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
+}
+
+static void writeMeshGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params
+) {
+    UsdGeomMesh proto(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
+
+    for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
         int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
 
         VtIntArray indices(count);
         std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
-
-        UsdGeomSubset::CreateGeomSubset(
-            proto,
-            TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)),
-            UsdGeomTokens->face,
-            indices,
-            TfToken("materialBind"),
-            UsdGeomTokens->nonOverlapping
-        );
+        
+        UsdGeomSubset subset(stage->GetPrimAtPath(proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
+        subset.CreateElementTypeAttr().Set(UsdGeomTokens->face);
+        subset.CreateIndicesAttr().Set(indices);
+        subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
     }
 
-    {
-        SdfChangeBlock changeBlock;
-        proto.GetPointsAttr().Set(r.points);
-        proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-        proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-        proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-        proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-        proto.GetNormalsAttr().Set(r.normals);
+    proto.GetPointsAttr().Set(r.points);
+    proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
+    proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+    proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+    proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+    proto.GetNormalsAttr().Set(r.normals);
 
-        UsdGeomPrimvarsAPI api(proto);
-
-        api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying)
-            .Set(r.perSurfaceUVs);
-        api.CreatePrimvar(TfToken("surfaceID"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform)
-            .Set(r.surfaceIDs);
-        api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex)
-            .Set(r.isBoundaryVertex);
-    }
+    UsdGeomPrimvarsAPI api(proto);
+    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
+    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceID"))) p.Set(r.surfaceIDs);
+    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
 }
 
-static void writeWireframeGeometry(
+static void defineWireframeGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -259,41 +274,59 @@ static void writeWireframeGeometry(
     for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
         int count = r.wireframeCounts[ci];
 
-        VtArray<GfVec3f> pts(
-            r.curvePoints.begin() + pointOffset,
-            r.curvePoints.begin() + pointOffset + count
-        );
-
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
             stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
         );
-
-        {
-            SdfChangeBlock changeBlock;
-            if (params.wireframeMode.type == CurveType::CatmullRom) {
-                curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            } else {
-                curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
-            }
-            curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-            curve.GetPointsAttr().Set(pts);
-            curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
-            curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
-
-            if (ci < (int)r.curveContinuity.size()) {
-                UsdGeomPrimvarsAPI(curve)
-                    .CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform)
-                    .Set(VtIntArray{r.curveContinuity[ci]});
-            }
+        
+        if (ci < (int)r.curveContinuity.size()) {
+            UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
         }
 
         pointOffset += count;
     }
 }
 
-static void writeSketchGeometry(
+static void writeWireframeGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params
+) {
+    SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
+
+    int pointOffset = 0;
+    for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
+        int count = r.wireframeCounts[ci];
+
+        VtArray<GfVec3f> pts(
+            r.curvePoints.begin() + pointOffset,
+            r.curvePoints.begin() + pointOffset + count
+        );
+
+        UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
+
+        if (params.wireframeMode.type == CurveType::CatmullRom) {
+            curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+            curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+        } else {
+            curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
+        }
+        curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+        curve.GetPointsAttr().Set(pts);
+        curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+        curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+        curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
+
+        if (ci < (int)r.curveContinuity.size()) {
+            UsdGeomPrimvarsAPI api(curve);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(VtIntArray{r.curveContinuity[ci]});
+        }
+
+        pointOffset += count;
+    }
+}
+
+static void defineSketchGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -306,29 +339,44 @@ static void writeSketchGeometry(
     for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
         int count = r.sketchCounts[ci];
 
+        UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
+            stage, sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))
+        );
+
+        pointOffset += count;
+    }
+}
+
+static void writeSketchGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params
+) {
+    SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
+
+    int pointOffset = 0;
+    for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
+        int count = r.sketchCounts[ci];
+
         VtArray<GfVec3f> pts(
             r.sketchPoints.begin() + pointOffset,
             r.sketchPoints.begin() + pointOffset + count
         );
 
-        UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
-            stage, sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))
-        );
+        UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))));
 
-        {
-            SdfChangeBlock changeBlock;
-            if (params.sketchMode.type == CurveType::CatmullRom) {
-                sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
-                sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
-            } else {
-                sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
-            }
-            sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-            sketchCurve.GetPointsAttr().Set(pts);
-            sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
-            sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
+        if (params.sketchMode.type == CurveType::CatmullRom) {
+            sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+            sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+        } else {
+            sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
+        sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+        sketchCurve.GetPointsAttr().Set(pts);
+        sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+        sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+        sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
         pointOffset += count;
     }
@@ -336,121 +384,205 @@ static void writeSketchGeometry(
 
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
-    const std::vector<ProtoGeomJob>& jobs,
+    const std::vector<ProtoGeomJob>& inJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& rootPrimPath,
     const std::string& variantSetName,
     const std::string& variantName
 ) {
-    const int total = (int)jobs.size();
-    int completed = 0;
+    const int total = (int)inJobs.size();
+    if (total == 0) return;
 
+    // Create a mutable copy of the jobs vector 
+    // so we can sort it for load balancing
+    std::vector<ProtoGeomJob> jobs = inJobs;
+    std::sort(jobs.begin(), jobs.end(), [](const ProtoGeomJob& a, const ProtoGeomJob& b) {
+        // Sort descending by number of points to process larger geometries first
+        return a.result.points.size() > b.result.points.size();
+    });
+
+    std::atomic<int> completed(0);
     std::string logLabel = "";
     if (!variantSetName.empty()) {
         logLabel = " {" + variantSetName + "=" + variantName + "}";
     }
 
-    for (int i = 0; i < total; i++) {
-        const SdfPath& protoPath = jobs[i].protoPath;
-        const TessResult& r = jobs[i].result;
-        const TessParams& params = jobs[i].params;
-        /*
-        std::cout << "[StepConvertUsd] variantPath=" << protoPath.GetText() 
-                  << " meshLinearDeflection=" << params.meshLinearDeflection 
-                  << " meshAngularDeflection=" << params.meshAngularDeflection 
-                  << " maxNumberRemeshPasses=" << params.maxNumberRemeshPasses << std::endl;
-        */
+    struct ThreadResult {
+        int startIdx;
+        int endIdx;
+        SdfLayerRefPtr layer;
+    };
 
-        if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
-            completed++;
-            if (Logger::activeLevel == Logger::VERBOSE) {
-                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
-            } else {
-                std::cerr << "\r[" << completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
+    std::vector<ThreadResult> threadResults;
+    std::mutex resultsMutex;
+
+    const int grainSize = 1;
+
+    WorkParallelForN(total, [&](int startIdx, int endIdx) {
+        SdfLayerRefPtr threadLayer = SdfLayer::CreateAnonymous();
+        UsdStageRefPtr threadStage = UsdStage::Open(threadLayer);
+
+        // Define Prims first 
+        // their properties are later populated in the SdfChangeBlock 
+        for (int i = startIdx; i < endIdx; i++) {
+            const SdfPath& protoPath = jobs[i].protoPath;
+            const TessResult& r = jobs[i].result;
+            const TessParams& params = jobs[i].params;
+
+            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                continue;
             }
-            continue;
+
+            UsdGeomXform protoXform;
+                
+            auto variantSelection = protoPath.GetVariantSelection();
+            if (!variantSelection.first.empty()) {
+                SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
+                
+                UsdPrim basePrim = threadStage->GetPrimAtPath(baseProtoPath);
+                if (!basePrim) {
+                    protoXform = UsdGeomXform::Define(threadStage, baseProtoPath);
+                    basePrim = protoXform.GetPrim();
+                } else {
+                    protoXform = UsdGeomXform(basePrim);
+                }
+                
+                UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+                vset.AddVariant(variantSelection.second);
+                vset.SetVariantSelection(variantSelection.second);
+                
+                UsdEditContext ctx(vset.GetVariantEditContext());
+                
+                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
+                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
+                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+
+                if (r.renderOnly) {
+                    UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr();
+                }
+
+                if (!r.points.empty()) {
+                    defineMeshGeometry(threadStage, baseProtoPath, r, params);
+                }
+
+                if (!r.wireframeCounts.empty()) {
+                    defineWireframeGeometry(threadStage, baseProtoPath, r, params);
+                }
+
+                if (!r.sketchCounts.empty()) {
+                    defineSketchGeometry(threadStage, baseProtoPath, r, params);
+                }
+
+            } else {
+                protoXform = UsdGeomXform::Get(threadStage, protoPath);
+                if (!protoXform) {
+                    protoXform = UsdGeomXform::Define(threadStage, protoPath);
+                }
+                
+                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
+                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
+                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
+
+                if (r.renderOnly) {
+                    UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr();
+                }
+
+                if (!r.points.empty()) {
+                    defineMeshGeometry(threadStage, protoPath, r, params);
+                }
+
+                if (!r.wireframeCounts.empty()) {
+                    defineWireframeGeometry(threadStage, protoPath, r, params);
+                }
+
+                if (!r.sketchCounts.empty()) {
+                    defineSketchGeometry(threadStage, protoPath, r, params);
+                }
+            }
         }
 
-        UsdGeomXform protoXform;
+        { // SdfChangeBlock
+            SdfChangeBlock block;
+            for (int i = startIdx; i < endIdx; i++) {
+                const SdfPath& protoPath = jobs[i].protoPath;
+                const TessResult& r = jobs[i].result;
+                const TessParams& params = jobs[i].params;
+
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                    int c = ++completed;
+                    if (Logger::activeLevel == Logger::VERBOSE) {
+                        LOG_VERB("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
+                    } else {
+                        std::cerr << "\r[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry" + logLabel + "..." << std::flush;
+                    }
+                    continue;
+                }
+
+                auto variantSelection = protoPath.GetVariantSelection();
+                SdfPath writeProtoPath = variantSelection.first.empty() ? protoPath : protoPath.StripAllVariantSelections();
+                
+                // If variant selected, we need the edit context 
+                // active to author values inside the variant
+                std::optional<UsdEditContext> ctx;
+                if (!variantSelection.first.empty()) {
+                    UsdPrim basePrim = threadStage->GetPrimAtPath(writeProtoPath);
+                    UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+                    vset.SetVariantSelection(variantSelection.second);
+                    ctx.emplace(vset.GetVariantEditContext());
+                }
+
+                UsdGeomXform protoXform = UsdGeomXform::Get(threadStage, writeProtoPath);
+                
+                if (r.renderOnly) {
+                    UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
+                }
+
+                if (!r.points.empty()) {
+                    writeMeshGeometry(threadStage, writeProtoPath, r, params);
+                }
+
+                if (!r.wireframeCounts.empty()) {
+                    writeWireframeGeometry(threadStage, writeProtoPath, r, params);
+                }
+
+                if (!r.sketchCounts.empty()) {
+                    writeSketchGeometry(threadStage, writeProtoPath, r, params);
+                }
+
+                int c = ++completed;
+                if (Logger::activeLevel == Logger::VERBOSE) {
+                    LOG_VERB("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
+                } else {
+                    std::cerr << "\r[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry" + logLabel + "..." << std::flush;
+                }
+            }
+        } // SdfChangeBlock
         
-        auto variantSelection = protoPath.GetVariantSelection();
-        if (!variantSelection.first.empty()) {
-            // Strip variant selection to get the base prim path
-            SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
-            
-            UsdPrim basePrim = stage->GetPrimAtPath(baseProtoPath);
-            if (!basePrim) {
-                protoXform = UsdGeomXform::Define(stage, baseProtoPath);
-                basePrim = protoXform.GetPrim();
-            } else {
-                protoXform = UsdGeomXform(basePrim);
-            }
-            
-            // Ensure the variant set exists
-            UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
-            vset.AddVariant(variantSelection.second);
-            vset.SetVariantSelection(variantSelection.second);
-            
-            // Switch to the edit context of this variant to write geometry
-            UsdEditContext ctx(vset.GetVariantEditContext());
-            
-            // Clear existing geometry primitives in this context
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+        std::lock_guard<std::mutex> resLock(resultsMutex);
+        threadResults.push_back({startIdx, endIdx, threadLayer});
+    }, grainSize);
 
-            if (r.renderOnly) {
-                UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
-            }
+    // Merge back on the main stage
 
-            if (!r.points.empty()) {
-                writeMeshGeometry(stage, baseProtoPath, r, params);
-            }
-
-            if (!r.wireframeCounts.empty()) {
-                writeWireframeGeometry(stage, baseProtoPath, r, params);
-            }
-
-            if (!r.sketchCounts.empty()) {
-                writeSketchGeometry(stage, baseProtoPath, r, params);
-            }
-
-        } else {
-            protoXform = UsdGeomXform::Get(stage, protoPath);
-            if (!protoXform) { // fallback
-                protoXform = UsdGeomXform::Define(stage, protoPath);
-            }
-            
-            // Clear existing geometry primitives
-            stage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
-            stage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
-            stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
-
-            if (r.renderOnly) {
-                UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
-            }
-
-            if (!r.points.empty()) {
-                writeMeshGeometry(stage, protoPath, r, params);
-            }
-
-            if (!r.wireframeCounts.empty()) {
-                writeWireframeGeometry(stage, protoPath, r, params);
-            }
-
-            if (!r.sketchCounts.empty()) {
-                writeSketchGeometry(stage, protoPath, r, params);
+    { // SdfChangeBlock
+        SdfChangeBlock changeBlock;
+        SdfLayerHandle mainLayer = stage->GetRootLayer();
+        for (const auto& res : threadResults) {
+            if (!res.layer) continue;
+            for (size_t i = res.startIdx; i < res.endIdx; i++) {
+                const SdfPath& protoPath = jobs[i].protoPath;
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                    continue; // Skip filtered
+                }
+                SdfPath copyPath = protoPath.GetVariantSelection().first.empty() ? protoPath : protoPath.StripAllVariantSelections();
+                SdfCopySpec(res.layer, copyPath, mainLayer, copyPath);
             }
         }
+    } // SdfChangeBlock
 
-        completed++;
-        if (Logger::activeLevel == Logger::VERBOSE) {
-            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
-        } else {
-            std::cerr << "\r[" << completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
-        }
+    if (Logger::activeLevel != Logger::VERBOSE) {
+        std::cerr << "\n";
     }
-    std::cerr << "\n";
 }
 
 // Assembly Xforms

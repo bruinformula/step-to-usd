@@ -84,6 +84,11 @@ TessParams getTessParams(
     updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold);
     updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses);
 
+    updateIfAuthored(api.GetStepFixTimeoutAttr(), &params.fixTimeout);
+    updateIfAuthored(api.GetStepMeshTimeoutAttr(), &params.meshTimeout);
+    updateIfAuthored(api.GetStepRemeshTimeoutAttr(), &params.remeshTimeout);
+
+
     return params;
 }
 
@@ -178,7 +183,7 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
         return true;
 
     // Whole root variant selected exactly (e.g. /Wonderful{LOD=high}) — 
-    // activates ALL prototypes in that stage. Use exact match, not HasPrefix,
+    // activates all prototypes in that stage. Use exact match, not HasPrefix,
     // to avoid triggering when a deeper path like /Wonderful{LOD=high}/Prototypes/rod0
     // is the real target.
     if (!variantSetName.empty()) {
@@ -201,9 +206,9 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
     if (selectedPaths.count(absProtoPathClean))
         return true;
 
-    // Selected path targets a variant *within* this prototype:
+    // Selected path targets a variant within this prototype:
     // selected = /Wonderful{LOD=high}/Prototypes/rod0{quality=high}
-    // absProtoPath = /Wonderful{LOD=high}/Prototypes/rod0  ← is a prefix
+    // absProtoPath = /Wonderful{LOD=high}/Prototypes/rod0
     for (const SdfPath& sel : selectedPaths) {
         if (sel.HasPrefix(absProtoPath))
             return true;
@@ -241,22 +246,6 @@ std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const Us
 
     return reference;
 }
-
-struct PrototypeContainer {
-    std::string variantSetName;
-    std::string variantName;
-    fs::path filePath;
-    UsdStageRefPtr stage;
-};
-
-// Flattened tessellation target
-struct TessellationJob {
-    const PrototypeContainer* proto;
-    int defIndex;
-    SdfPath prototypePath;
-    TessParams params;
-    TessResult result;
-};
 
 static std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     const UsdPrim& prim
@@ -711,45 +700,7 @@ void UsdStepExporter::populateUsd(
     // Tessellation
     TessParams rootParams = getTessParams(rootPrim);
     
-    std::vector<size_t> defIndices(defs.size());
-    for (size_t i = 0; i < defs.size(); ++i) defIndices[i] = i;
-
-    {
-        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defIndices.size()) + " definition indices.");
-        std::atomic<int> completedJobs{0};
-        WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](size_t idx) {
-            LOG_VERB("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
-            for (TessellationJob& job : tessJobs) {
-                if (job.defIndex == idx) {
-                    bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
-                    
-                    if (bTesselate) {
-                        LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
-                        try {
-                            tesselatePart(job.result, defs[idx].second, job.params);
-                            int currentCount = ++completedJobs;
-                            LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(tessJobs.size()) + " jobs completed globally)");
-                        } catch (const Standard_Failure& e) {
-                            LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
-                            ++completedJobs;
-                        } catch (const std::exception& e) {
-                            LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
-                            ++completedJobs;
-                        } catch (...) {
-                            LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
-                            ++completedJobs;
-                        }
-                    } else {
-                        LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
-                        ++completedJobs;
-                    }
-                }
-            }
-            LOG_VERB("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
-        });
-        LOG_VERB("WorkParallelForEach for tessellation has returned!");
-    }
-    LOG_VERB("Scoped timer for Parallel Tessellation destroyed.");
+    tessellateGeometry(tessJobs, defs, selectedPaths, rootPrimPath);
 
     // Write Geometry
     LOG_VERB("Preparing to gather geometry jobs...");

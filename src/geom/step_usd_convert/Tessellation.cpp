@@ -10,8 +10,6 @@
 #include <unordered_set>
 #include <atomic>
 #include <limits>
-#include <map>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -53,6 +51,8 @@
 #include <opencascade/gp_Pnt.hxx>
 #include <opencascade/gp_Pnt2d.hxx>
 #include <opencascade/gp_Vec.hxx>
+#include <opencascade/Message_ProgressIndicator.hxx>
+#include <opencascade/Message_ProgressRange.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -69,17 +69,45 @@
 #pragma pop_macro("Handle")
 
 #include "UsdStepExporter.h"
-#include "StepModel.h"
 #include "Logger.h"
 
 class Geom_Surface;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+class DeadlineProgressIndicator : public Message_ProgressIndicator {
+public:
+    using Clock = std::chrono::steady_clock;
+    using Duration = std::chrono::milliseconds;
+
+    explicit DeadlineProgressIndicator(Duration timeout)
+        : _deadline(Clock::now() + timeout)
+        , _timedOut(false)
+    {}
+
+    // OCCT polls this at internal checkpoints
+    Standard_Boolean UserBreak() override {
+        if (Clock::now() >= _deadline) {
+            _timedOut = true;
+            return true;
+        }
+        return false;
+    }
+
+    void Show(const Message_ProgressScope&, const Standard_Boolean) override {/*do nothing*/}
+
+    bool timedOut() const { return _timedOut; }
+
+private:
+    std::chrono::time_point<Clock> _deadline;
+    bool _timedOut;
+};
+
 bool UsdStepExporter::tesselatePart(
     TessResult& result, 
     const TopoDS_Shape& defShape, 
-    const TessParams& params
+    const TessParams& params,
+    bool parallel
 ) {
     
     using Clock = std::chrono::high_resolution_clock;
@@ -92,12 +120,19 @@ bool UsdStepExporter::tesselatePart(
     fixer.SetPrecision(1e-4);
     fixer.SetMaxTolerance(0.1);
     
-    fixer.Perform();
-    
+    opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.fixTimeout));
+    Message_ProgressRange fixRange = fixProgress->Start();
+    fixer.Perform(fixRange);
+
+    if (fixProgress->timedOut()) {
+        LOG_VERB("  -> ShapeFix_Shape timed out, proceeding with partial repair");
+        // workingShape is still usable
+        // OCCT leaves it in a partially-fixed state
+    }
     TopoDS_Shape workingShape = fixer.Shape();
 
     LOG_VERB("  -> tesselatePart: BRepTools::Clean");
-    BRepTools::Clean(workingShape);
+    BRepTools::Clean(workingShape); // remove previously created tessellations for this part 
 
     Bnd_Box bbox;
     LOG_VERB("  -> tesselatePart: BRepBndLib::Add");
@@ -115,15 +150,22 @@ bool UsdStepExporter::tesselatePart(
     result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<float>::infinity() && diagonal < params.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
-    meshParams.InParallel = false; 
+    meshParams.InParallel = parallel; 
     meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
     meshParams.Angle = params.meshAngularDeflection; // in radians
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     
     LOG_VERB("  -> tesselatePart: BRepMesh_IncrementalMesh");
     BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
+
     LOG_VERB("  -> tesselatePart: mesher.Perform()");
-    mesher.Perform();
+    opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshTimeout));
+    Message_ProgressRange meshRange = meshProgress->Start();
+    mesher.Perform(meshRange);
+
+    if (meshProgress->timedOut()) {
+        LOG_VERB("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
+    }
 
     int maxPasses = params.maxNumberRemeshPasses;
     IMeshTools_Parameters repairParams = meshParams;
@@ -164,7 +206,15 @@ bool UsdStepExporter::tesselatePart(
         LOG_VERB("  -> BRepTools::Clean (repair)");
         BRepTools::Clean(workingShape); 
         LOG_VERB("  -> BRepMesh_IncrementalMesh (repair)");
-        BRepMesh_IncrementalMesh(workingShape, repairParams).Perform();
+        BRepMesh_IncrementalMesh remesher(workingShape, repairParams);
+        
+        opencascade::handle<DeadlineProgressIndicator> remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.remeshTimeout));
+        Message_ProgressRange remeshRange = remeshProgress->Start();
+        remesher.Perform(remeshRange);
+        if (remeshProgress->timedOut()) {
+            LOG_VERB("  -> BRepMesh_IncrementalMesh (repair) timed out");
+            break;
+        }
     }
     
 
@@ -608,77 +658,88 @@ bool UsdStepExporter::tesselatePart(
 }
 
 void UsdStepExporter::tessellateGeometry(
+    std::vector<TessellationJob>& tessJobs,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const LabelMap<SdfPath>& prototypePaths,
-    const SdfPath& prototypesPath,
-    const SdfPath& prototypesInRootPath,
-    const std::string& logLabel,
-    const TessParams& rootParams,
-    std::vector<TessResult>& outResults,
-    const std::map<SdfPath, TessParams>& paramsBank, // Optional for standard export
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+    const SdfPath& rootPrimPath
 ) {
-    auto findParams = [&](const SdfPath& path) -> const TessParams& {
-        SdfPath p = path;
-        while (!p.IsEmpty() && p != SdfPath::AbsoluteRootPath()) {
-            auto it = paramsBank.find(p);
-            if (it != paramsBank.end()) return it->second;
-            p = p.GetParentPath();
-        }
-        return rootParams;
-    };
+    std::vector<int> defIndices(defs.size());
+    for (int i = 0; i < defs.size(); ++i) defIndices[i] = i;
 
-    const int total = (int)defs.size();
-    std::atomic<int> tessCompleted(0);
-    std::vector<std::string> warnings;
-    std::mutex warnMutex;
+    // Pre-calculate complexity in the form of
+    // face counts for better load balancing
+    std::vector<int> shapeComplexity(defs.size(), 0);
+    for (int i = 0; i < defs.size(); ++i) {
+        int complexity = 0;
+        for (TopExp_Explorer faceExp(defs[i].second, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+            complexity++;
+        }
+        shapeComplexity[i] = complexity;
+    }
+
+    // Sort descending by complexity so heaviest jobs start first
+    std::sort(defIndices.begin(), defIndices.end(), [&shapeComplexity](int a, int b) {
+        return shapeComplexity[a] > shapeComplexity[b];
+    });
 
     {
-        LOG_SCOPED_TIMER("Parallel Geometry Tessellation for " + std::to_string(total) + " elements");
-        WorkParallelForN(total, [&](int start, int end) {
-            for (int i = start; i < end; i++) {
-                if (prototypePaths.find(defs[i].first) == prototypePaths.end())
-                continue;
-
-            SdfPath protoPath = prototypePaths.at(defs[i].first);
-            SdfPath protoPathInRoot = protoPath.IsEmpty() ? SdfPath() : prototypesInRootPath.AppendPath(protoPath.MakeRelativePath(prototypesPath));
-
-            if (!prototypeFilter.empty() && prototypeFilter.find(protoPath) == prototypeFilter.end()) 
-                continue;
-
-            const TessParams& params = findParams(protoPathInRoot);
-            const TopoDS_Shape& defShape = defs[i].second;
-            
-            if (!defShape.IsNull()) {
-                try {
-                    TessResult result;
-                    if (tesselatePart(result, defShape, params)) {
-                        outResults[i] = std::move(result);
+        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defIndices.size()) + " definition indices.");
+        std::atomic<int> completedJobs{0};
+        const int totalJobs = static_cast<int>(tessJobs.size());
+        
+        WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](int idx) {
+            LOG_VERB("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            for (TessellationJob& job : tessJobs) {
+                if (job.defIndex == idx) {
+                    bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                    
+                    if (bTesselate) {
+                        LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
+                        try {
+                            tesselatePart(job.result, defs[idx].second, job.params);
+                            int currentCount = ++completedJobs;
+                            LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
+                            if (Logger::activeLevel != Logger::VERBOSE) {
+                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                            }
+                        } catch (const Standard_Failure& e) {
+                            std::cerr << "\n";
+                            LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
+                            int currentCount = ++completedJobs;
+                            if (Logger::activeLevel != Logger::VERBOSE) {
+                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                            }
+                        } catch (const std::exception& e) {
+                            std::cerr << "\n";
+                            LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
+                            int currentCount = ++completedJobs;
+                            if (Logger::activeLevel != Logger::VERBOSE) {
+                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                            }
+                        } catch (...) {
+                            std::cerr << "\n";
+                            LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
+                            int currentCount = ++completedJobs;
+                            if (Logger::activeLevel != Logger::VERBOSE) {
+                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                            }
+                        }
                     } else {
-                        std::lock_guard<std::mutex> lock(warnMutex);
-                        warnings.push_back("  def " + protoPath.GetString() + " produced no geometry or sketch curves");
+                        LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                        int currentCount = ++completedJobs;
+                        if (Logger::activeLevel != Logger::VERBOSE) {
+                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                        }
                     }
-                } catch (const Standard_Failure& e) {
-                    std::lock_guard<std::mutex> lock(warnMutex);
-                    warnings.push_back("  OCC exception on " + protoPath.GetString() + ": " + e.GetMessageString());
-                } catch (const std::exception& e) {
-                    std::lock_guard<std::mutex> lock(warnMutex);
-                    warnings.push_back("  std exception on " + protoPath.GetString() + ": " + e.what());
-                } catch (...) {
-                    std::lock_guard<std::mutex> lock(warnMutex);
-                    warnings.push_back("  Unknown exception on " + protoPath.GetString());
                 }
             }
-            {
-                std::lock_guard<std::mutex> lock(warnMutex);
-                std::cerr << "\r[" << ++tessCompleted << "/" << total << "] Tessellating " << logLabel << "..." << std::flush;
-            }
+            LOG_VERB("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+        });
+        
+        if (Logger::activeLevel != Logger::VERBOSE) {
+            std::cerr << "\n";
         }
-    });
-    } // End LOG_SCOPED_TIMER block
-
-    std::cerr << "\n";
-
-    for (const auto& w : warnings)
-        std::cerr << "  Warning: " << w << "\n";
+        
+        LOG_VERB("WorkParallelForEach for tessellation has returned!");
+    }
 }

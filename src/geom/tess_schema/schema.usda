@@ -46,55 +46,67 @@ class "StepTessellationAPI" (
     )
 
     float step:meshLinearDeflection = 1.0 (
-        doc = "Linear deflection as a fraction of the bounding-box diagonal. Maps to --meshLinearDeflection."
+        doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float step:meshAngularDeflection = 0.5 (
-        doc = "Angular deflection in radians. Maps to --meshAngularDeflection."
+        doc = "Angular deflection in radians."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     double step:meshMinSize = 0.0 (
-        doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal. Maps to --meshMinSize."
+        doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:wireframeType = "linear" (
-        doc = "Curve type used for wireframe edges. Maps to --wireframeType."
+        doc = "Curve type used for wireframe edges."
         allowedTokens = ["none", "linear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:wireframeSampling = "underlying" (
-        doc = "Sampling strategy for wireframe edge curves. Maps to --wireframeSampling."
+        doc = "Sampling strategy for wireframe edge curves."
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float step:wireframeDeflection = 0.01 (
-        doc = "Deflection tolerance for wireframe edge curve sampling. Maps to --wireframeDeflection."
+        doc = "Deflection tolerance for wireframe edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:sketchType = "none" (
-        doc = "Curve type used for sketch and free-edge curves. Maps to --sketchType."
+        doc = "Curve type used for sketch and free-edge curves."
         allowedTokens = ["none", "linear", "catmullRom"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:sketchSampling = "underlying" (
-        doc = "Sampling strategy for sketch and free-edge curves. Maps to --sketchSampling."
+        doc = "Sampling strategy for sketch and free-edge curves."
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float step:sketchDeflection = 0.005 (
-        doc = "Deflection tolerance for sketch/free-edge curve sampling. Maps to --sketchDeflection."
+        doc = "Deflection tolerance for sketch/free-edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     float step:renderPurposeThreshold = 0.0 (
-        doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter. Maps to --renderPurposeThreshold."
+        doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     double step:selfIntersectionThreshold = 1e-3 (
-        doc = "Threshold for detecting self-intersecting triangles during meshing. Maps to --selfIntersectionThreshold."
+        doc = "Threshold for detecting self-intersecting triangles during meshing."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    int step:maxNumberRemeshPasses = 0 (
-        doc = "Maximum number of remeshing passes to attempt if self-intersections are detected. Maps to --maxNumberRemeshPasses."
+    int step:maxNumberRemeshPasses = 1 (
+        doc = "Maximum number of remeshing passes to attempt if self-intersections are detected."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:fixTimeout = 3000 (
+        doc = "Timeout in milliseconds for the shape fixing pass."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:meshTimeout = 3000 (
+        doc = "Timeout in milliseconds for the initial meshing pass."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:remeshTimeout = 3000 (
+        doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }
@@ -119,7 +131,10 @@ class "StepTessellationOptions" (
     float step:sketchDeflection = 0.005
     float step:renderPurposeThreshold = 0.0
     double step:selfIntersectionThreshold = 1e-3
-    int step:maxNumberRemeshPasses = 0
+    int step:maxNumberRemeshPasses = 1
+    uint64 step:fixTimeout = 3000
+    uint64 step:meshTimeout = 3000
+    uint64 step:remeshTimeout = 3000
 }
 
 class "StepFileContainer" (
