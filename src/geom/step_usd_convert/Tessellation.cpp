@@ -18,6 +18,7 @@
 #include <opencascade/TDF_Label.hxx>
 #include <opencascade/TopLoc_Location.hxx>
 #include <opencascade/gp_Trsf.hxx>
+#include <opencascade/ShapeFix_Shape.hxx>
 #include <opencascade/BRepMesh_IncrementalMesh.hxx>
 #include <opencascade/BRep_Tool.hxx>
 #include <opencascade/TopExp_Explorer.hxx>
@@ -69,6 +70,7 @@
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
+#include "Logger.h"
 
 class Geom_Surface;
 
@@ -85,11 +87,23 @@ bool UsdStepExporter::tesselatePart(
 
     auto tesselateStart = Clock::now();
 
-    BRepTools::Clean(defShape);
+    LOG_VERB("  -> tesselatePart: ShapeFix_Shape (Repair pass)");
+    ShapeFix_Shape fixer(defShape);
+    fixer.SetPrecision(1e-4);
+    fixer.SetMaxTolerance(0.1);
+    
+    fixer.Perform();
+    
+    TopoDS_Shape workingShape = fixer.Shape();
+
+    LOG_VERB("  -> tesselatePart: BRepTools::Clean");
+    BRepTools::Clean(workingShape);
 
     Bnd_Box bbox;
-    BRepBndLib::Add(defShape, bbox);
+    LOG_VERB("  -> tesselatePart: BRepBndLib::Add");
+    BRepBndLib::Add(workingShape, bbox);
     double xmin, ymin, zmin, xmax, ymax, zmax;
+    LOG_VERB("  -> tesselatePart: bbox.Get");
     bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 
     double diagonal = std::sqrt(
@@ -101,10 +115,14 @@ bool UsdStepExporter::tesselatePart(
     result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<float>::infinity() && diagonal < params.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
+    meshParams.InParallel = false; 
     meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
     meshParams.Angle = params.meshAngularDeflection; // in radians
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
-    BRepMesh_IncrementalMesh mesher(defShape, meshParams);
+    
+    LOG_VERB("  -> tesselatePart: BRepMesh_IncrementalMesh");
+    BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
+    LOG_VERB("  -> tesselatePart: mesher.Perform()");
     mesher.Perform();
 
     int maxPasses = params.maxNumberRemeshPasses;
@@ -118,26 +136,42 @@ bool UsdStepExporter::tesselatePart(
     // not just the intersected shapes, 
     // so the edge walk later works
 
+    LOG_VERB("  -> tesselatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
-        BRepExtrema_SelfIntersection checker(defShape, params.selfIntersectionThreshold);
+        LOG_VERB("  Running self-intersection check (pass " + std::to_string(pass) + ")");
+        BRepExtrema_SelfIntersection checker(workingShape, params.selfIntersectionThreshold);
+        LOG_VERB("  -> checker.Perform()");
         checker.Perform();
 
-        if (!checker.IsDone()) break;
+        if (!checker.IsDone()) {
+            LOG_VERB("  -> checker not done, breaking");
+            break;
+        }
 
+        LOG_VERB("  -> checker getting OverlapElements");
         const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
 
-        if (overlaps.IsEmpty()) break;
+        if (overlaps.IsEmpty()) {
+            LOG_VERB("  No interesections found.");
+            break;
+        }
+        
+        LOG_VERB("  Found overlaps. Remeshing with finer parameters.");
 
         repairParams.Deflection *= 0.5;
         repairParams.Angle *= 0.5;
 
-        BRepTools::Clean(defShape); 
-        BRepMesh_IncrementalMesh(defShape, repairParams).Perform();
+        LOG_VERB("  -> BRepTools::Clean (repair)");
+        BRepTools::Clean(workingShape); 
+        LOG_VERB("  -> BRepMesh_IncrementalMesh (repair)");
+        BRepMesh_IncrementalMesh(workingShape, repairParams).Perform();
     }
     
 
     auto meshEnd = Clock::now();
-    //std::cout << "  Mesh time: " << Seconds(meshEnd - tesselateStart).count() << " s\n";
+    LOG_VERB("  Mesh time: " + std::to_string(Seconds(meshEnd - tesselateStart).count()) + " s");
+    
+    LOG_VERB("  -> tesselatePart: Edge walk preparation");
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
 
     // positions remain welded via topology
@@ -178,10 +212,10 @@ bool UsdStepExporter::tesselatePart(
 
     // edge walk to unify boundary nodes
     NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faceMap;
-    TopExp::MapShapes(defShape, TopAbs_FACE, faceMap);
+    TopExp::MapShapes(workingShape, TopAbs_FACE, faceMap);
 
     NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeToFaces;
-    TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
+    TopExp::MapShapesAndAncestors(workingShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
     // Per-edge data deferred for Linear mode. 
     struct DeferredLinearCurve {
@@ -191,7 +225,7 @@ bool UsdStepExporter::tesselatePart(
     
     std::vector<DeferredLinearCurve> deferredLinearCurves;
 
-    for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+    for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
         if (BRep_Tool::Degenerated(edge)) continue;
 
@@ -255,33 +289,46 @@ bool UsdStepExporter::tesselatePart(
         const FacePoly& canonical = facePolys[0];
         int numNodes = canonical.poly->NbNodes();
 
+        // Ensure we don't exceed the minimum node count across all adjacent faces
+        for (size_t fi = 1; fi < facePolys.size(); fi++) {
+            numNodes = std::min(numNodes, facePolys[fi].poly->NbNodes());
+        }
+
         std::vector<TriNodeKey> edgeCanonicalKeys;
         if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
             edgeCanonicalKeys.reserve(numNodes);
 
-        for (int k = 1; k <= numNodes; k++) {
-            int canonicalNode = canonical.poly->Node(k);
-            TriNodeKey canonKey = {canonical.tri.get(), canonicalNode};
-            TriNodeKey resolvedCanon = resolveAlias(canonKey);
+        try {
+            for (int k = 1; k <= numNodes; k++) {
+                int canonicalNode = canonical.poly->Node(k);
+                TriNodeKey canonKey = {canonical.tri.get(), canonicalNode};
+                TriNodeKey resolvedCanon = resolveAlias(canonKey);
 
-            // Output indices are assigned later in the face loop.
-            boundaryKeys.insert(resolvedCanon);
+                // Output indices are assigned later in the face loop.
+                boundaryKeys.insert(resolvedCanon);
 
-            for (size_t fi = 1; fi < facePolys.size(); fi++) {
-                int otherNode = facePolys[fi].poly->Node(k);
-                TriNodeKey otherKey = {facePolys[fi].tri.get(), otherNode};
-                TriNodeKey resolvedOther = resolveAlias(otherKey);
-                boundaryKeys.insert(resolvedOther);
+                for (size_t fi = 1; fi < facePolys.size(); fi++) {
+                    int otherNode = facePolys[fi].poly->Node(k);
+                    TriNodeKey otherKey = {facePolys[fi].tri.get(), otherNode};
+                    TriNodeKey resolvedOther = resolveAlias(otherKey);
+                    boundaryKeys.insert(resolvedOther);
 
-                // Alias the other face's node to the canonical representative
-                // so that the face loop emits a single shared vertex for both.
-                if (resolvedOther != resolvedCanon) {
-                    nodeAlias[resolvedOther] = resolvedCanon;
+                    // Alias the other face's node to the canonical representative
+                    // so that the face loop emits a single shared vertex for both.
+                    if (resolvedOther != resolvedCanon) {
+                        nodeAlias[resolvedOther] = resolvedCanon;
+                    }
                 }
-            }
 
-            if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
-                edgeCanonicalKeys.push_back(canonKey);
+                if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
+                    edgeCanonicalKeys.push_back(canonKey);
+            }
+        } catch (const Standard_Failure& e) {
+            std::cerr << "OCCT Exception in face iteration: " << e.GetMessageString() << "\n";
+        } catch (const std::exception& e) {
+            std::cerr << "Standard Exception in face iteration: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "Unknown exception in face iteration\n";
         }
 
         if (isSurfaceBoundary && params.wireframeMode.type != CurveType::None) {
@@ -326,13 +373,13 @@ bool UsdStepExporter::tesselatePart(
     }
 
     auto edgeWalkEnd = Clock::now();
-    //std::cout << "  Edge-walk time: " << Seconds(edgeWalkEnd - meshEnd).count() << " s\n";
+    LOG_VERB("  Edge-walk time: " + std::to_string(Seconds(edgeWalkEnd - meshEnd).count()) + " s");
 
     // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
     if (params.sketchMode.type != CurveType::None) {
-        for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+        for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
             const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
             if (BRep_Tool::Degenerated(edge)) continue;
 
@@ -382,7 +429,7 @@ bool UsdStepExporter::tesselatePart(
     }
 
     int totalTris = 0, totalNodes = 0;
-    for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+    for (TopExp_Explorer faceExp(workingShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
         TopLoc_Location loc;
         auto tri = BRep_Tool::Triangulation(face, loc);
@@ -402,7 +449,7 @@ bool UsdStepExporter::tesselatePart(
     int surfaceBoundIdx = 0; // used to track 'global' idx for geom subsets 
 
     // weld positions, emit faceVarying normals.
-    for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+    for (TopExp_Explorer faceExp(workingShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
         int surfaceIndex = faceMap.FindIndex(face);
         TopLoc_Location loc;
@@ -544,16 +591,16 @@ bool UsdStepExporter::tesselatePart(
     }
 
     auto faceProcessEnd = Clock::now();
-    //std::cout << "  Face processing time: " << Seconds(faceProcessEnd - edgeWalkEnd).count() << " s\n";
+    LOG_VERB("  Face processing time: " + std::to_string(Seconds(faceProcessEnd - edgeWalkEnd).count()) + " s");
 
     auto tesselateEnd = Clock::now();
-    //std::cout << "  Total tesselatePart time: " << Seconds(tesselateEnd - tesselateStart).count() << " s\n";
+    LOG_VERB("  Total tesselatePart time: " + std::to_string(Seconds(tesselateEnd - tesselateStart).count()) + " s");
 
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.
     if (result.points.empty() && result.sketchCounts.empty() && result.wireframeCounts.empty()) {
-        //std::cerr << "  Warning: def produced no geometry or sketch curves\n";
+        LOG_VERB("  Warning: def produced no geometry or sketch curves in Shape");
         return false;
     }
 
@@ -586,9 +633,11 @@ void UsdStepExporter::tessellateGeometry(
     std::vector<std::string> warnings;
     std::mutex warnMutex;
 
-    WorkParallelForN(total, [&](int start, int end) {
-        for (int i = start; i < end; i++) {
-            if (prototypePaths.find(defs[i].first) == prototypePaths.end())
+    {
+        LOG_SCOPED_TIMER("Parallel Geometry Tessellation for " + std::to_string(total) + " elements");
+        WorkParallelForN(total, [&](int start, int end) {
+            for (int i = start; i < end; i++) {
+                if (prototypePaths.find(defs[i].first) == prototypePaths.end())
                 continue;
 
             SdfPath protoPath = prototypePaths.at(defs[i].first);
@@ -612,6 +661,12 @@ void UsdStepExporter::tessellateGeometry(
                 } catch (const Standard_Failure& e) {
                     std::lock_guard<std::mutex> lock(warnMutex);
                     warnings.push_back("  OCC exception on " + protoPath.GetString() + ": " + e.GetMessageString());
+                } catch (const std::exception& e) {
+                    std::lock_guard<std::mutex> lock(warnMutex);
+                    warnings.push_back("  std exception on " + protoPath.GetString() + ": " + e.what());
+                } catch (...) {
+                    std::lock_guard<std::mutex> lock(warnMutex);
+                    warnings.push_back("  Unknown exception on " + protoPath.GetString());
                 }
             }
             {
@@ -620,6 +675,7 @@ void UsdStepExporter::tessellateGeometry(
             }
         }
     });
+    } // End LOG_SCOPED_TIMER block
 
     std::cerr << "\n";
 

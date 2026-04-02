@@ -93,7 +93,7 @@ class "StepTessellationAPI" (
         doc = "Threshold for detecting self-intersecting triangles during meshing. Maps to --selfIntersectionThreshold."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    int step:maxNumberRemeshPasses = 3 (
+    int step:maxNumberRemeshPasses = 0 (
         doc = "Maximum number of remeshing passes to attempt if self-intersections are detected. Maps to --maxNumberRemeshPasses."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -119,7 +119,7 @@ class "StepTessellationOptions" (
     float step:sketchDeflection = 0.005
     float step:renderPurposeThreshold = 0.0
     double step:selfIntersectionThreshold = 1e-3
-    int step:maxNumberRemeshPasses = 3
+    int step:maxNumberRemeshPasses = 0
 }
 
 class "StepFileContainer" (

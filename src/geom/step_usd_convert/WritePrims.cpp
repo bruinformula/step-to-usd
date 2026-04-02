@@ -50,6 +50,7 @@
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
+#include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -133,21 +134,25 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
         prototypePaths[defs[defIdx].first] = protoPath;
 
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+            completed++;
+            if (Logger::activeLevel == Logger::VERBOSE) {
+                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
+            } else {
+                std::cerr << "\r[" << completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+            }
             continue;
         }
 
         UsdGeomXform protoXformPrim = UsdGeomXform::Define(prototypesStage, protoPath);
 
-        UsdPrim protoPrim = protoXformPrim.GetPrim();
-
-        if (!protoPrim.IsValid()) {
-            std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
-            continue;
-        }
-
         { // SdfChangeBlock
             SdfChangeBlock changeBlock;
+            UsdPrim protoPrim = protoXformPrim.GetPrim();
+
+            if (!protoPrim.IsValid()) {
+                std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
+                continue;
+            }
 
             // Clear existing inherits before adding to avoid duplicates on re-run
             protoPrim.GetInherits().ClearInherits();
@@ -158,7 +163,12 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
             api.CreateStepDefIndexAttr().Set(defIdx);
         }
         
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+        completed++;
+        if (Logger::activeLevel == Logger::VERBOSE) {
+            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing prototype: " + protoPath.GetString());
+        } else {
+            std::cerr << "\r[" << completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+        }
     }
     std::cerr << "\n";
 }
@@ -168,14 +178,24 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
     const UsdPrim& rootPrim,
     LabelMap<SdfPath>& prototypePaths
 ) {
+    LOG_SCOPED_TIMER("writePrototypeOverridesInAssemblyStage");
     const int total = (int)prototypePaths.size();
     int completed = 0;
+    { // SdfChangeBlock
+        SdfChangeBlock changeBlock;
 
-    for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
-        const SdfPath& protoPath = protoIter->second;
-        SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrim.GetPath());
-        assemblyStage->OverridePrim(assemblyProtoPath);
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing Prototype Overrides..." << std::flush;
+        for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
+            const SdfPath& protoPath = protoIter->second;
+            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrim.GetPath());
+            assemblyStage->OverridePrim(assemblyProtoPath);
+
+            completed++;
+            if (Logger::activeLevel == Logger::VERBOSE) {
+                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + assemblyProtoPath.GetString());
+            } else {
+                std::cerr << "\r[" << completed << "/" << total << "] Writing Prototype Overrides..." << std::flush;
+            }
+        }
     }
 
     std::cerr << "\n";
@@ -342,7 +362,12 @@ void UsdStepExporter::writePrototypeGeometries(
         */
 
         if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
+            completed++;
+            if (Logger::activeLevel == Logger::VERBOSE) {
+                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
+            } else {
+                std::cerr << "\r[" << completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
+            }
             continue;
         }
 
@@ -418,7 +443,12 @@ void UsdStepExporter::writePrototypeGeometries(
             }
         }
 
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
+        completed++;
+        if (Logger::activeLevel == Logger::VERBOSE) {
+            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
+        } else {
+            std::cerr << "\r[" << completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
+        }
     }
     std::cerr << "\n";
 }
@@ -431,6 +461,7 @@ void UsdStepExporter::writeAssemblyXforms(
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths
 ) {
+    LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
     
     // pre compute which instances have children
     std::vector<bool> hasChildren(partNodes.size(), false);
@@ -446,7 +477,12 @@ void UsdStepExporter::writeAssemblyXforms(
         UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
         if (!xform) {
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
-            std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
+            completed++;
+            if (Logger::activeLevel == Logger::VERBOSE) {
+                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
+            } else {
+                std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+            }
             continue;
         }
         {
@@ -456,7 +492,12 @@ void UsdStepExporter::writeAssemblyXforms(
             if (node.type == StepModel::PartNodeType::Leaf) {
                 auto protoIter = prototypePaths.find(node.definitionLabel);
                 if (protoIter == prototypePaths.end()) {
-                    std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
+                    completed++;
+                    if (Logger::activeLevel == Logger::VERBOSE) {
+                        LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
+                    } else {
+                        std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+                    }
                     continue;
                 }
 
@@ -489,7 +530,12 @@ void UsdStepExporter::writeAssemblyXforms(
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
             }
         } // SdfChangeBlock
-        std::cerr << "\r[" << ++completed << "/" << total << "] Writing Assembly..." << std::flush;
+        completed++;
+        if (Logger::activeLevel == Logger::VERBOSE) {
+            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
+        } else {
+            std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+        }
     }
     std::cerr << "\n";
 }

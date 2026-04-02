@@ -36,6 +36,7 @@
 #include "ArgumentHandler.h"
 #include "UsdStepExporter.h"
 #include "StepModel.h"
+#include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace fs = std::filesystem;
@@ -74,6 +75,7 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
             case hashString("-v"):
             case hashString("--verbose"): {
                 verbose = UsdStepExporter::LoggingMode::VERBOSE;
+                Logger::activeLevel = Logger::VERBOSE;
                 return SUCCESS;
             }
             case hashString("-h"):
@@ -148,7 +150,7 @@ int main(int argc, char** argv) {
 
     UsdStageRefPtr stage = UsdStage::Open(inputArgs.inputUsdFile, UsdStage::LoadNone);
     if (!stage) {
-        std::cerr << "Failed to create stage at " << inputArgs.inputUsdFile << "\n";
+        LOG_ERR("Failed to create stage at " + inputArgs.inputUsdFile.string());
         return 1;
     }
 
@@ -162,35 +164,38 @@ int main(int argc, char** argv) {
 
         AutolibStepFileContainer container(prim);
         UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
-
+        
         SdfAssetPath sdfAssetPath;
         if (!pathAttr.Get(&sdfAssetPath)) {
-            std::cerr << "Failed to get asset path from UsdAttribute\n";
+            LOG_ERR("Failed to get asset path from UsdAttribute");
             continue;
         }
-
+        
         referencedStepAssetPaths.insert(sdfAssetPath);
     }
 
     std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
 
-    WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
-        std::string resolvedPath = assetPath.GetResolvedPath();
+    {
+        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedStepAssetPaths.size()) + " files)");
+        WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
+            std::string resolvedPath = assetPath.GetResolvedPath();
 
-        if (resolvedPath.empty()) {
-            std::cerr << "Failed to resolve path to: " << assetPath.GetAssetPath() << "\n";
-            return;
-        }
+            if (resolvedPath.empty()) {
+                LOG_ERR("Failed to resolve path to: " + assetPath.GetAssetPath());
+                return;
+            }
 
-        std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
+            std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
 
-        if (!optModel.has_value()) {
-            std::cerr << "Failed to load STEP model from " << resolvedPath << "\n";
-            return;
-        }
+            if (!optModel.has_value()) {
+                LOG_ERR("Failed to load STEP model from " + resolvedPath);
+                return;
+            }
 
-        modelCache.insert_or_assign(assetPath, std::move(*optModel));
-    });
+            modelCache.insert_or_assign(assetPath, std::move(*optModel));
+        });
+    }
 
 
     for (UsdPrim prim : stage->TraverseAll()) {
@@ -198,21 +203,21 @@ int main(int argc, char** argv) {
 
         AutolibStepFileContainer container(prim);
         UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
-
+        
         SdfAssetPath sdfAssetPath;
         if (!pathAttr.Get(&sdfAssetPath)) {
-            std::cerr << "Failed to get asset path from UsdAttribute\n";
+            LOG_ERR("Failed to get asset path from UsdAttribute");
             continue;
         }
 
         fs::path assetPath = sdfAssetPath.GetResolvedPath();
 
-        std::cout << "Processing STEP file: " << assetPath << "\n";
+        LOG_INFO("Processing STEP file: " + assetPath.string());
 
         // Load the model, using the cache to avoid re-parsing the same STEP file.
         auto iter = modelCache.find(sdfAssetPath);
         if (iter == modelCache.end()) {
-            std::cerr << "Model not found in cache for asset path: " << assetPath << "\n";
+            LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
             continue;
         }
 

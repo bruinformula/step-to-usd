@@ -54,6 +54,9 @@
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
+#include "Logger.h"
+
+Logger::Level Logger::activeLevel = Logger::INFO;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -216,21 +219,21 @@ std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const Us
     api.GetStepDefaultParamsRel().GetForwardedTargets(&targets);
 
     if (targets.empty()) {
-        std::cerr << "Warning: No default params target specified on root prim. Using hardcoded defaults.\n";
+        LOG_ERR("Warning: No default params target specified on root prim. Using hardcoded defaults.");
         return std::nullopt;
     }
 
     UsdPrim targetPrim = rootPrim.GetStage()->GetPrimAtPath(targets[0]);
 
     if (!targetPrim.IsValid()) {
-        std::cerr << "Warning: Default params target " << targets[0] << " is invalid. Using hardcoded defaults.\n";
+        LOG_ERR("Warning: Default params target " + targets[0].GetString() + " is invalid. Using hardcoded defaults.");
         return std::nullopt;
     }
 
     SdfPrimSpecHandleVector stack = targetPrim.GetPrimStack();
 
     if (stack.empty()) {
-        std::cerr << "Warning: Default params target " << targets[0] << " has empty prim stack. Using hardcoded defaults.\n";
+        LOG_ERR("Warning: Default params target " + targets[0].GetString() + " has empty prim stack. Using hardcoded defaults.");
         return std::nullopt;
     }
 
@@ -407,6 +410,7 @@ void UsdStepExporter::populateUsd(
     const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
     LoggingMode verbose
 ) {
+    LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
     rootStage->Unload();
 
@@ -710,20 +714,49 @@ void UsdStepExporter::populateUsd(
     std::vector<size_t> defIndices(defs.size());
     for (size_t i = 0; i < defs.size(); ++i) defIndices[i] = i;
 
-    WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](size_t idx) {
-        for (TessellationJob& job : tessJobs) {
-            if (job.defIndex == idx) {
-                bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
-                
-                if (bTesselate) {
-                    tesselatePart(job.result, defs[idx].second, job.params);
+    {
+        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defIndices.size()) + " definition indices.");
+        std::atomic<int> completedJobs{0};
+        WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](size_t idx) {
+            LOG_VERB("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            for (TessellationJob& job : tessJobs) {
+                if (job.defIndex == idx) {
+                    bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                    
+                    if (bTesselate) {
+                        LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
+                        try {
+                            tesselatePart(job.result, defs[idx].second, job.params);
+                            int currentCount = ++completedJobs;
+                            LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(tessJobs.size()) + " jobs completed globally)");
+                        } catch (const Standard_Failure& e) {
+                            LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
+                            ++completedJobs;
+                        } catch (const std::exception& e) {
+                            LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
+                            ++completedJobs;
+                        } catch (...) {
+                            LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
+                            ++completedJobs;
+                        }
+                    } else {
+                        LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                        ++completedJobs;
+                    }
                 }
             }
-        }
-    });
+            LOG_VERB("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+        });
+        LOG_VERB("WorkParallelForEach for tessellation has returned!");
+    }
+    LOG_VERB("Scoped timer for Parallel Tessellation destroyed.");
 
     // Write Geometry
+    LOG_VERB("Preparing to gather geometry jobs...");
+    LOG_VERB("Starting geometry writing for " + std::to_string(prototypes.size()) + " prototypes.");
     for (const auto& proto : prototypes) {
+        LOG_VERB("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + 
+                 " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
             if (job.proto == &proto) {
@@ -731,14 +764,18 @@ void UsdStepExporter::populateUsd(
             }
         }
         
+        LOG_VERB("Writing " + std::to_string(geomJobs.size()) + " geometry jobs to prototype stage.");
         writePrototypeGeometries(proto.stage, geomJobs, selectedPaths, rootPrimPath, proto.variantSetName, proto.variantName);
+        LOG_VERB("Saving prototype stage.");
         proto.stage->Save();
     }
 
+    LOG_VERB("Deactivating original prototype root in root stage: " + prototypesInRootPath.GetString());
     UsdPrim prototypeRoot = rootStage->GetPrimAtPath(prototypesInRootPath);
     if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
         rootStage->GetRootLayer()->Save();
+        LOG_VERB("Prototype root deactivated and root layer saved.");
     }
 
     if (!mark.IsClean()) {

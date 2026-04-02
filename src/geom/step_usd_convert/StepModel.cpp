@@ -39,6 +39,7 @@
 #include <opencascade/TDataStd_Name.hxx>
 
 #include "StepModel.h"
+#include "Logger.h"
 
 // Init
 static fs::path unitsCachePath(const fs::path& xbfPath) {
@@ -63,13 +64,12 @@ static double readStepLengthUnit(STEPControl_Reader& cafReader) {
     cafReader.FileUnits(lengthUnits, angleUnits, solidAngleUnits);
 
     if (lengthUnits.IsEmpty()) {
-        std::cerr << "Warning: FileUnits() returned nothing, assuming mm\n";
+        LOG_ERR("Warning: FileUnits() returned nothing, assuming mm");
         return 0.001;
     }
 
     TCollection_AsciiString unit = lengthUnits.First();
     unit.LowerCase();
-    std::cout << "STEP file length unit: " << unit << "\n";
 
     if (unit == "metre"      || unit == "meter"      || unit == "m")   return 1.0;
     if (unit == "millimetre" || unit == "millimeter"  || unit == "mm")  return 0.001;
@@ -81,7 +81,7 @@ static double readStepLengthUnit(STEPControl_Reader& cafReader) {
     if (unit == "yard"       || unit == "yd")                           return 0.9144;
     if (unit == "mil"        || unit == "thou")                         return 2.54e-5;
 
-    std::cerr << "Warning: unrecognised unit '" << unit << "', assuming mm\n";
+    LOG_ERR("Warning: unrecognised unit '" + std::string(unit.ToCString()) + "', assuming mm");
     return 0.001;
 }
 
@@ -111,32 +111,33 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
 
         double metersPerUnit = 0.0;
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
-            std::cout << "XBF doesn't exist or is out of date. Building from Step...\n";
+            LOG_INFO("XBF doesn't exist or is out of date. Building from Step...");
+            LOG_SCOPED_TIMER("Build XBF Document from STEP file");
             STEPCAFControl_Reader reader;
             if (reader.ReadFile(stepPath.c_str()) != IFSelect_RetDone) {
-                std::cerr << "Error reading Step file\n";
+                LOG_ERR("Error reading Step file");
                 return std::nullopt;
             }
             STEPControl_Reader innerReader = reader.Reader();
             metersPerUnit = readStepLengthUnit(innerReader);
-            std::cout << "Step length unit: " << metersPerUnit << " m\n";
+            LOG_INFO("Step length unit: " + std::to_string(metersPerUnit) + " m");
             if (!reader.Transfer(doc)) {
-                std::cerr << "Error transferring Step data\n";
+                LOG_ERR("Error transferring Step data");
                 return std::nullopt;
             }
-            std::cout << "Saving XBF to " << xbfPath << "\n";
+            LOG_INFO("Saving XBF to " + xbfPath.string());
             doc->ChangeStorageFormat("BinXCAF");
             if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
-                std::cerr << "Warning: failed to save XBF cache\n";
+                LOG_ERR("Warning: failed to save XBF cache");
             saveUnitsCache(xbfPath, metersPerUnit);
         } else {
-            std::cout << "Loading cached XBF from " << xbfPath << "\n";
+            LOG_INFO("Loading cached XBF from " + xbfPath.string());
             if (app->Open(xbfPath.c_str(), doc) != PCDM_RS_OK) {
-                std::cerr << "Error opening XBF\n";
+                LOG_ERR("Error opening XBF");
                 return std::nullopt;
             }
             metersPerUnit = loadUnitsCache(xbfPath);
-            std::cout << "Step length unit (cached): " << metersPerUnit << " m\n";
+            LOG_INFO("Step length unit (cached): " + std::to_string(metersPerUnit) + " m");
         }
 
         auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
@@ -148,15 +149,16 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         model.buildInstanceTree();
         return model;
     } catch (const Standard_Failure& e) {
-        std::cerr << "OCC exception: " << e.GetMessageString() << "\n";
+        LOG_ERR("OCC exception: " + std::string(e.GetMessageString()));
         return std::nullopt;
     } catch (const std::exception& e) {
-        std::cerr << "std exception: " << e.what() << "\n";
+        LOG_ERR("std exception: " + std::string(e.what()));
         return std::nullopt;
     }
 }
 
 void StepModel::buildInstanceTree() {
+    LOG_SCOPED_TIMER("buildInstanceTree");
     partNodes.clear();
     definitionShapes.clear();
 
@@ -188,10 +190,10 @@ void StepModel::buildInstanceTree() {
         if (n.type == PartNodeType::Leaf)     leaves++;
         if (n.type == PartNodeType::Assembly) assemblies++;
     }
-    std::cout << "Instance tree built: " << partNodes.size() << " nodes\n";
-    std::cout << "  Assemblies:          " << assemblies << "\n";
-    std::cout << "  Leaves:              " << leaves     << "\n";
-    std::cout << "  Unique definitions:  " << definitionShapes.size() << "\n";
+    LOG_INFO("Instance tree built: " + std::to_string(partNodes.size()) + " nodes");
+    LOG_INFO("  Assemblies:          " + std::to_string(assemblies));
+    LOG_INFO("  Leaves:              " + std::to_string(leaves));
+    LOG_INFO("  Unique definitions:  " + std::to_string(definitionShapes.size()));
 }
 
 bool StepModel::isLabelVisible(const TDF_Label& label) const {
