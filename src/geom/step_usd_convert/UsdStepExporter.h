@@ -109,19 +109,12 @@ struct UsdStepExporter {
         const SdfPath& rootPrimPath,
         bool clearExisting
     );
-
-    static void populateUsdPlain(
-        const StepModel& model, 
-        const fs::path& newStagePath, 
-        const TessParams& params
-    );
     
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
         UsdPrim& rootPrim,
-        const std::map<std::string, std::vector<std::string>>& variantSetNameToVariantNames,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
+        const std::unordered_set<SdfPath, SdfPath::Hash> filterPaths
     );
 
 private:
@@ -131,6 +124,14 @@ private:
     static std::string sanitizeUsdName(const std::string_view& name, int idx);
 
     static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches);
+
+    static bool isPrototypeActiveInFilter(
+        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const SdfPath& rootPrimPath,
+        const std::string& variantSetName,
+        const std::string& variantName,
+        const SdfPath& prototypePath
+    );
 
     static std::optional<SdfReference> getPrototypesDefaultParams(const UsdPrim& rootPrim);
 
@@ -182,17 +183,21 @@ private:
         const UsdPrim& rootPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const SdfPath& rootPrimPath,
+        const std::string& variantSetName,
+        const std::string& variantName,
         LabelMap<SdfPath>& prototypePaths,
-        const std::string& logLabel,
         bool makeFreshStage
     );
 
     static void writePrototypeGeometries(
         UsdStageRefPtr stage,
         const std::vector<ProtoGeomJob>& jobs,
-        const std::string& logLabel,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
+        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const SdfPath& rootPrimPath,
+        const std::string& variantSetName,
+        const std::string& variantName
     );
 
     static bool writePrototypeXform(

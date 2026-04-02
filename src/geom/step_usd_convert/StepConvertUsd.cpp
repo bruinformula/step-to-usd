@@ -6,8 +6,6 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
-#include <__hash_table>
-#include <algorithm>
 #include <map>
 #include <optional>
 #include <string_view>
@@ -241,70 +239,17 @@ int main(int argc, char** argv) {
             prototypeFilter.insert(SdfPath("/Prototypes/" + prototype));
         }
 
-        // Variants
-        UsdVariantSets rootVariantSets = prim.GetVariantSets();
+        std::unordered_set<SdfPath, SdfPath::Hash> filterPaths;
 
-        std::vector<std::string> vsetNames;
-        rootVariantSets.GetNames(&vsetNames);
+        //filterPaths.insert(SdfPath("/Wonderful/Prototypes/rod0"));
+        //filterPaths.insert(SdfPath("/Wonderful/Prototypes/rod0").AppendVariantSelection("quality", "draft"));
+        //filterPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high"));
+        //filterPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high").AppendPath(SdfPath("rod0")));
 
-        if (vsetNames.empty()) {
-            if (!inputArgs.variantSetNameToVariantNames.empty()) {
-                std::cerr << "The USD file does not have any variant sets. ignoring variant specifications.\n";
-            }
+        for (const auto& path : filterPaths)
+            std::cout << "Filter path: " << path.GetString() << "\n";
 
-            std::map<std::string, std::vector<std::string>> emptyVariants;
-            UsdStepExporter::populateUsd(model, stage, prim, emptyVariants, prototypeFilter);
-        } else if (inputArgs.variantSetNameToVariantNames.empty()) { 
-            std::cout << "Converting all variant sets found in USD file:\n";
-            for (const auto& set : vsetNames) {
-                std::cout << "  Variant Set: " << set << "\n";
-                std::vector<std::string> variantNames = rootVariantSets.GetVariantSet(set).GetVariantNames();
-                for (const auto& variant : variantNames) {
-                    std::cout << "    Variant: " << variant << "\n";
-                }
-            }
-
-            std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
-
-            for (const auto& name : vsetNames) {
-                variantSetNameToVariantNames[name] = rootVariantSets.GetVariantSet(name).GetVariantNames();
-            }
-            UsdStepExporter::populateUsd(model, stage, prim, variantSetNameToVariantNames, prototypeFilter);
-        } else {
-            std::cout << "Converting only specified variant sets:\n";
-            for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
-                std::cout << "  Variant Set: " << set << "\n";
-                for (const auto& variant : variants) {
-                    std::cout << "    Variant: " << variant << "\n";
-                }
-            }
-
-            // Filter the variant sets and variants to 
-            // only those specified in the input arguments
-
-            std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
-            for (const auto& [set, variants] : inputArgs.variantSetNameToVariantNames) {
-                if (std::find(vsetNames.begin(), vsetNames.end(), set) == vsetNames.end()) {
-                    std::cerr << "Variant set specified in arguments not found in USD file: " << set << "\n";
-                    continue;
-                }
-
-                std::vector<std::string> validVariants;
-                for (const auto& variant : variants) {
-                    if (std::find(rootVariantSets.GetVariantSet(set).GetVariantNames().begin(), rootVariantSets.GetVariantSet(set).GetVariantNames().end(), variant) == rootVariantSets.GetVariantSet(set).GetVariantNames().end()) {
-                        std::cerr << "Variant specified in arguments not found in USD file under set " << set << ": " << variant << "\n";
-                        continue;
-                    }
-                    validVariants.push_back(variant);
-                }
-
-                if (!validVariants.empty()) {
-                    variantSetNameToVariantNames[set] = validVariants;
-                }
-            }
-
-            UsdStepExporter::populateUsd(model, stage, prim, variantSetNameToVariantNames, prototypeFilter);
-        }
+        UsdStepExporter::populateUsd(model, stage, prim, filterPaths);
 
         stage->Save();
     }

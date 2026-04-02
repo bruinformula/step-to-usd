@@ -98,14 +98,21 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     const UsdPrim& rootPrim,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+    const SdfPath& rootPrimPath,
+    const std::string& variantSetName,
+    const std::string& variantName,
     LabelMap<SdfPath>& prototypePaths,
-    const std::string& logLabel,
     bool makeFreshStage
 ) {
     std::unordered_map<std::string, int> protoNameCounts;
     const int total = (int)defs.size();
     int completed = 0;
+
+    std::string logLabel = "";
+    if (!variantSetName.empty()) {
+        logLabel = " {" + variantSetName + "=" + variantName + "}";
+    }
 
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
@@ -125,7 +132,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
         prototypePaths[defs[defIdx].first] = protoPath;
 
-        if (!prototypesFilter.empty() && prototypesFilter.count(protoPath)) {
+        if (!filterPaths.empty() && isPrototypeActiveInFilter(filterPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
             prototypesStage->RemovePrim(protoPath);
         }
 
@@ -314,18 +321,31 @@ static void writeSketchGeometry(
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& jobs,
-    const std::string& logLabel,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& prototypesFilter
+    const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+    const SdfPath& rootPrimPath,
+    const std::string& variantSetName,
+    const std::string& variantName
 ) {
     const int total = (int)jobs.size();
     int completed = 0;
+
+    std::string logLabel = "";
+    if (!variantSetName.empty()) {
+        logLabel = " {" + variantSetName + "=" + variantName + "}";
+    }
 
     for (int i = 0; i < total; i++) {
         const SdfPath& protoPath = jobs[i].protoPath;
         const TessResult& r = jobs[i].result;
         const TessParams& params = jobs[i].params;
+        /*
+        std::cout << "[StepConvertUsd] variantPath=" << protoPath.GetText() 
+                  << " meshLinearDeflection=" << params.meshLinearDeflection 
+                  << " meshAngularDeflection=" << params.meshAngularDeflection 
+                  << " maxNumberRemeshPasses=" << params.maxNumberRemeshPasses << std::endl;
+        */
 
-        if (!prototypesFilter.empty() && !prototypesFilter.count(protoPath)) {
+        if (!filterPaths.empty() && !isPrototypeActiveInFilter(filterPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
             std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
             continue;
         }
