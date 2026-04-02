@@ -142,10 +142,10 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
             completed++;
-            if (Logger::activeLevel == Logger::VERBOSE) {
-                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
+            if (Logger::activeLevel == Logger::DEBUG) {
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
             } else {
-                std::cerr << "\r[" << completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+                LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
             }
             continue;
         }
@@ -171,13 +171,13 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
         }
         
         completed++;
-        if (Logger::activeLevel == Logger::VERBOSE) {
-            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing prototype: " + protoPath.GetString());
+        if (Logger::activeLevel == Logger::DEBUG) {
+            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing prototype: " + protoPath.GetString());
         } else {
-            std::cerr << "\r[" << completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
+            LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
         }
     }
-    std::cerr << "\n";
+    LOG_PROGRESS_DONE();
 }
 
 void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
@@ -197,15 +197,15 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
             assemblyStage->OverridePrim(assemblyProtoPath);
 
             completed++;
-            if (Logger::activeLevel == Logger::VERBOSE) {
-                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + assemblyProtoPath.GetString());
+            if (Logger::activeLevel == Logger::DEBUG) {
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + assemblyProtoPath.GetString());
             } else {
-                std::cerr << "\r[" << completed << "/" << total << "] Writing Prototype Overrides..." << std::flush;
+                LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
             }
         }
     }
 
-    std::cerr << "\n";
+    LOG_PROGRESS_DONE();
 }
 
 // Prototype Geometry
@@ -512,10 +512,10 @@ void UsdStepExporter::writePrototypeGeometries(
 
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
                     int c = ++completed;
-                    if (Logger::activeLevel == Logger::VERBOSE) {
-                        LOG_VERB("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
+                    if (Logger::activeLevel == Logger::DEBUG) {
+                        LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
                     } else {
-                        std::cerr << "\r[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry" + logLabel + "..." << std::flush;
+                        LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
                     }
                     continue;
                 }
@@ -552,10 +552,10 @@ void UsdStepExporter::writePrototypeGeometries(
                 }
 
                 int c = ++completed;
-                if (Logger::activeLevel == Logger::VERBOSE) {
-                    LOG_VERB("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
+                if (Logger::activeLevel == Logger::DEBUG) {
+                    LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
                 } else {
-                    std::cerr << "\r[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry" + logLabel + "..." << std::flush;
+                    LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
                 }
             }
         } // SdfChangeBlock
@@ -676,9 +676,7 @@ void UsdStepExporter::writePrototypeGeometries(
         }
     }
 
-    if (Logger::activeLevel != Logger::VERBOSE) {
-        std::cerr << "\n";
-    }
+    LOG_PROGRESS_DONE();
 }
 
 // Assembly Xforms
@@ -706,10 +704,10 @@ void UsdStepExporter::writeAssemblyXforms(
         if (!xform) {
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
             completed++;
-            if (Logger::activeLevel == Logger::VERBOSE) {
-                LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
+            if (Logger::activeLevel == Logger::DEBUG) {
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
             } else {
-                std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+                LOG_PROGRESS(completed, total, "Writing Assembly");
             }
             continue;
         }
@@ -721,10 +719,10 @@ void UsdStepExporter::writeAssemblyXforms(
                 auto protoIter = prototypePaths.find(node.definitionLabel);
                 if (protoIter == prototypePaths.end()) {
                     completed++;
-                    if (Logger::activeLevel == Logger::VERBOSE) {
-                        LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
+                    if (Logger::activeLevel == Logger::DEBUG) {
+                        LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
                     } else {
-                        std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+                        LOG_PROGRESS(completed, total, "Writing Assembly");
                     }
                     continue;
                 }
@@ -759,11 +757,11 @@ void UsdStepExporter::writeAssemblyXforms(
             }
         } // SdfChangeBlock
         completed++;
-        if (Logger::activeLevel == Logger::VERBOSE) {
-            LOG_VERB("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
+        if (Logger::activeLevel == Logger::DEBUG) {
+            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
         } else {
-            std::cerr << "\r[" << completed << "/" << total << "] Writing Assembly..." << std::flush;
+            LOG_PROGRESS(completed, total, "Writing Assembly");
         }
     }
-    std::cerr << "\n";
+    LOG_PROGRESS_DONE();
 }

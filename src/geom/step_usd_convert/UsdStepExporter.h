@@ -97,18 +97,12 @@ struct TessParams {
 };
 
 struct UsdStepExporter {
-
-    enum class LoggingMode {
-        NONE,
-        VERBOSE
-    };
     
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
         UsdPrim& rootPrim,
-        const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
-        LoggingMode verbose = LoggingMode::NONE
+        const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
     );
 
 private:
@@ -131,7 +125,7 @@ private:
         SdfPath prototypePath;
         TessParams params;
         TessResult result;
-        bool parallel = false;
+        bool runMesherInParallel = false;
     };
 
     struct ProtoGeomJob {

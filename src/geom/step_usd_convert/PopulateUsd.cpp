@@ -56,8 +56,6 @@
 #include "StepModel.h"
 #include "Logger.h"
 
-Logger::Level Logger::activeLevel = Logger::INFO;
-
 PXR_NAMESPACE_USING_DIRECTIVE
 
 TessParams getTessParams(
@@ -273,13 +271,13 @@ static void printVariants(
     std::function<bool(const SdfPath&)> isSelected
 ) {
     if (variantPaths.empty()) {
-        std::cout << "No variants found on prim " << primLabel << ".\n";
+        LOG_INFO("No variants found on prim " + primLabel);
         return;
     } else {
-        std::cout << "Variants found on prim " << primLabel << ":\n";
+        LOG_INFO("Variants found on prim " + primLabel + ":");
         for (const SdfPath& path : variantPaths) {
             std::string selectedMarker = isSelected(path) ? " [SELECTED]" : "";
-            std::cout << "  " << path.GetString() << selectedMarker << "\n";
+            LOG_INFO("  " + path.GetString() + selectedMarker);
         }
     }
 }
@@ -298,8 +296,8 @@ static void printSelectedPrototypes(
                     UsdPrim prim = rootStage->GetPrimAtPath(primPath);
                     if (prim.IsValid()) {
                         if (!prim.HasVariantSets() || !prim.GetVariantSets().HasVariantSet(vsel.first)) {
-                            std::cerr << "Warning: prim selected requests variant set '" << vsel.first 
-                                      << "' which does not exist on prim " << primPath.GetString() << "\n";
+                            LOG_ERR("Warning: prim selected requests variant set '" + vsel.first 
+                                      + "' which does not exist on prim " + primPath.GetString());
                         } else {
                             UsdVariantSet vset = prim.GetVariantSet(vsel.first);
                             std::vector<std::string> vnames = vset.GetVariantNames();
@@ -308,9 +306,9 @@ static void printSelectedPrototypes(
                                 if (vn == vsel.second) { found = true; break; }
                             }
                             if (!found) {
-                                std::cerr << "Warning: prim selected requests variant '" << vsel.second 
-                                          << "' which does not exist in variant set '" << vsel.first 
-                                          << "' on prim " << primPath.GetString() << "\n";
+                                LOG_ERR("Warning: prim selected requests variant '" + vsel.second 
+                                          + "' which does not exist in variant set '" + vsel.first 
+                                          + "' on prim " + primPath.GetString());
                             }
                         }
                     } else {
@@ -396,8 +394,7 @@ void UsdStepExporter::populateUsd(
     const StepModel& model, 
     UsdStageRefPtr rootStage,
     UsdPrim& rootPrim,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
-    LoggingMode verbose
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
 ) {
     LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
@@ -414,7 +411,7 @@ void UsdStepExporter::populateUsd(
 
     std::unordered_set<SdfPath, SdfPath::Hash> rootVariantPaths = getVariantsOnPrim(rootPrim);
 
-    if (verbose == LoggingMode::VERBOSE) {
+    if (Logger::activeLevel == Logger::INFO) {
         std::cout << "Root prim path: " << rootPrimPath.GetString() << "\n";
         printVariants("root prim", rootVariantPaths, selectedPaths, [&](const SdfPath& p) {
             return !selectedPaths.empty() && selectedPaths.count(p);
@@ -619,7 +616,7 @@ void UsdStepExporter::populateUsd(
     rootStage->Load(rootPrim.GetPath()); // Ensure payloads are loaded for variant discovery!
     rootStage->GetRootLayer()->Save();
 
-    if (verbose == LoggingMode::VERBOSE) {
+    if (Logger::activeLevel == Logger::INFO) {
         printVariants("root prim", getVariantsOnPrim(rootPrim), selectedPaths, [&](const SdfPath& p) {
             return !selectedPaths.empty() && selectedPaths.count(p);
         });
@@ -648,7 +645,7 @@ void UsdStepExporter::populateUsd(
                     logLabel += " (root: " + proto.variantSetName + "=" + proto.variantName + ")";
                 }
 
-                if (verbose == LoggingMode::VERBOSE) {
+                if (Logger::activeLevel == Logger::INFO) {
                     printVariants(logLabel, childVariantPaths, selectedPaths, [&](const SdfPath& p) {
                         return !selectedPaths.empty() && isPrototypeActiveInFilter(selectedPaths, rootPrimPath, proto.variantSetName, proto.variantName, p);
                     });
@@ -661,6 +658,8 @@ void UsdStepExporter::populateUsd(
         TessParams rootParams = getTessParams(rootPrim);
         TessParams variantLevelParams = getTessParams(protoRootPrim, rootParams);
         std::map<SdfPath, TessParams> paramsBank = resolveParams(protoRootPrim, variantLevelParams);
+
+        bool runMesherInParallel = !getStageMakeFresh(proto.variantSetName, proto.variantName);
 
         for (size_t i = 0; i < defs.size(); ++i) {
             SdfPath protoPath = prototypePaths.at(defs[i].first); // /Prototypes/rod0
@@ -687,13 +686,13 @@ void UsdStepExporter::populateUsd(
                         jobProtoPath = jobProtoPath.AppendVariantSelection(variantSelection.first, variantSelection.second);
                     }
                     
-                    std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
-                    tessJobs.push_back({&proto, (int)i, jobProtoPath, params, TessResult()});
+                    //std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
+                    tessJobs.push_back({&proto, (int)i, jobProtoPath, params, TessResult(), runMesherInParallel});
                 }
             }
             
             if (!foundVariantForProto) {
-                tessJobs.push_back({&proto, (int)i, protoPath, params, TessResult()});
+                tessJobs.push_back({&proto, (int)i, protoPath, params, TessResult(), runMesherInParallel});
             }
         }
     }
@@ -704,10 +703,10 @@ void UsdStepExporter::populateUsd(
     tessellateGeometry(tessJobs, defs, selectedPaths, rootPrimPath);
 
     // Write Geometry
-    LOG_VERB("Preparing to gather geometry jobs...");
-    LOG_VERB("Starting geometry writing for " + std::to_string(prototypes.size()) + " prototypes.");
+    LOG_DEBUG("Preparing to gather geometry jobs...");
+    LOG_DEBUG("Starting geometry writing for " + std::to_string(prototypes.size()) + " prototypes.");
     for (const auto& proto : prototypes) {
-        LOG_VERB("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
+        LOG_DEBUG("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
             if (job.proto == &proto) {
@@ -715,18 +714,18 @@ void UsdStepExporter::populateUsd(
             }
         }
         
-        LOG_VERB("Writing " + std::to_string(geomJobs.size()) + " geometry jobs to prototype stage.");
+        LOG_DEBUG("Writing " + std::to_string(geomJobs.size()) + " geometry jobs to prototype stage.");
         writePrototypeGeometries(proto.stage, geomJobs, selectedPaths, rootPrimPath, proto.variantSetName, proto.variantName);
-        LOG_VERB("Saving prototype stage.");
+        LOG_DEBUG("Saving prototype stage.");
         proto.stage->Save();
     }
 
-    LOG_VERB("Deactivating original prototype root in root stage: " + prototypesInRootPath.GetString());
+    LOG_DEBUG("Deactivating original prototype root in root stage: " + prototypesInRootPath.GetString());
     UsdPrim prototypeRoot = rootStage->GetPrimAtPath(prototypesInRootPath);
     if (prototypeRoot.IsValid()) {
         prototypeRoot.SetActive(false);
         rootStage->GetRootLayer()->Save();
-        LOG_VERB("Prototype root deactivated and root layer saved.");
+        LOG_DEBUG("Prototype root deactivated and root layer saved.");
     }
 
     if (!mark.IsClean()) {

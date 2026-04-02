@@ -115,7 +115,7 @@ bool UsdStepExporter::tesselatePart(
 
     auto tesselateStart = Clock::now();
 
-    LOG_VERB("  -> tesselatePart: ShapeFix_Shape (Repair pass)");
+    LOG_DEBUG("  -> tesselatePart: ShapeFix_Shape (Repair pass)");
     ShapeFix_Shape fixer(defShape);
     fixer.SetPrecision(1e-4);
     fixer.SetMaxTolerance(0.1);
@@ -125,20 +125,20 @@ bool UsdStepExporter::tesselatePart(
     fixer.Perform(fixRange);
 
     if (fixProgress->timedOut()) {
-        LOG_VERB("  -> ShapeFix_Shape timed out, proceeding with partial repair");
+        LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
         // workingShape is still usable
         // OCCT leaves it in a partially-fixed state
     }
     TopoDS_Shape workingShape = fixer.Shape();
 
-    LOG_VERB("  -> tesselatePart: BRepTools::Clean");
+    LOG_DEBUG("  -> tesselatePart: BRepTools::Clean");
     BRepTools::Clean(workingShape); // remove previously created tessellations for this part 
 
     Bnd_Box bbox;
-    LOG_VERB("  -> tesselatePart: BRepBndLib::Add");
+    LOG_DEBUG("  -> tesselatePart: BRepBndLib::Add");
     BRepBndLib::Add(workingShape, bbox);
     double xmin, ymin, zmin, xmax, ymax, zmax;
-    LOG_VERB("  -> tesselatePart: bbox.Get");
+    LOG_DEBUG("  -> tesselatePart: bbox.Get");
     bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 
     double diagonal = std::sqrt(
@@ -155,16 +155,16 @@ bool UsdStepExporter::tesselatePart(
     meshParams.Angle = params.meshAngularDeflection; // in radians
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     
-    LOG_VERB("  -> tesselatePart: BRepMesh_IncrementalMesh");
+    LOG_DEBUG("  -> tesselatePart: BRepMesh_IncrementalMesh");
     BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
 
-    LOG_VERB("  -> tesselatePart: mesher.Perform()");
+    LOG_DEBUG("  -> tesselatePart: mesher.Perform()");
     opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshTimeout));
     Message_ProgressRange meshRange = meshProgress->Start();
     mesher.Perform(meshRange);
 
     if (meshProgress->timedOut()) {
-        LOG_VERB("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
+        LOG_DEBUG("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
     }
 
     int maxPasses = params.maxNumberRemeshPasses;
@@ -178,50 +178,50 @@ bool UsdStepExporter::tesselatePart(
     // not just the intersected shapes, 
     // so the edge walk later works
 
-    LOG_VERB("  -> tesselatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
+    LOG_DEBUG("  -> tesselatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
-        LOG_VERB("  Running self-intersection check (pass " + std::to_string(pass) + ")");
+        LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
         BRepExtrema_SelfIntersection checker(workingShape, params.selfIntersectionThreshold);
-        LOG_VERB("  -> checker.Perform()");
+        LOG_DEBUG("  -> checker.Perform()");
         checker.Perform();
 
         if (!checker.IsDone()) {
-            LOG_VERB("  -> checker not done, breaking");
+            LOG_DEBUG("  -> checker not done, breaking");
             break;
         }
 
-        LOG_VERB("  -> checker getting OverlapElements");
+        LOG_DEBUG("  -> checker getting OverlapElements");
         const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
 
         if (overlaps.IsEmpty()) {
-            LOG_VERB("  No interesections found.");
+            LOG_DEBUG("  No interesections found.");
             break;
         }
         
-        LOG_VERB("  Found overlaps. Remeshing with finer parameters.");
+        LOG_DEBUG("  Found overlaps. Remeshing with finer parameters.");
 
         repairParams.Deflection *= 0.5;
         repairParams.Angle *= 0.5;
 
-        LOG_VERB("  -> BRepTools::Clean (repair)");
+        LOG_DEBUG("  -> BRepTools::Clean (repair)");
         BRepTools::Clean(workingShape); 
-        LOG_VERB("  -> BRepMesh_IncrementalMesh (repair)");
+        LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair)");
         BRepMesh_IncrementalMesh remesher(workingShape, repairParams);
         
         opencascade::handle<DeadlineProgressIndicator> remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.remeshTimeout));
         Message_ProgressRange remeshRange = remeshProgress->Start();
         remesher.Perform(remeshRange);
         if (remeshProgress->timedOut()) {
-            LOG_VERB("  -> BRepMesh_IncrementalMesh (repair) timed out");
+            LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair) timed out");
             break;
         }
     }
     
 
     auto meshEnd = Clock::now();
-    LOG_VERB("  Mesh time: " + std::to_string(Seconds(meshEnd - tesselateStart).count()) + " s");
+    LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tesselateStart).count()) + " s");
     
-    LOG_VERB("  -> tesselatePart: Edge walk preparation");
+    LOG_DEBUG("  -> tesselatePart: Edge walk preparation");
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
 
     // positions remain welded via topology
@@ -423,7 +423,7 @@ bool UsdStepExporter::tesselatePart(
     }
 
     auto edgeWalkEnd = Clock::now();
-    LOG_VERB("  Edge-walk time: " + std::to_string(Seconds(edgeWalkEnd - meshEnd).count()) + " s");
+    LOG_DEBUG("  Edge-walk time: " + std::to_string(Seconds(edgeWalkEnd - meshEnd).count()) + " s");
 
     // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
@@ -641,16 +641,16 @@ bool UsdStepExporter::tesselatePart(
     }
 
     auto faceProcessEnd = Clock::now();
-    LOG_VERB("  Face processing time: " + std::to_string(Seconds(faceProcessEnd - edgeWalkEnd).count()) + " s");
+    LOG_DEBUG("  Face processing time: " + std::to_string(Seconds(faceProcessEnd - edgeWalkEnd).count()) + " s");
 
     auto tesselateEnd = Clock::now();
-    LOG_VERB("  Total tesselatePart time: " + std::to_string(Seconds(tesselateEnd - tesselateStart).count()) + " s");
+    LOG_DEBUG("  Total tesselatePart time: " + std::to_string(Seconds(tesselateEnd - tesselateStart).count()) + " s");
 
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.
     if (result.points.empty() && result.sketchCounts.empty() && result.wireframeCounts.empty()) {
-        LOG_VERB("  Warning: def produced no geometry or sketch curves in Shape");
+        LOG_DEBUG("  Warning: def produced no geometry or sketch curves in Shape");
         return false;
     }
 
@@ -688,57 +688,48 @@ void UsdStepExporter::tessellateGeometry(
         const int totalJobs = static_cast<int>(tessJobs.size());
         
         WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](int idx) {
-            LOG_VERB("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            LOG_DEBUG("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
+
+                if (job.runMesherInParallel) {
+                    LOG_DEBUG("Job for " + job.prototypePath.GetString() + " is set to run mesher in parallel model");
+                }
+
                 bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
                 
                 if (bTesselate) {
-                    LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
+                    LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
                     try {
-                        tesselatePart(job.result, defs[idx].second, job.params, job.parallel);
+                        tesselatePart(job.result, defs[idx].second, job.params, job.runMesherInParallel);
                         int currentCount = ++completedJobs;
-                        LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
-                        if (Logger::activeLevel != Logger::VERBOSE) {
-                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                        }
+                        LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (const Standard_Failure& e) {
-                        std::cerr << "\n";
-                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
+                        LOG_PROGRESS_DONE();
+                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")" + ": " + e.GetMessageString());
                         int currentCount = ++completedJobs;
-                        if (Logger::activeLevel != Logger::VERBOSE) {
-                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                        }
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (const std::exception& e) {
-                        std::cerr << "\n";
-                        LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
+                        LOG_PROGRESS_DONE();
+                        LOG_ERR("std exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")" + ": " + e.what());
                         int currentCount = ++completedJobs;
-                        if (Logger::activeLevel != Logger::VERBOSE) {
-                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                        }
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (...) {
-                        std::cerr << "\n";
-                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
+                        LOG_PROGRESS_DONE();
+                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")");
                         int currentCount = ++completedJobs;
-                        if (Logger::activeLevel != Logger::VERBOSE) {
-                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                        }
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     }
                 } else {
-                    LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                    LOG_DEBUG("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
                     int currentCount = ++completedJobs;
-                    if (Logger::activeLevel != Logger::VERBOSE) {
-                        std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                    }
+                    LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                 }
             }
-            LOG_VERB("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            LOG_DEBUG("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
         });
         
-        if (Logger::activeLevel != Logger::VERBOSE) {
-            std::cerr << "\n";
-        }
-        
-        LOG_VERB("WorkParallelForEach for tessellation has returned!");
-    }
+        LOG_PROGRESS_DONE();
+    }    
 }

@@ -42,19 +42,19 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace fs = std::filesystem;
 
 const std::string argOptions =
-    " StepConvertUsd -- Converts Step files to Usd\n"
+    " StepConvertUsd -- Converts a Usd file containing StepFileContainers\n"
     " Options: \n"
-    "    -i, --inputUsdFile <path>                        Path to the input Usd file. \n"
-    "    -p, --prim <sdfPath>                             Only tesselate the prim at this path including variants. Can be multiple paths. if left empty all prim will be tessellated\n"
-    "    -v, --verbose                                    Print additional details during execution.\n"
-    "    -h, --help                                       Prints this message.\n"
-    "    usage: StepConvertUsd -i <path> -p <sdfPath> \n";
+    "    -i, --inputUsdFile <path>        Path to the input Usd file. \n"
+    "    -p, --prim <sdfPath>             Only tesselate the prim at this path including variants. Can be multiple paths.\n"
+    "    -q, --quiet                      Suppress all output.\n"
+    "    -v, --verbose                    Prints like everything.\n"
+    "    -h, --help                       Prints this message.\n\n"
+    "    usage: StepConvertUsd -i <path> [options] \n";
 
 struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
-    UsdStepExporter::LoggingMode verbose = UsdStepExporter::LoggingMode::NONE;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
         switch (hashString(token)) {
@@ -72,10 +72,14 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
                 selectedPaths.insert(path);
                 return SUCCESS_CONSUME_NEXT;
             }
+            case hashString("-q"):
+            case hashString("--quiet"): {
+                Logger::activeLevel = Logger::NONE;
+                return SUCCESS;
+            }
             case hashString("-v"):
             case hashString("--verbose"): {
-                verbose = UsdStepExporter::LoggingMode::VERBOSE;
-                Logger::activeLevel = Logger::VERBOSE;
+                Logger::activeLevel = Logger::DEBUG;
                 return SUCCESS;
             }
             case hashString("-h"):
@@ -85,6 +89,7 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
             }
             default: {
                 std::cout << "Unrecognized command-line option: " << token << std::endl;
+                std::cout << argOptions << std::endl;
                 return FAILURE;
             }
         }
@@ -116,7 +121,7 @@ struct StepConvertUsdArgumentHandler : public ArgumentHandler {
     }
 };
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) {    
     std::vector<std::string> tokens;
     for (int i = 1; i < argc; i++) {
         tokens.emplace_back(argv[i]);
@@ -197,7 +202,7 @@ int main(int argc, char** argv) {
         });
     }
 
-
+    // Search for step container prims and run populateUsd on each `rootPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
         if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
 
@@ -221,25 +226,15 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        const StepModel& model = iter->second;
-
-        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful/Prototypes/rod0"));
-        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful/Prototypes/rod0").AppendVariantSelection("quality", "draft"));
-        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high"));
-        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high").AppendPath(SdfPath("rod0")));
-
-        //for (const auto& path : selectedPaths)
-        //    std::cout << "Filter path: " << path.GetString() << "\n";
-
-        UsdStepExporter::populateUsd(model, stage, prim, inputArgs.selectedPaths, inputArgs.verbose);
-
-        stage->Save();
+        UsdStepExporter::populateUsd(iter->second, stage, prim, inputArgs.selectedPaths);
     }
 
     stage->GetRootLayer()->Save();
-    auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;
+    if (Logger::activeLevel == Logger::Level::INFO) {
+        auto end = std::chrono::high_resolution_clock::now();
+        std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;
+    }
 
     return 0;
 }
