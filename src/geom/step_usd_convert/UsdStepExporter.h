@@ -73,7 +73,7 @@ struct TessResult {
 };
 
 struct TessParams {
-    float renderPurposeThreshold = std::numeric_limits<float>::infinity(); 
+    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
     // in the units of the model along the diagonal. 
     // if proto is smaller it gets marked as a render only asset
 
@@ -91,33 +91,33 @@ struct TessParams {
     int maxNumberRemeshPasses = 3;
 };
 
-struct UVPatch {
-    std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
-    float uMin, uMax, vMin, vMax;
-};
-
-struct ProtoGeomJob {
-    SdfPath protoPath;
-    TessResult result;
-    TessParams params;
-};
-
 struct UsdStepExporter {
 
-    static UsdStageRefPtr initUsdStage(
-        const fs::path& newStagePath, 
-        const SdfPath& rootPrimPath,
-        bool clearExisting
-    );
+    enum class LoggingMode {
+        NONE,
+        VERBOSE
+    };
     
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr rootStage,
         UsdPrim& rootPrim,
-        const std::unordered_set<SdfPath, SdfPath::Hash> filterPaths
+        const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
+        LoggingMode verbose = LoggingMode::NONE
     );
 
 private:
+
+    struct UVPatch {
+        std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
+        float uMin, uMax, vMin, vMax;
+    };
+
+    struct ProtoGeomJob {
+        SdfPath protoPath;
+        TessResult result;
+        TessParams params;
+    };
 
     static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t);
 
@@ -126,7 +126,7 @@ private:
     static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches);
 
     static bool isPrototypeActiveInFilter(
-        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const SdfPath& rootPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
@@ -134,6 +134,12 @@ private:
     );
 
     static std::optional<SdfReference> getPrototypesDefaultParams(const UsdPrim& rootPrim);
+    
+    static UsdStageRefPtr initUsdStage(
+        const fs::path& newStagePath, 
+        const SdfPath& rootPrimPath,
+        bool clearExisting
+    );
 
     static bool tesselatePart(
         TessResult& result, 
@@ -183,7 +189,7 @@ private:
         const UsdPrim& rootPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const SdfPath& rootPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
@@ -194,7 +200,7 @@ private:
     static void writePrototypeGeometries(
         UsdStageRefPtr stage,
         const std::vector<ProtoGeomJob>& jobs,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const SdfPath& rootPrimPath,
         const std::string& variantSetName,
         const std::string& variantName

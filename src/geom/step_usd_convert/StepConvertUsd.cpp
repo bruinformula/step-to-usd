@@ -6,7 +6,6 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
-#include <map>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -44,52 +43,40 @@ namespace fs = std::filesystem;
 const std::string argOptions =
     " StepConvertUsd -- Converts Step files to Usd\n"
     " Options: \n"
-    "    --inputUsdFile <path>                  Path to the input Usd file. \n"
-    "    --variantSet <variantSetName>          If the Usd file has variants, specify which variant to convert. If empty all will be converted\n"
-    "    --variant <variantName>                If the Usd file has variants, specify which variant in the set to convert. If empty all will be converted\n"
-    "    --prototype <nameOfPrototype>          Only tesselate the prototype with the given name within /Prototypes (eg: rod). Can be used multiple times to specify multiple prototypes. If empty, all prototypes will be converted.\n"
-    "    --help                                 Prints this message.\n"
-    "    usage: StepConvertUsd --inputUsdFile <path> [--variantSet <variantSetName> --variant <variantName>] --prototype <nameOfPrototype>\n";
+    "    -i, --inputUsdFile <path>                        Path to the input Usd file. \n"
+    "    -p, --prim <sdfPath>                             Only tesselate the prim at this path including variants. Can be multiple paths. if left empty all prim will be tessellated\n"
+    "    -v, --verbose                                    Print additional details during execution.\n"
+    "    -h, --help                                       Prints this message.\n"
+    "    usage: StepConvertUsd -i <path> -p <sdfPath> \n";
 
 struct StepConvertUsdArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
-
-    std::map<std::string, std::vector<std::string>> variantSetNameToVariantNames;
-    std::unordered_set<std::string> prototypeFilter;
+    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
+    UsdStepExporter::LoggingMode verbose = UsdStepExporter::LoggingMode::NONE;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
-
         switch (hashString(token)) {
+            case hashString("-i"):
             case hashString("--inputUsdFile"): {
                 if (nextToken.empty()) goto expectOption;
                 if (!inputUsdFile.empty()) goto alreadySet;
                 inputUsdFile = nextToken;
                 return SUCCESS_CONSUME_NEXT;
             }
-
-            case hashString("--variantSet"): {
+            case hashString("-p"):
+            case hashString("--prim"): {
                 if (nextToken.empty()) goto expectOption;
-                variantSetNameToVariantNames[nextToken]; // default construct an entry for this variant set, we'll fill in the variants later when we parse the --variant options
+                SdfPath path(nextToken);
+                selectedPaths.insert(path);
                 return SUCCESS_CONSUME_NEXT;
             }
-            case hashString("--variant"): {
-                if (nextToken.empty()) goto expectOption;
-                // Find the last added variant set and add this variant to it
-                if (variantSetNameToVariantNames.empty()) {
-                    std::cerr << "No variant set specified before variant: " << nextToken << std::endl;
-                    return FAILURE;
-                }
-                auto& lastVariantSet = variantSetNameToVariantNames.rbegin()->second;
-                lastVariantSet.push_back(nextToken);
-                return SUCCESS_CONSUME_NEXT;
+            case hashString("-v"):
+            case hashString("--verbose"): {
+                verbose = UsdStepExporter::LoggingMode::VERBOSE;
+                return SUCCESS;
             }
-            case hashString("--prototype"): {
-                if (nextToken.empty()) goto expectOption;
-
-                prototypeFilter.insert(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
+            case hashString("-h"):
             case hashString("--help"): {
                 std::cout << argOptions << std::endl;
                 return EXIT;
@@ -231,25 +218,15 @@ int main(int argc, char** argv) {
 
         const StepModel& model = iter->second;
 
-        // Prototypes
+        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful/Prototypes/rod0"));
+        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful/Prototypes/rod0").AppendVariantSelection("quality", "draft"));
+        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high"));
+        //inputArgs.selectedPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high").AppendPath(SdfPath("rod0")));
 
-        std::unordered_set<SdfPath, SdfPath::Hash> prototypeFilter;
+        //for (const auto& path : selectedPaths)
+        //    std::cout << "Filter path: " << path.GetString() << "\n";
 
-        for (const std::string& prototype : inputArgs.prototypeFilter) {
-            prototypeFilter.insert(SdfPath("/Prototypes/" + prototype));
-        }
-
-        std::unordered_set<SdfPath, SdfPath::Hash> filterPaths;
-
-        //filterPaths.insert(SdfPath("/Wonderful/Prototypes/rod0"));
-        //filterPaths.insert(SdfPath("/Wonderful/Prototypes/rod0").AppendVariantSelection("quality", "draft"));
-        //filterPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high"));
-        //filterPaths.insert(SdfPath("/Wonderful").AppendVariantSelection("LOD", "high").AppendPath(SdfPath("rod0")));
-
-        for (const auto& path : filterPaths)
-            std::cout << "Filter path: " << path.GetString() << "\n";
-
-        UsdStepExporter::populateUsd(model, stage, prim, filterPaths);
+        UsdStepExporter::populateUsd(model, stage, prim, inputArgs.selectedPaths, inputArgs.verbose);
 
         stage->Save();
     }

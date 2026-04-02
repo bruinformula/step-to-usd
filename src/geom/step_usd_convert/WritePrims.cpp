@@ -98,7 +98,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     const UsdPrim& rootPrim,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& rootPrimPath,
     const std::string& variantSetName,
     const std::string& variantName,
@@ -131,10 +131,6 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
         SdfPath protoPath = prototypesPath.AppendChild(TfToken(name));
 
         prototypePaths[defs[defIdx].first] = protoPath;
-
-        if (!filterPaths.empty() && isPrototypeActiveInFilter(filterPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
-            prototypesStage->RemovePrim(protoPath);
-        }
 
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
             std::cerr << "\r[" << ++completed << "/" << total << "] Writing prototypes " << logLabel << "..." << std::flush;
@@ -321,7 +317,7 @@ static void writeSketchGeometry(
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& jobs,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& filterPaths,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& rootPrimPath,
     const std::string& variantSetName,
     const std::string& variantName
@@ -345,7 +341,7 @@ void UsdStepExporter::writePrototypeGeometries(
                   << " maxNumberRemeshPasses=" << params.maxNumberRemeshPasses << std::endl;
         */
 
-        if (!filterPaths.empty() && !isPrototypeActiveInFilter(filterPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+        if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
             std::cerr << "\r[" << ++completed << "/" << total << "] Writing geometry " << logLabel << "..." << std::flush;
             continue;
         }
@@ -373,6 +369,11 @@ void UsdStepExporter::writePrototypeGeometries(
             // Switch to the edit context of this variant to write geometry
             UsdEditContext ctx(vset.GetVariantEditContext());
             
+            // Clear existing geometry primitives in this context
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+
             if (r.renderOnly) {
                 UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
             }
@@ -394,6 +395,11 @@ void UsdStepExporter::writePrototypeGeometries(
             if (!protoXform) { // fallback
                 protoXform = UsdGeomXform::Define(stage, protoPath);
             }
+            
+            // Clear existing geometry primitives
+            stage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
+            stage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
+            stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
 
             if (r.renderOnly) {
                 UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);
