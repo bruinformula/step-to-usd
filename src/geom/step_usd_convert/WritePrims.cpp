@@ -29,6 +29,8 @@
 #include <pxr/usd/sdf/changeBlock.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/variantSpec.h>
+#include <pxr/usd/sdf/variantSetSpec.h>
 
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/xform.h>
@@ -564,9 +566,44 @@ void UsdStepExporter::writePrototypeGeometries(
 
     // Merge back on the main stage
 
+    // There are two passes here to handle variant and non-variant geometry separately 
+    // SdfCopy doesn't handle copying into variant bodies, so geometry under variants 
+    // is written directly to the main stage in a separate pass
+
     { // SdfChangeBlock
         SdfChangeBlock changeBlock;
         SdfLayerHandle mainLayer = stage->GetRootLayer();
+
+        // pre-create variant specs in mainLayer so the variant bodies exist
+        for (const auto& res : threadResults) {
+            if (!res.layer) continue;
+            for (size_t i = res.startIdx; i < res.endIdx; i++) {
+                const SdfPath& protoPath = jobs[i].protoPath;
+                auto variantSelection = protoPath.GetVariantSelection();
+                if (variantSelection.first.empty()) continue; // skip variants 
+
+                SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
+                SdfPrimSpecHandle primSpec = mainLayer->GetPrimAtPath(baseProtoPath);
+                if (!primSpec) continue;
+
+                SdfVariantSetSpecHandle vsetSpec;
+                auto vsetProxy = primSpec->GetVariantSets();
+                auto vsetIt = vsetProxy.find(variantSelection.first);
+                if (vsetIt == vsetProxy.end()) {
+                    vsetSpec = SdfVariantSetSpec::New(primSpec, variantSelection.first);
+                    primSpec->GetVariantSetNameList().Prepend(variantSelection.first);
+                } else {
+                    vsetSpec = vsetIt->second;
+                }
+
+                auto variantProxy = vsetSpec->GetVariants();
+                if (variantProxy.find(variantSelection.second) == variantProxy.end()) {
+                    SdfVariantSpec::New(vsetSpec, variantSelection.second);
+                }
+            }
+        }
+
+        // write the non variants
         for (const auto& res : threadResults) {
             if (!res.layer) continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
@@ -574,11 +611,70 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
                     continue; // Skip filtered
                 }
+                if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
+
                 SdfPath copyPath = protoPath.GetVariantSelection().first.empty() ? protoPath : protoPath.StripAllVariantSelections();
                 SdfCopySpec(res.layer, copyPath, mainLayer, copyPath);
             }
         }
     } // SdfChangeBlock
+
+    // Variant geometry written to main stage
+    for (const auto& res : threadResults) {
+        if (!res.layer) continue;
+        for (size_t i = res.startIdx; i < res.endIdx; i++) {
+            const SdfPath& protoPath = jobs[i].protoPath;
+            if (!selectedPaths.empty() &&
+                !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                continue;
+            }
+
+            auto variantSelection = protoPath.GetVariantSelection();
+            if (variantSelection.first.empty()) continue;
+
+            const TessResult& r = jobs[i].result;
+            const TessParams& params = jobs[i].params;
+            SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
+
+            UsdPrim basePrim = stage->GetPrimAtPath(baseProtoPath);
+            if (!basePrim) {
+                LOG_ERR("Missing base prim at " + baseProtoPath.GetString() + "\n");
+                continue;
+            }
+
+            UsdVariantSet vset = basePrim.GetVariantSets().GetVariantSet(variantSelection.first);
+            vset.SetVariantSelection(variantSelection.second);
+            UsdEditContext ctx(vset.GetVariantEditContext());
+
+            // Clear any previously written geometry under this variant
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+
+            if (r.renderOnly) {
+                UsdPrim p = stage->GetPrimAtPath(baseProtoPath);
+                if (p) {
+                    UsdGeomImageable(p).CreatePurposeAttr().Set(UsdGeomTokens->render);
+                }
+            }
+
+            bool hasPoints = !r.points.empty();
+            bool hasWireframe = !r.wireframeCounts.empty();
+            bool hasSketch = !r.sketchCounts.empty();
+
+            if (hasPoints) defineMeshGeometry(stage, baseProtoPath, r, params);
+            if (hasWireframe) defineWireframeGeometry(stage, baseProtoPath, r, params);
+            if (hasSketch) defineSketchGeometry(stage, baseProtoPath, r, params);
+
+            {
+                SdfChangeBlock changeBlock;
+                if (hasPoints) writeMeshGeometry(stage, baseProtoPath, r, params);
+                if (hasWireframe) writeWireframeGeometry(stage, baseProtoPath, r, params);
+                if (hasSketch) writeSketchGeometry(stage, baseProtoPath, r, params);
+            }
+
+        }
+    }
 
     if (Logger::activeLevel != Logger::VERBOSE) {
         std::cerr << "\n";

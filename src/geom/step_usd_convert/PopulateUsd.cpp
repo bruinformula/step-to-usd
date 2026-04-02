@@ -489,8 +489,7 @@ void UsdStepExporter::populateUsd(
         fs::path prototypesStageFilePath = rootFilePath / (baseName + "-prototypes.usdc");
         bool makeFreshStage = getStageMakeFresh("", "");
 
-        UsdStageRefPtr prototypesStage =
-            UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
+        UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, rootPrimPath, makeFreshStage);
 
         UsdPrim existingPrototypesRoot = prototypesStage->GetPrimAtPath(prototypesPath);
         if (existingPrototypesRoot.IsValid() && !existingPrototypesRoot.IsActive())
@@ -604,13 +603,13 @@ void UsdStepExporter::populateUsd(
             UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
             UsdEditContext ctx(varSet.GetVariantEditContext());
-            UsdPrim pPrim = rootStage->OverridePrim(prototypesInRootPath);
-            pPrim.GetPayloads().ClearPayloads();
-            pPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
+            UsdPrim prototypesPrim = rootStage->OverridePrim(prototypesInRootPath);
+            prototypesPrim.GetPayloads().ClearPayloads();
+            prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
         } else {
-            UsdPrim pPrim = rootStage->OverridePrim(prototypesInRootPath);
-            pPrim.GetPayloads().ClearPayloads();
-            pPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
+            UsdPrim prototypesPrim = rootStage->OverridePrim(prototypesInRootPath);
+            prototypesPrim.GetPayloads().ClearPayloads();
+            prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
         }
     }
     
@@ -629,6 +628,7 @@ void UsdStepExporter::populateUsd(
     // Flatten Tessellation Jobs
     std::vector<TessellationJob> tessJobs;
     for (const auto& proto : prototypes) {
+
         if (!proto.variantSetName.empty()) {
             UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
@@ -679,14 +679,15 @@ void UsdStepExporter::populateUsd(
                     foundVariantForProto = true;
                     params = kv.second;
                     
-                    // We need the prototypePath to include the variant selections so writer knows where to author
+                    // We need the prototypePath to include the variant
+                    // selections so writer knows where to author
                     SdfPath jobProtoPath = protoPath;
                     auto variantSelection = kv.first.GetVariantSelection();
                     if (!variantSelection.first.empty()) {
                         jobProtoPath = jobProtoPath.AppendVariantSelection(variantSelection.first, variantSelection.second);
                     }
                     
-                    // std::cout << "DEBUG: Queueing job for " << jobProtoPath << " (defIndex " << i << ")\n";
+                    std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
                     tessJobs.push_back({&proto, (int)i, jobProtoPath, params, TessResult()});
                 }
             }
@@ -706,8 +707,7 @@ void UsdStepExporter::populateUsd(
     LOG_VERB("Preparing to gather geometry jobs...");
     LOG_VERB("Starting geometry writing for " + std::to_string(prototypes.size()) + " prototypes.");
     for (const auto& proto : prototypes) {
-        LOG_VERB("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + 
-                 " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
+        LOG_VERB("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
             if (job.proto == &proto) {

@@ -131,6 +131,7 @@ private:
         SdfPath prototypePath;
         TessParams params;
         TessResult result;
+        bool parallel = false;
     };
 
     struct ProtoGeomJob {

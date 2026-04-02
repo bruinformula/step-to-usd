@@ -690,46 +690,45 @@ void UsdStepExporter::tessellateGeometry(
         WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](int idx) {
             LOG_VERB("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
             for (TessellationJob& job : tessJobs) {
-                if (job.defIndex == idx) {
-                    bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
-                    
-                    if (bTesselate) {
-                        LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
-                        try {
-                            tesselatePart(job.result, defs[idx].second, job.params);
-                            int currentCount = ++completedJobs;
-                            LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
-                            if (Logger::activeLevel != Logger::VERBOSE) {
-                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                            }
-                        } catch (const Standard_Failure& e) {
-                            std::cerr << "\n";
-                            LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
-                            int currentCount = ++completedJobs;
-                            if (Logger::activeLevel != Logger::VERBOSE) {
-                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                            }
-                        } catch (const std::exception& e) {
-                            std::cerr << "\n";
-                            LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
-                            int currentCount = ++completedJobs;
-                            if (Logger::activeLevel != Logger::VERBOSE) {
-                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                            }
-                        } catch (...) {
-                            std::cerr << "\n";
-                            LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
-                            int currentCount = ++completedJobs;
-                            if (Logger::activeLevel != Logger::VERBOSE) {
-                                std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
-                            }
+                if (job.defIndex != idx) continue;
+                bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                
+                if (bTesselate) {
+                    LOG_VERB("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
+                    try {
+                        tesselatePart(job.result, defs[idx].second, job.params, job.parallel);
+                        int currentCount = ++completedJobs;
+                        LOG_VERB("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
+                        if (Logger::activeLevel != Logger::VERBOSE) {
+                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
                         }
-                    } else {
-                        LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                    } catch (const Standard_Failure& e) {
+                        std::cerr << "\n";
+                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + ": " + e.GetMessageString());
                         int currentCount = ++completedJobs;
                         if (Logger::activeLevel != Logger::VERBOSE) {
                             std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
                         }
+                    } catch (const std::exception& e) {
+                        std::cerr << "\n";
+                        LOG_ERR("std exception on " + job.prototypePath.GetString() + ": " + e.what());
+                        int currentCount = ++completedJobs;
+                        if (Logger::activeLevel != Logger::VERBOSE) {
+                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                        }
+                    } catch (...) {
+                        std::cerr << "\n";
+                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString());
+                        int currentCount = ++completedJobs;
+                        if (Logger::activeLevel != Logger::VERBOSE) {
+                            std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
+                        }
+                    }
+                } else {
+                    LOG_VERB("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                    int currentCount = ++completedJobs;
+                    if (Logger::activeLevel != Logger::VERBOSE) {
+                        std::cerr << "\r[" << currentCount << "/" << totalJobs << "] Tessellating Geometry..." << std::flush;
                     }
                 }
             }
