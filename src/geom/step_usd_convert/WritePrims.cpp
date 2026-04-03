@@ -65,19 +65,19 @@ PXR_NAMESPACE_USING_DIRECTIVE
 // Write CAD pat
 void UsdStepExporter::writeCadPart(
     UsdStageRefPtr prototypesStage,
-    const UsdPrim& prototypesPrimOnRootStage,
+    const UsdPrim& prototypesPrimOnContainerStage,
     const SdfPath cadPartPath
 ) {
-    std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(prototypesPrimOnRootStage);
+    std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
-    fs::path rootStagePath = fs::canonical(
-        prototypesPrimOnRootStage.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
+    fs::path containerStagePath = fs::canonical(
+        prototypesPrimOnContainerStage.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
     );
     fs::path prototypesStagePath = fs::canonical(
         prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString()
     );
 
-    fs::path relativePath = fs::relative(rootStagePath, prototypesStagePath.parent_path());
+    fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
     UsdPrim cadPart = prototypesStage->CreateClassPrim(cadPartPath);
     UsdGeomImageable(cadPart).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
@@ -104,11 +104,11 @@ void UsdStepExporter::writeCadPart(
 // Prototype Xforms
 void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     UsdStageRefPtr prototypesStage,
-    const UsdPrim& rootPrim,
+    const UsdPrim& containerPrim,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& rootPrimPath,
+    const SdfPath& containerPrimPath,
     const std::string& variantSetName,
     const std::string& variantName,
     LabelMap<SdfPath>& prototypePaths,
@@ -182,7 +182,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
 void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
     UsdStageRefPtr assemblyStage,
-    const UsdPrim& rootPrim,
+    const UsdPrim& containerPrim,
     LabelMap<SdfPath>& prototypePaths
 ) {
     LOG_SCOPED_TIMER("writePrototypeOverridesInAssemblyStage");
@@ -193,7 +193,7 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
 
         for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
             const SdfPath& protoPath = protoIter->second;
-            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrim.GetPath());
+            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
             assemblyStage->OverridePrim(assemblyProtoPath);
 
             completed++;
@@ -390,7 +390,7 @@ void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& inJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& rootPrimPath,
+    const SdfPath& containerPrimPath,
     const std::string& variantSetName,
     const std::string& variantName
 ) {
@@ -433,7 +433,7 @@ void UsdStepExporter::writePrototypeGeometries(
             const TessResult& r = jobs[i].result;
             const TessParams& params = jobs[i].params;
 
-            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
                 continue;
             }
 
@@ -512,7 +512,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 const TessResult& r = jobs[i].result;
                 const TessParams& params = jobs[i].params;
 
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
                     int c = ++completed;
                     if (Logger::activeLevel == Logger::DEBUG) {
                         LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
@@ -610,7 +610,7 @@ void UsdStepExporter::writePrototypeGeometries(
             if (!res.layer) continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i].protoPath;
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
                     continue; // Skip filtered
                 }
                 if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
@@ -627,7 +627,7 @@ void UsdStepExporter::writePrototypeGeometries(
         for (size_t i = res.startIdx; i < res.endIdx; i++) {
             const SdfPath& protoPath = jobs[i].protoPath;
             if (!selectedPaths.empty() &&
-                !isPrototypeActiveInFilter(selectedPaths, rootPrimPath, variantSetName, variantName, protoPath)) {
+                !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
                 continue;
             }
 
@@ -684,7 +684,7 @@ void UsdStepExporter::writePrototypeGeometries(
 // Assembly Xforms
 void UsdStepExporter::writeAssemblyXforms(
     UsdStageRefPtr stage, 
-    const SdfPath& rootPrimPath,
+    const SdfPath& containerPrimPath,
     const std::vector<StepModel::PartNode>& partNodes,
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths
@@ -729,7 +729,7 @@ void UsdStepExporter::writeAssemblyXforms(
                     continue;
                 }
 
-                SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), rootPrimPath);
+                SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
 
                 xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));

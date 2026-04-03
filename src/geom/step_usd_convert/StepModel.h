@@ -27,7 +27,7 @@ namespace fs = std::filesystem;
 
 // TDF_Label is a handle into the document's label tree. Two labels pointing
 // at the same node are equal — we use that for deduplicating definitions.
-// We hash by walking the tag chain to the root, which uniquely identifies
+// We hash by walking the tag chain to the container, which uniquely identifies
 // any node in the tree.
 struct LabelHash {
     size_t operator()(const TDF_Label& label) const {
@@ -63,7 +63,7 @@ struct StepModel {
         PartNodeType type;
         TDF_Label definitionLabel; // this is the key into definitionShapes
         gp_Trsf localTransform;  // this node's transform relative to its parent only
-        int parentIdx;       // index into partNodes[], -1 if root
+        int parentIdx;       // index into partNodes[], -1 if container
         int firstChildIdx;   // first child index, children occupy contiguous range in partNodes[]
         int childCount;
         int depth;

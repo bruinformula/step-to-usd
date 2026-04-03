@@ -100,8 +100,8 @@ struct UsdStepExporter {
     
     static void populateUsd(
         const StepModel& model, 
-        UsdStageRefPtr rootStage,
-        UsdPrim& rootPrim,
+        UsdStageRefPtr containerStage,
+        UsdPrim& containerPrim,
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
     );
 
@@ -140,19 +140,25 @@ private:
 
     static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches);
 
+    static bool validateVariants(
+        UsdStageRefPtr containerStage,
+        const SdfPath& containerPrimPath,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
+    );
+
     static bool isPrototypeActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& rootPrimPath,
+        const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
         const SdfPath& prototypePath
     );
 
-    static std::optional<SdfReference> getPrototypesDefaultParams(const UsdPrim& rootPrim);
+    static std::optional<SdfReference> getPrototypesDefaultParams(const UsdPrim& containerPrim);
     
     static UsdStageRefPtr initUsdStage(
         const fs::path& newStagePath, 
-        const SdfPath& rootPrimPath,
+        const SdfPath& containerPrimPath,
         bool clearExisting
     );
 
@@ -167,7 +173,7 @@ private:
         std::vector<TessellationJob>& tessJobs,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& rootPrimPath
+        const SdfPath& containerPrimPath
     );
 
     static std::vector<SdfPath> computeNodePaths(
@@ -177,7 +183,7 @@ private:
 
     static void writeAssemblyXforms(
         UsdStageRefPtr stage, 
-        const SdfPath& rootPrimPath,
+        const SdfPath& containerPrimPath,
         const std::vector<StepModel::PartNode>& instances,
         const std::vector<SdfPath>& paths, 
         const LabelMap<SdfPath>& prototypePaths
@@ -185,23 +191,23 @@ private:
 
     static void writePrototypeOverridesInAssemblyStage(
         UsdStageRefPtr assemblyStage,
-        const UsdPrim& rootPrim,
+        const UsdPrim& containerPrim,
         LabelMap<SdfPath>& prototypePaths
     );
 
     static void writeCadPart(
         UsdStageRefPtr prototypesStage,
-        const UsdPrim& rootPrim,
+        const UsdPrim& containerPrim,
         const SdfPath cadPartPath
     );
 
     static void writePrototypeXformsInPrototypesStage(
         UsdStageRefPtr prototypesStage,
-        const UsdPrim& rootPrim,
+        const UsdPrim& containerPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& rootPrimPath,
+        const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
         LabelMap<SdfPath>& prototypePaths,
@@ -212,7 +218,7 @@ private:
         UsdStageRefPtr stage,
         const std::vector<ProtoGeomJob>& jobs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& rootPrimPath,
+        const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName
     );
@@ -235,10 +241,10 @@ private:
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const LabelMap<SdfPath>& prototypePaths,
         const SdfPath& prototypesPath,
-        const SdfPath& prototypesInRootPath,
+        const SdfPath& prototypesInContainerPath,
         UsdStageRefPtr targetStage,
         const std::string& logLabel,
-        const TessParams& rootParams,
+        const TessParams& containerParams,
         const std::vector<TessResult>& tessResults,
         const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
@@ -261,22 +267,10 @@ extern template void updateIfAuthored<int>(const UsdAttribute&, int*);
 extern template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
 
 std::map<SdfPath, TessParams> resolveParams(
-    const UsdPrim& rootPrim,
+    const UsdPrim& containerPrim,
     const TessParams& defaultParams
 );
 
 std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     const UsdPrim& prim
-);
-
-void printVariants(
-    const std::string& primLabel,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& variantPaths,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
-    std::function<bool(const SdfPath&)> isSelected
-);
-
-void printSelectedPrototypes(
-    UsdStageRefPtr rootStage,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
 );

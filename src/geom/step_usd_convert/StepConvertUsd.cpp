@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
         });
     }
 
-    // Search for step container prims and run populateUsd on each `rootPrim`
+    // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
         if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
 

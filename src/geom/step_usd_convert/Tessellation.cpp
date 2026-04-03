@@ -695,7 +695,7 @@ void UsdStepExporter::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& rootPrimPath
+    const SdfPath& containerPrimPath
 ) {
     std::vector<int> defIndices(defs.size());
     for (int i = 0; i < defs.size(); ++i) defIndices[i] = i;
@@ -726,7 +726,7 @@ void UsdStepExporter::tessellateGeometry(
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
 
-                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, containerPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
                 
                 if (bTessellate) {
                     if (job.runMesherInParallel) {

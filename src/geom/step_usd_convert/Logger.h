@@ -17,9 +17,7 @@ public:
         static std::mutex mtx; // Thread safe outputs
         std::lock_guard<std::mutex> lock(mtx);
         
-        if (lvl == ERR) {
-        
-        } else if (lvl == WARN) {
+        if (lvl == WARN) {
             std::cerr << "[WARNING] " << msg << std::endl;
         } else if (lvl == ERR) {
             std::cerr << "[ERROR] " << msg << std::endl;
