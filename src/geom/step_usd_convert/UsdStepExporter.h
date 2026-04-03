@@ -26,7 +26,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 enum class CurveType {
     None,                // ain't got nothing on me
     Linear,              // polyline using the tessellated mesh boundary vertices directly
-    CatmullRom          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
+    Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
 };
 
 enum class CurveSampling {
@@ -156,7 +156,7 @@ private:
         bool clearExisting
     );
 
-    static bool tesselatePart(
+    static bool tessellatePart(
         TessResult& result, 
         const TopoDS_Shape& defShape, 
         const TessParams& params,
@@ -245,6 +245,7 @@ private:
     );
 };
 
+// Usd Utils
 template <typename T>
 void updateIfAuthored(const UsdAttribute& attr, T* value);
 
@@ -264,4 +265,18 @@ std::map<SdfPath, TessParams> resolveParams(
     const TessParams& defaultParams
 );
 
-static TessParams getTessParams(UsdPrim prim, const TessParams& defaultParams = {});
+std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
+    const UsdPrim& prim
+);
+
+void printVariants(
+    const std::string& primLabel,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& variantPaths,
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
+    std::function<bool(const SdfPath&)> isSelected
+);
+
+void printSelectedPrototypes(
+    UsdStageRefPtr rootStage,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
+);

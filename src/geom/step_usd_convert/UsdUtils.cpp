@@ -26,6 +26,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/inherits.h>
+#include <pxr/usd/usd/variantSets.h>
 
 #include <pxr/usd/usdGeom/tokens.h>
 
@@ -44,6 +45,7 @@
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
+#include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -261,8 +263,8 @@ void updateIfAuthored(const UsdAttribute& attr, CurveType* value) {
     } else if (token == AutolibTokens->linear) {
         *value = CurveType::Linear;
         return;
-    } else if (token == AutolibTokens->catmullRom) {
-        *value = CurveType::CatmullRom;
+    } else if (token == AutolibTokens->cubic) {
+        *value = CurveType::Cubic;
         return;
     }
 }
@@ -271,3 +273,82 @@ template void updateIfAuthored<float>(const UsdAttribute&, float*);
 template void updateIfAuthored<double>(const UsdAttribute&, double*);
 template void updateIfAuthored<int>(const UsdAttribute&, int*);
 template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
+
+std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
+    const UsdPrim& prim
+) {
+    std::vector<std::string> variantSetNames;
+    prim.GetVariantSets().GetNames(&variantSetNames);
+
+    std::unordered_set<SdfPath, SdfPath::Hash> variantPaths;
+
+    for (const std::string& vsetName : variantSetNames) {
+        UsdVariantSet vset = prim.GetVariantSet(vsetName);
+        std::vector<std::string> variantNames = vset.GetVariantNames();
+        for (const std::string& variant : variantNames) {
+            SdfPath variantPath = prim.GetPath().AppendVariantSelection(vsetName, variant);
+            variantPaths.insert(variantPath);
+        }
+    }
+    return variantPaths;
+}
+
+void printVariants(
+    const std::string& primLabel,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& variantPaths,
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
+    std::function<bool(const SdfPath&)> isSelected
+) {
+    if (variantPaths.empty()) {
+        LOG_INFO("No variants found on prim " + primLabel);
+        return;
+    } else {
+        LOG_INFO("Variants found on prim " + primLabel + ":");
+        for (const SdfPath& path : variantPaths) {
+            std::string selectedMarker = isSelected(path) ? " [SELECTED]" : "";
+            LOG_INFO("  " + path.GetString() + selectedMarker);
+        }
+    }
+}
+
+void printSelectedPrototypes(
+    UsdStageRefPtr rootStage,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
+) {
+    for (const SdfPath& selectedPath : selectedPaths) {
+        std::vector<SdfPath> prefixes = selectedPath.GetPrefixes();
+        for (const SdfPath& prefix : prefixes) {
+            if (prefix.IsPrimVariantSelectionPath()) {
+                std::pair<std::string, std::string> vsel = prefix.GetVariantSelection();
+                if (!vsel.first.empty()) {
+                    SdfPath primPath = prefix.StripAllVariantSelections();
+                    UsdPrim prim = rootStage->GetPrimAtPath(primPath);
+                    if (prim.IsValid()) {
+                        if (!prim.HasVariantSets() || !prim.GetVariantSets().HasVariantSet(vsel.first)) {
+                            LOG_ERR("Warning: prim selected requests variant set '" + vsel.first 
+                                      + "' which does not exist on prim " + primPath.GetString());
+                        } else {
+                            UsdVariantSet vset = prim.GetVariantSet(vsel.first);
+                            std::vector<std::string> vnames = vset.GetVariantNames();
+                            bool found = false;
+                            for (const auto& vn : vnames) {
+                                if (vn == vsel.second) { found = true; break; }
+                            }
+                            if (!found) {
+                                LOG_ERR("Warning: prim selected requests variant '" + vsel.second 
+                                          + "' which does not exist in variant set '" + vsel.first 
+                                          + "' on prim " + primPath.GetString());
+                            }
+                        }
+                    } else {
+                        // SdfPath API stripping handles the leaf variant selections but doesn't resolve nested variants.
+                        // We can ignore the missing prim here because USD payload logic hasn't instanced everything.
+                        // Skip printing error for now, because it's generating false positives on the sub variants.
+                        // Also, when variants are inside payloads, they might not be composed at the exact time
+                        // we're asking without forcing full evaluations which OpenUSD discourages here.
+                    }
+                }
+            }
+        }
+    }
+}

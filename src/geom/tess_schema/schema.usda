@@ -16,19 +16,26 @@ over "GLOBAL" (
 
 class "StepFileContainerAPI" (
     inherits = </APISchemaBase>
-    doc = "Container for STEP file metadata and tessellation options. Should be applied to a prim at or above the scope of any STEP geometry. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
+    doc = "Container for STEP file. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-
-    rel step:defaultParams (
-        doc = "Relationship to a prim that carries the default tessellation parameters for this STEP file. This is intended to point to a StepTessellationOptions prim, but can technically point to any prim. If not specified, defaults will be used."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-
     asset step:sourceAsset (
         doc = "Path to the source STEP file. This is for informational purposes only and is not automatically resolved or loaded by the exporter."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+}
+
+class "StepFilePrototypesAPI" (
+    inherits = </APISchemaBase>
+    doc = "Container for StepFileContainer Prototypes metadata and tessellation options. "
+    customData = {
+        token apiSchemaType = "singleApply"
+    }
+) {
+    rel step:defaultParams (
+        doc = "Relationship to a prim that carries the default tessellation parameters for this STEP file. This is intended to point to a StepTessellationOptions prim. If not specified, defaults will be used."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }
@@ -44,7 +51,6 @@ class "StepTessellationAPI" (
         doc = "Unique index of the prototype. Used for debugging"
         customData = { string variability = "SdfVariabilityUniform" }
     )
-
     float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
@@ -59,7 +65,7 @@ class "StepTessellationAPI" (
     )
     token step:wireframeType = "linear" (
         doc = "Curve type used for wireframe edges."
-        allowedTokens = ["none", "linear", "catmullRom"]
+        allowedTokens = ["none", "linear", "cubic"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:wireframeSampling = "underlying" (
@@ -73,7 +79,7 @@ class "StepTessellationAPI" (
     )
     token step:sketchType = "none" (
         doc = "Curve type used for sketch and free-edge curves."
-        allowedTokens = ["none", "linear", "catmullRom"]
+        allowedTokens = ["none", "linear", "cubic"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
     token step:sketchSampling = "underlying" (
@@ -111,6 +117,33 @@ class "StepTessellationAPI" (
     )
 }
 
+# Concrete Types
+
+class "StepFileContainer" (
+    inherits = </Xform>
+    typeName = "StepFileContainer"
+    doc = """Concrete prim that identifies a STEP file root. Provides 
+             the target asset path."""
+    prepend apiSchemas = ["StepFileContainerAPI"]
+    customData = {
+        token schemaKind = "concreteTyped"
+    }
+) {
+    asset step:sourceAsset = @@ 
+}
+
+class "StepFilePrototypes" (
+    inherits = </Scope>
+    typeName = "StepFilePrototypes"
+    doc = """Concrete Scope prim that indicates a StepFileContainer's Prototypes"""
+    prepend apiSchemas = ["StepFilePrototypesAPI"]
+    customData = {
+        token schemaKind = "concreteTyped"
+    }
+) {
+    
+}
+
 class "StepTessellationOptions" (
     inherits = </Typed>
     typeName = "StepTessellationOptions"
@@ -135,18 +168,4 @@ class "StepTessellationOptions" (
     uint64 step:fixTimeout = 3000
     uint64 step:meshTimeout = 3000
     uint64 step:remeshTimeout = 3000
-}
-
-class "StepFileContainer" (
-    inherits = </Xform>
-    typeName = "StepFileContainer"
-    doc = """Concrete Xform prim that identifies a STEP file root. 
-             It inherits all default tessellation settings and provides 
-             the target asset path."""
-    prepend apiSchemas = ["StepFileContainerAPI"]
-    customData = {
-        token schemaKind = "concreteTyped"
-    }
-) {
-    asset step:sourceAsset = @@ 
 }

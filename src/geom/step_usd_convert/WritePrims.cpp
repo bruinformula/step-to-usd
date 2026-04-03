@@ -34,6 +34,7 @@
 
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/xform.h>
+#include <pxr/usd/usdGeom/scope.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
@@ -64,13 +65,13 @@ PXR_NAMESPACE_USING_DIRECTIVE
 // Write CAD pat
 void UsdStepExporter::writeCadPart(
     UsdStageRefPtr prototypesStage,
-    const UsdPrim& rootPrim,
+    const UsdPrim& prototypesPrimOnRootStage,
     const SdfPath cadPartPath
 ) {
-    std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(rootPrim);
+    std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(prototypesPrimOnRootStage);
 
     fs::path rootStagePath = fs::canonical(
-        rootPrim.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
+        prototypesPrimOnRootStage.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
     );
     fs::path prototypesStagePath = fs::canonical(
         prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString()
@@ -150,11 +151,10 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
             continue;
         }
 
-        UsdGeomXform protoXformPrim = UsdGeomXform::Define(prototypesStage, protoPath);
+        UsdPrim protoPrim = prototypesStage->DefinePrim(protoPath);
 
         { // SdfChangeBlock
             SdfChangeBlock changeBlock;
-            UsdPrim protoPrim = protoXformPrim.GetPrim();
 
             if (!protoPrim.IsValid()) {
                 std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
@@ -250,6 +250,8 @@ static void writeMeshGeometry(
         subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
     }
 
+    UsdGeomSubset::SetFamilyType(proto, TfToken("materialBind"), UsdGeomTokens->partition);
+
     proto.GetPointsAttr().Set(r.points);
     proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
     proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
@@ -307,7 +309,7 @@ static void writeWireframeGeometry(
 
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
 
-        if (params.wireframeMode.type == CurveType::CatmullRom) {
+        if (params.wireframeMode.type == CurveType::Cubic) {
             curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
@@ -335,7 +337,7 @@ static void defineSketchGeometry(
     const TessParams& params
 ) {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
-    UsdGeomXform::Define(stage, sketchPath);
+    UsdGeomScope::Define(stage, sketchPath);
 
     int pointOffset = 0;
     for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
@@ -368,7 +370,7 @@ static void writeSketchGeometry(
 
         UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))));
 
-        if (params.sketchMode.type == CurveType::CatmullRom) {
+        if (params.sketchMode.type == CurveType::Cubic) {
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
@@ -435,7 +437,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 continue;
             }
 
-            UsdGeomXform protoXform;
+            UsdGeomScope protoXform;
                 
             auto variantSelection = protoPath.GetVariantSelection();
             if (!variantSelection.first.empty()) {
@@ -443,10 +445,10 @@ void UsdStepExporter::writePrototypeGeometries(
                 
                 UsdPrim basePrim = threadStage->GetPrimAtPath(baseProtoPath);
                 if (!basePrim) {
-                    protoXform = UsdGeomXform::Define(threadStage, baseProtoPath);
+                    protoXform = UsdGeomScope::Define(threadStage, baseProtoPath);
                     basePrim = protoXform.GetPrim();
                 } else {
-                    protoXform = UsdGeomXform(basePrim);
+                    protoXform = UsdGeomScope(basePrim);
                 }
                 
                 UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
@@ -476,9 +478,9 @@ void UsdStepExporter::writePrototypeGeometries(
                 }
 
             } else {
-                protoXform = UsdGeomXform::Get(threadStage, protoPath);
+                protoXform = UsdGeomScope::Get(threadStage, protoPath);
                 if (!protoXform) {
-                    protoXform = UsdGeomXform::Define(threadStage, protoPath);
+                    protoXform = UsdGeomScope::Define(threadStage, protoPath);
                 }
                 
                 threadStage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
@@ -533,7 +535,7 @@ void UsdStepExporter::writePrototypeGeometries(
                     ctx.emplace(vset.GetVariantEditContext());
                 }
 
-                UsdGeomXform protoXform = UsdGeomXform::Get(threadStage, writeProtoPath);
+                UsdGeomScope protoXform = UsdGeomScope::Get(threadStage, writeProtoPath);
                 
                 if (r.renderOnly) {
                     UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render);

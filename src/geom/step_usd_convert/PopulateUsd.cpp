@@ -35,6 +35,7 @@
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/specializes.h>
 
+#include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/scope.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -50,7 +51,8 @@
 #pragma pop_macro("Handle")
 
 #include "stepTessellationAPI.h"
-#include "stepFileContainerAPI.h"
+#include "stepFilePrototypesAPI.h"
+#include "stepFilePrototypes.h"
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
@@ -58,13 +60,25 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-TessParams getTessParams(
+static TessParams getTessParams(
     UsdPrim prim,
-    const TessParams& defaultParams
+    const TessParams& defaultParams = {}
 ) {
-    AutolibStepTessellationAPI api(prim);
-
     TessParams params = defaultParams;
+
+    if (prim.HasAPI<AutolibStepFilePrototypesAPI>()) {
+        AutolibStepFilePrototypesAPI protoApi(prim);
+        SdfPathVector targets;
+        protoApi.GetStepDefaultParamsRel().GetForwardedTargets(&targets);
+        if (!targets.empty()) {
+            UsdPrim targetPrim = prim.GetStage()->GetPrimAtPath(targets[0]);
+            if (targetPrim.IsValid() && targetPrim.HasAPI<AutolibStepTessellationAPI>()) {
+                params = getTessParams(targetPrim, params);
+            }
+        }
+    }
+
+    AutolibStepTessellationAPI api(prim);
 
     updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
     updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
@@ -90,68 +104,64 @@ TessParams getTessParams(
     return params;
 }
 
-void resolveParamsRecursive(
+std::map<SdfPath, TessParams> resolveParams(
     const UsdPrim& prim, 
-    const TessParams& currentParams, 
-    std::map<SdfPath, TessParams>& results
+    const TessParams& defaultParams
 ) {
-    TessParams primParams = getTessParams(prim, currentParams);
+    bool initialActive = prim.IsActive();
+    if (prim.HasAuthoredActive() && !initialActive) {
+        prim.SetActive(true);
+    }
+
+    std::map<SdfPath, TessParams> results;
+    
+    TessParams primParams = getTessParams(prim, defaultParams);
     
     std::vector<std::string> vsetNames;
     prim.GetVariantSets().GetNames(&vsetNames);
 
     if (vsetNames.empty()) {
         results[prim.GetPath()] = primParams;
-        for (const UsdPrim& child : prim.GetChildren()) {
-            resolveParamsRecursive(child, primParams, results);
-        }
-        return;
-    }
+    } else {
+        // Since a prim can have multiple variant sets, need a resolution 
+        // of all variant selections to fully evaluate every permutation 
+        // authored on this prim.
+        for (const std::string& name : vsetNames) {
+            UsdVariantSet vset = prim.GetVariantSet(name);
+            std::string originalSelection = vset.GetVariantSelection();
+            std::vector<std::string> variantNames = vset.GetVariantNames();
 
-    // Since a prim can have multiple variant sets, need a resolution 
-    // of all variant selections to fully evaluate every permutation 
-    // authored on this prim.
-    for (const std::string& name : vsetNames) {
-        UsdVariantSet vset = prim.GetVariantSet(name);
-        std::string originalSelection = vset.GetVariantSelection();
-        std::vector<std::string> variantNames = vset.GetVariantNames();
-
-        for (const std::string& variantName : variantNames) {
-            vset.SetVariantSelection(variantName);
+            for (const std::string& variantName : variantNames) {
+                vset.SetVariantSelection(variantName);
+                
+                // Re-evaluate params in case this variant authos new opinions
+                TessParams variantParams = getTessParams(prim, primParams);
+                SdfPath variantPath = prim.GetPath().AppendVariantSelection(name, variantName);
+                
+                results[variantPath] = variantParams;
+            }
             
-            // Re-evaluate params in case this variant authos new opinions
-            TessParams variantParams = getTessParams(prim, primParams);
-            SdfPath variantPath = prim.GetPath().AppendVariantSelection(name, variantName);
-            
-            results[variantPath] = variantParams;
-            
-            for (const UsdPrim& child : prim.GetChildren()) {
-                resolveParamsRecursive(child, variantParams, results);
+            // Restore original selection
+            if (!originalSelection.empty()) {
+                vset.SetVariantSelection(originalSelection);
+            } else {
+                vset.ClearVariantSelection();
             }
         }
-        
-        // Restore original selection
-        if (!originalSelection.empty()) {
-            vset.SetVariantSelection(originalSelection);
-        } else {
-            vset.ClearVariantSelection();
-        }
     }
-}
-
-std::map<SdfPath, TessParams> resolveParams(
-    const UsdPrim& rootPrim, // prototypes
-    const TessParams& defaultParams
-) {
-    bool initialValue = rootPrim.IsActive();
-    rootPrim.SetActive(true);
-    std::map<SdfPath, TessParams> results;
-
-    for (const UsdPrim& child : rootPrim.GetChildren()) {
-        resolveParamsRecursive(child, defaultParams, results);
+    /*
+    std::cout << "Params for prim" << prim.GetPath().GetString() << ":\n";
+    for (const auto& [path, params] : results) {
+        std::cout << "  " << path.GetString() << ": "
+                  << "meshLinearDeflection=" << params.meshLinearDeflection << ", "
+                  << "meshAngularDeflection=" << params.meshAngularDeflection << ", "
+                  << "sketchDefl=" << params.sketchDeflection << "\n";
     }
+    */
 
-    rootPrim.SetActive(initialValue);
+    if (prim.HasAuthoredActive()) {
+        prim.SetActive(initialActive);
+    }
     return results;
 }
 
@@ -165,28 +175,18 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
     if (selectedPaths.empty())
         return true;
 
-    SdfPath baseStageKey = rootPrimPath;
-    if (!variantSetName.empty())
-        baseStageKey = baseStageKey.AppendVariantSelection(variantSetName, variantName);
-
-    SdfPath prototypesKey = baseStageKey.AppendChild(TfToken("Prototypes"));
-
-    // Entire variant's Prototypes scope selected: /Wonderful{LOD=high}/Prototypes
-    if (selectedPaths.count(prototypesKey))
-        return true;
-
-    // Base Prototypes scope selected (all variants): /Wonderful/Prototypes
     SdfPath basePrototypesKey = rootPrimPath.AppendChild(TfToken("Prototypes"));
-    if (selectedPaths.count(basePrototypesKey))
-        return true;
+    SdfPath prototypesKey = basePrototypesKey;
+    if (!variantSetName.empty())
+        prototypesKey = prototypesKey.AppendVariantSelection(variantSetName, variantName);
 
-    // Whole root variant selected exactly (e.g. /Wonderful{LOD=high}) — 
-    // activates all prototypes in that stage. Use exact match, not HasPrefix,
-    // to avoid triggering when a deeper path like /Wonderful{LOD=high}/Prototypes/rod0
-    // is the real target.
-    if (!variantSetName.empty()) {
-        SdfPath rootVariantPath = rootPrimPath.AppendVariantSelection(variantSetName, variantName);
-        if (selectedPaths.count(rootVariantPath))
+    for (const SdfPath& sel : selectedPaths) {
+        // Direct selections of the variant stage or base stage components
+        if (sel == prototypesKey || prototypesKey.HasPrefix(sel))
+            return true;
+        if (sel == basePrototypesKey || basePrototypesKey.HasPrefix(sel))
+            return true;
+        if (sel == rootPrimPath || rootPrimPath.HasPrefix(sel))
             return true;
     }
 
@@ -194,49 +194,50 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
         SdfPath::AbsoluteRootPath().AppendChild(TfToken("Prototypes")),
         prototypesKey
     );
-
-    // Exact prototype+variant match: /Wonderful{LOD=high}/Prototypes/rod0{quality=high}
-    if (selectedPaths.count(absProtoPath))
-        return true;
-
-    // Prototype selected without variant: /Wonderful/Prototypes/rod0
     SdfPath absProtoPathClean = absProtoPath.StripAllVariantSelections();
-    if (selectedPaths.count(absProtoPathClean))
-        return true;
+    SdfPath protoNoInnerVariant = prototypesKey.AppendChild(prototypePath.GetNameToken());
 
-    // Selected path targets a variant within this prototype:
-    // selected = /Wonderful{LOD=high}/Prototypes/rod0{quality=high}
-    // absProtoPath = /Wonderful{LOD=high}/Prototypes/rod0
     for (const SdfPath& sel : selectedPaths) {
-        if (sel.HasPrefix(absProtoPath))
+        if (sel == absProtoPath || sel.HasPrefix(absProtoPath) || absProtoPath.HasPrefix(sel))
+            return true;
+
+        if (sel == absProtoPathClean || sel.HasPrefix(absProtoPathClean) || absProtoPathClean.HasPrefix(sel))
+            return true;
+            
+        if (sel == protoNoInnerVariant || sel.HasPrefix(protoNoInnerVariant) || protoNoInnerVariant.HasPrefix(sel))
             return true;
     }
 
     return false;
 }
 
-std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& rootPrim) {
-    AutolibStepFileContainerAPI api(rootPrim);
+std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& prototypesPrim) {
+    AutolibStepFilePrototypesAPI api(prototypesPrim);
 
     SdfPathVector targets;
     api.GetStepDefaultParamsRel().GetForwardedTargets(&targets);
 
     if (targets.empty()) {
-        LOG_ERR("Warning: No default params target specified on root prim. Using hardcoded defaults.");
+        LOG_ERR("No default params target specified on prototypes prim. Using hardcoded defaults.");
         return std::nullopt;
     }
 
-    UsdPrim targetPrim = rootPrim.GetStage()->GetPrimAtPath(targets[0]);
+    UsdPrim paramsPrim = prototypesPrim.GetStage()->GetPrimAtPath(targets[0]);
 
-    if (!targetPrim.IsValid()) {
-        LOG_ERR("Warning: Default params target " + targets[0].GetString() + " is invalid. Using hardcoded defaults.");
+    if (!paramsPrim.IsValid()) {
+        LOG_ERR("Default params target " + targets[0].GetString() + " is invalid. Using hardcoded defaults.");
         return std::nullopt;
     }
 
-    SdfPrimSpecHandleVector stack = targetPrim.GetPrimStack();
+    if (!paramsPrim.HasAPI<AutolibStepTessellationAPI>()) {
+        LOG_ERR("Default params target " + targets[0].GetString() + " does not have AutolibStepTessellationAPI. Using hardcoded defaults.");
+        return std::nullopt;
+    }
+
+    SdfPrimSpecHandleVector stack = paramsPrim.GetPrimStack();
 
     if (stack.empty()) {
-        LOG_ERR("Warning: Default params target " + targets[0].GetString() + " has empty prim stack. Using hardcoded defaults.");
+        LOG_ERR("Default params target " + targets[0].GetString() + " has empty prim stack. Using hardcoded defaults.");
         return std::nullopt;
     }
 
@@ -244,86 +245,6 @@ std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const Us
 
     return reference;
 }
-
-static std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
-    const UsdPrim& prim
-) {
-    std::vector<std::string> variantSetNames;
-    prim.GetVariantSets().GetNames(&variantSetNames);
-
-    std::unordered_set<SdfPath, SdfPath::Hash> variantPaths;
-
-    for (const std::string& vsetName : variantSetNames) {
-        UsdVariantSet vset = prim.GetVariantSet(vsetName);
-        std::vector<std::string> variantNames = vset.GetVariantNames();
-        for (const std::string& variant : variantNames) {
-            SdfPath variantPath = prim.GetPath().AppendVariantSelection(vsetName, variant);
-            variantPaths.insert(variantPath);
-        }
-    }
-    return variantPaths;
-}
-
-static void printVariants(
-    const std::string& primLabel,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& variantPaths,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths,
-    std::function<bool(const SdfPath&)> isSelected
-) {
-    if (variantPaths.empty()) {
-        LOG_INFO("No variants found on prim " + primLabel);
-        return;
-    } else {
-        LOG_INFO("Variants found on prim " + primLabel + ":");
-        for (const SdfPath& path : variantPaths) {
-            std::string selectedMarker = isSelected(path) ? " [SELECTED]" : "";
-            LOG_INFO("  " + path.GetString() + selectedMarker);
-        }
-    }
-}
-
-static void printSelectedPrototypes(
-    UsdStageRefPtr rootStage,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
-) {
-    for (const SdfPath& selectedPath : selectedPaths) {
-        std::vector<SdfPath> prefixes = selectedPath.GetPrefixes();
-        for (const SdfPath& prefix : prefixes) {
-            if (prefix.IsPrimVariantSelectionPath()) {
-                std::pair<std::string, std::string> vsel = prefix.GetVariantSelection();
-                if (!vsel.first.empty()) {
-                    SdfPath primPath = prefix.StripAllVariantSelections();
-                    UsdPrim prim = rootStage->GetPrimAtPath(primPath);
-                    if (prim.IsValid()) {
-                        if (!prim.HasVariantSets() || !prim.GetVariantSets().HasVariantSet(vsel.first)) {
-                            LOG_ERR("Warning: prim selected requests variant set '" + vsel.first 
-                                      + "' which does not exist on prim " + primPath.GetString());
-                        } else {
-                            UsdVariantSet vset = prim.GetVariantSet(vsel.first);
-                            std::vector<std::string> vnames = vset.GetVariantNames();
-                            bool found = false;
-                            for (const auto& vn : vnames) {
-                                if (vn == vsel.second) { found = true; break; }
-                            }
-                            if (!found) {
-                                LOG_ERR("Warning: prim selected requests variant '" + vsel.second 
-                                          + "' which does not exist in variant set '" + vsel.first 
-                                          + "' on prim " + primPath.GetString());
-                            }
-                        }
-                    } else {
-                        // SdfPath API stripping handles the leaf variant selections but doesn't resolve nested variants.
-                        // We can ignore the missing prim here because USD payload logic hasn't instanced everything.
-                        // Skip printing error for now, because it's generating false positives on the sub variants.
-                        // Also, when variants are inside payloads, they might not be composed at the exact time
-                        // we're asking without forcing full evaluations which OpenUSD discourages here.
-                    }
-                }
-            }
-        }
-    }
-}
-
 // Stage Filtering
 struct StageFilterInfo {
     bool makeFresh = false; // whole stage targeted
@@ -382,9 +303,9 @@ static void resolveStageFilterInfo(
     // at both levels. The whole-stage wins.
     for (const auto& [stageKey, info] : stageFilterMap) {
         if (info.makeFresh && info.hasSpecificPrototypes) {
-            std::cerr << "Warning: selectedPaths targets both the entire prototype stage and specific " 
-                    << "prototypes within it for stage [" << stageKey
-                    << "]. The whole stage will be rebuilt regardless.\n";
+            LOG_WARN("SelectedPaths targets both the entire prototype stage and specific "
+                    "prototypes within it for stage [" + stageKey.GetAsString() +
+                    "]. The whole stage will be rebuilt regardless.");
         }
     }
 
@@ -409,23 +330,32 @@ void UsdStepExporter::populateUsd(
     SdfPath assemblyInRootPath = rootPrimPath.AppendChild(TfToken("Assembly"));
     SdfPath prototypesInRootPath = rootPrimPath.AppendChild(TfToken("Prototypes"));
 
-    std::unordered_set<SdfPath, SdfPath::Hash> rootVariantPaths = getVariantsOnPrim(rootPrim);
+    std::unordered_set<SdfPath, SdfPath::Hash> rootVariantPaths;
 
-    if (Logger::activeLevel == Logger::INFO) {
-        std::cout << "Root prim path: " << rootPrimPath.GetString() << "\n";
-        printVariants("root prim", rootVariantPaths, selectedPaths, [&](const SdfPath& p) {
-            return !selectedPaths.empty() && selectedPaths.count(p);
-        });
-        printSelectedPrototypes(rootStage, selectedPaths);
+    UsdPrim protoPrim = rootStage->GetPrimAtPath(prototypesInRootPath);
+    if (protoPrim) {
+        rootVariantPaths = getVariantsOnPrim(protoPrim);
     }
 
     auto isRootVariantSelected = [&](const SdfPath& variantPath) -> bool {
         for (const SdfPath& sel : selectedPaths) {
-            if (sel == variantPath || sel.HasPrefix(variantPath))
+            if (sel == variantPath || sel.HasPrefix(variantPath) || variantPath.HasPrefix(sel))
                 return true;
+
+            SdfPath rootPrimPathStr = variantPath.StripAllVariantSelections();
+            SdfPath basePrototypesPath = rootPrimPathStr.AppendChild(TfToken("Prototypes"));
+            if (sel == basePrototypesPath || sel.HasPrefix(basePrototypesPath) || basePrototypesPath.HasPrefix(sel)) {
+                return true;
+            }
         }
         return false;
     };
+
+    LOG_INFO("Root prim path: " + rootPrimPath.GetString());
+    printVariants("root prim", rootVariantPaths, selectedPaths, [&](const SdfPath& p) {
+        return !selectedPaths.empty() && isRootVariantSelected(p);
+    });
+    printSelectedPrototypes(rootStage, selectedPaths);
 
     {
         // Clear existing payloads from the root stage beforehand to prevent OpenUSD core crashes
@@ -433,7 +363,7 @@ void UsdStepExporter::populateUsd(
         SdfChangeBlock block;
 
         if (selectedPaths.count(prototypesInRootPath)) {
-            std::cerr << "Warning: selectedPaths contains /Prototypes root. whole prototypes hierarchy will be rebuilt.\n";
+            LOG_WARN("selectedPaths contains /Prototypes root. whole prototypes hierarchy will be rebuilt.");
         }
 
         if (rootVariantPaths.empty()) {
@@ -448,7 +378,7 @@ void UsdStepExporter::populateUsd(
                 const std::string& variantSetName = variantSelection.first;
                 const std::string& variantName = variantSelection.second;
 
-                UsdVariantSet varSet = rootPrim.GetVariantSet(variantSetName);
+                UsdVariantSet varSet = rootStage->GetPrimAtPath(prototypesInRootPath).GetVariantSet(variantSetName);
 
                 varSet.SetVariantSelection(variantName);
                 UsdEditContext ctx(varSet.GetVariantEditContext());
@@ -470,8 +400,7 @@ void UsdStepExporter::populateUsd(
         if (variantSetName.empty()) {
             stageKey = prototypesInRootPath;
         } else {
-            SdfPath rootPrimVariantPath = rootPrimPath.AppendVariantSelection(variantSetName, variantName);
-            stageKey = rootPrimVariantPath.AppendChild(TfToken("Prototypes"));
+            stageKey = prototypesInRootPath.AppendVariantSelection(variantSetName, variantName);
         }
 
         auto it = stageFilterMap.find(stageKey);
@@ -493,7 +422,7 @@ void UsdStepExporter::populateUsd(
             existingPrototypesRoot.SetActive(true);
 
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
-        UsdGeomScope prototypesScope = UsdGeomScope::Define(prototypesStage, prototypesPath);
+        AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
         prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
         prototypesStage->Save();
 
@@ -526,7 +455,7 @@ void UsdStepExporter::populateUsd(
                 existingPrototypesRoot.SetActive(true);
 
             prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
-            UsdGeomScope prototypesScope = UsdGeomScope::Define(prototypesStage, prototypesPath);
+            AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
             prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
             prototypesStage->Save();
 
@@ -542,7 +471,7 @@ void UsdStepExporter::populateUsd(
     
     assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
     assemblyStage->SetDefaultPrim(assemblyStage->OverridePrim(rootPrimPath));
-    UsdGeomScope::Define(assemblyStage, assemblyInRootPath);
+    UsdGeomXform::Define(assemblyStage, assemblyInRootPath);
 
     SdfLayerHandle rootLayer = rootStage->GetRootLayer();
     std::string assemblyRelativeFilePath = fs::relative(assemblyStageFilePath, rootFilePath).string();
@@ -551,23 +480,32 @@ void UsdStepExporter::populateUsd(
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(model.definitionShapes.begin(), model.definitionShapes.end());
     LabelMap<SdfPath> prototypePaths;
 
-    for (const auto& proto : prototypes) {
-        writeCadPart(proto.stage, rootPrim, SdfPath("/CADPart"));
-        bool makeFreshStage = getStageMakeFresh(proto.variantSetName, proto.variantName);
+    { // Write Prototypes in their own stages
+        const UsdPrim& prototypesPrim = rootStage->GetPrimAtPath(prototypesInRootPath);
 
-        writePrototypeXformsInPrototypesStage(
-            proto.stage, 
-            rootPrim, 
-            defs, 
-            prototypesPath, 
-            selectedPaths, 
-            rootPrimPath, 
-            proto.variantSetName, 
-            proto.variantName, 
-            prototypePaths, 
-            makeFreshStage
-        );
-        proto.stage->Save();
+        for (const auto& proto : prototypes) {
+            if (!proto.variantSetName.empty()) {
+                UsdVariantSet varSet = rootStage->GetPrimAtPath(prototypesInRootPath).GetVariantSet(proto.variantSetName);
+                varSet.SetVariantSelection(proto.variantName);
+            }
+
+            writeCadPart(proto.stage, prototypesPrim, SdfPath("/CADPart"));
+            bool makeFreshStage = getStageMakeFresh(proto.variantSetName, proto.variantName);
+
+            writePrototypeXformsInPrototypesStage(
+                proto.stage, 
+                rootPrim, 
+                defs, 
+                prototypesPath, 
+                selectedPaths, 
+                rootPrimPath, 
+                proto.variantSetName, 
+                proto.variantName, 
+                prototypePaths, 
+                makeFreshStage
+            );
+            proto.stage->Save();
+        }
     }
 
     writePrototypeOverridesInAssemblyStage(assemblyStage, rootPrim, prototypePaths);
@@ -597,7 +535,7 @@ void UsdStepExporter::populateUsd(
         std::string payloadPath = fs::relative(proto.filePath, rootFilePath).string();
         
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = rootStage->GetPrimAtPath(prototypesInRootPath).GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
             UsdEditContext ctx(varSet.GetVariantEditContext());
             UsdPrim prototypesPrim = rootStage->OverridePrim(prototypesInRootPath);
@@ -616,18 +554,15 @@ void UsdStepExporter::populateUsd(
     rootStage->Load(rootPrim.GetPath()); // Ensure payloads are loaded for variant discovery!
     rootStage->GetRootLayer()->Save();
 
-    if (Logger::activeLevel == Logger::INFO) {
-        printVariants("root prim", getVariantsOnPrim(rootPrim), selectedPaths, [&](const SdfPath& p) {
-            return !selectedPaths.empty() && selectedPaths.count(p);
-        });
-    }
-
+    printVariants("root prim", getVariantsOnPrim(rootPrim), selectedPaths, [&](const SdfPath& p) {
+        return !selectedPaths.empty() && selectedPaths.count(p);
+    });
     // Flatten Tessellation Jobs
     std::vector<TessellationJob> tessJobs;
     for (const auto& proto : prototypes) {
 
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = rootPrim.GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = rootStage->GetPrimAtPath(prototypesInRootPath).GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
         }
 
@@ -645,11 +580,9 @@ void UsdStepExporter::populateUsd(
                     logLabel += " (root: " + proto.variantSetName + "=" + proto.variantName + ")";
                 }
 
-                if (Logger::activeLevel == Logger::INFO) {
-                    printVariants(logLabel, childVariantPaths, selectedPaths, [&](const SdfPath& p) {
-                        return !selectedPaths.empty() && isPrototypeActiveInFilter(selectedPaths, rootPrimPath, proto.variantSetName, proto.variantName, p);
-                    });
-                }
+                printVariants(logLabel, childVariantPaths, selectedPaths, [&](const SdfPath& p) {
+                    return !selectedPaths.empty() && isPrototypeActiveInFilter(selectedPaths, rootPrimPath, proto.variantSetName, proto.variantName, p);
+                });
             }
         }
 
@@ -657,7 +590,19 @@ void UsdStepExporter::populateUsd(
 
         TessParams rootParams = getTessParams(rootPrim);
         TessParams variantLevelParams = getTessParams(protoRootPrim, rootParams);
-        std::map<SdfPath, TessParams> paramsBank = resolveParams(protoRootPrim, variantLevelParams);
+        
+        std::map<SdfPath, TessParams> paramsBank;
+        bool initialActive = protoRootPrim.IsActive();
+        if (protoRootPrim.HasAuthoredActive() && !initialActive) {
+            protoRootPrim.SetActive(true);
+        }
+        for (const UsdPrim& child : protoRootPrim.GetChildren()) {
+            std::map<SdfPath, TessParams> childParams = resolveParams(child, variantLevelParams);
+            paramsBank.insert(childParams.begin(), childParams.end());
+        }
+        if (protoRootPrim.HasAuthoredActive()) {
+            protoRootPrim.SetActive(initialActive);
+        }
 
         bool runMesherInParallel = !getStageMakeFresh(proto.variantSetName, proto.variantName);
 

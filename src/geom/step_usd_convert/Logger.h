@@ -7,7 +7,7 @@
 
 class Logger {
 public:
-    enum Level { INFO, DEBUG, ERR, NONE };
+    enum Level { INFO, DEBUG, ERR, NONE, WARN };
     inline static Level activeLevel = INFO;
     
     static void log(Level lvl, const std::string& msg) {
@@ -18,6 +18,10 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         
         if (lvl == ERR) {
+        
+        } else if (lvl == WARN) {
+            std::cerr << "[WARNING] " << msg << std::endl;
+        } else if (lvl == ERR) {
             std::cerr << "[ERROR] " << msg << std::endl;
         } else if (lvl == DEBUG) {
             std::cout << "[DEBUG] " << msg << std::endl;
@@ -62,6 +66,9 @@ public:
 #define LOG_INFO(msg) Logger::log(Logger::INFO, msg)
 #define LOG_DEBUG(msg) Logger::log(Logger::DEBUG, msg)
 #define LOG_ERR(msg) Logger::log(Logger::ERR, msg)
+#define LOG_WARN(msg) Logger::log(Logger::WARN, msg)
+
 #define LOG_PROGRESS(current, total, label) Logger::progress(current, total, label)
 #define LOG_PROGRESS_DONE() Logger::progressDone()
+
 #define LOG_SCOPED_TIMER(name) ScopedTimer timer_##__LINE__(name)

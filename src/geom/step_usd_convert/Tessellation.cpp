@@ -103,19 +103,19 @@ private:
     bool _timedOut;
 };
 
-bool UsdStepExporter::tesselatePart(
+bool UsdStepExporter::tessellatePart(
     TessResult& result, 
     const TopoDS_Shape& defShape, 
     const TessParams& params,
-    bool parallel
+    bool mesherInParallel
 ) {
     
     using Clock = std::chrono::high_resolution_clock;
     using Seconds = std::chrono::duration<double>;
 
-    auto tesselateStart = Clock::now();
+    auto tessellateStart = Clock::now();
 
-    LOG_DEBUG("  -> tesselatePart: ShapeFix_Shape (Repair pass)");
+    LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
     ShapeFix_Shape fixer(defShape);
     fixer.SetPrecision(1e-4);
     fixer.SetMaxTolerance(0.1);
@@ -131,14 +131,14 @@ bool UsdStepExporter::tesselatePart(
     }
     TopoDS_Shape workingShape = fixer.Shape();
 
-    LOG_DEBUG("  -> tesselatePart: BRepTools::Clean");
+    LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
     BRepTools::Clean(workingShape); // remove previously created tessellations for this part 
 
     Bnd_Box bbox;
-    LOG_DEBUG("  -> tesselatePart: BRepBndLib::Add");
+    LOG_DEBUG("  -> tessellatePart: BRepBndLib::Add");
     BRepBndLib::Add(workingShape, bbox);
     double xmin, ymin, zmin, xmax, ymax, zmax;
-    LOG_DEBUG("  -> tesselatePart: bbox.Get");
+    LOG_DEBUG("  -> tessellatePart: bbox.Get");
     bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 
     double diagonal = std::sqrt(
@@ -150,15 +150,15 @@ bool UsdStepExporter::tesselatePart(
     result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<float>::infinity() && diagonal < params.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
-    meshParams.InParallel = parallel; 
+    meshParams.InParallel = mesherInParallel; 
     meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
     meshParams.Angle = params.meshAngularDeflection; // in radians
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     
-    LOG_DEBUG("  -> tesselatePart: BRepMesh_IncrementalMesh");
+    LOG_DEBUG("  -> tessellatePart: BRepMesh_IncrementalMesh");
     BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
 
-    LOG_DEBUG("  -> tesselatePart: mesher.Perform()");
+    LOG_DEBUG("  -> tessellatePart: mesher.Perform()");
     opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshTimeout));
     Message_ProgressRange meshRange = meshProgress->Start();
     mesher.Perform(meshRange);
@@ -178,7 +178,7 @@ bool UsdStepExporter::tesselatePart(
     // not just the intersected shapes, 
     // so the edge walk later works
 
-    LOG_DEBUG("  -> tesselatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
+    LOG_DEBUG("  -> tessellatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
         LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
         BRepExtrema_SelfIntersection checker(workingShape, params.selfIntersectionThreshold);
@@ -219,13 +219,13 @@ bool UsdStepExporter::tesselatePart(
     
 
     auto meshEnd = Clock::now();
-    LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tesselateStart).count()) + " s");
+    LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
     
-    LOG_DEBUG("  -> tesselatePart: Edge walk preparation");
+    LOG_DEBUG("  -> tessellatePart: Edge walk preparation");
     // normals will be faceVarying: result.normals.size() == result.faceVertexIndices.size()
 
     // positions remain welded via topology
-    // Poly_Triangululation is a tesselated representation of 
+    // Poly_Triangululation is a tessellated representation of 
     // the Topo_DS_whatever. For a given face, we need to store 
     // it alongside the index into the source face array
     // so its:
@@ -392,7 +392,7 @@ bool UsdStepExporter::tesselatePart(
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
 
-                    if (params.wireframeMode.type == CurveType::CatmullRom) {
+                    if (params.wireframeMode.type == CurveType::Cubic) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
                         result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -455,7 +455,7 @@ bool UsdStepExporter::tesselatePart(
 
             int n = sampler.NbPoints();
 
-            if (params.sketchMode.type == CurveType::CatmullRom) {
+            if (params.sketchMode.type == CurveType::Cubic) {
                 // Phantom start — duplicate first point for Catmull-Rom
                 gp_Pnt p0 = sampler.Value(1);
                 result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -623,13 +623,13 @@ bool UsdStepExporter::tesselatePart(
                 resolved.push_back(it->second);
         }
         if (resolved.size() >= 2) {
-            if (params.wireframeMode.type == CurveType::CatmullRom) {
+            if (params.wireframeMode.type == CurveType::Cubic) {
                 // Phantom start — duplicate first point
                 result.curvePoints.push_back(result.points[resolved.front()]);
             }
             for (int idx : resolved)
                 result.curvePoints.push_back(result.points[idx]);
-            if (params.wireframeMode.type == CurveType::CatmullRom) {
+            if (params.wireframeMode.type == CurveType::Cubic) {
                 // Phantom end — duplicate last point
                 result.curvePoints.push_back(result.points[resolved.back()]);
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
@@ -640,17 +640,51 @@ bool UsdStepExporter::tesselatePart(
         }
     }
 
+    if (result.faceVertexIndices.empty()) {
+        LOG_DEBUG("  -> tessellatePart: faceVertexIndices is empty, clearing points and boundary flags to avoid confusion downstream");
+        result.points.clear();
+        result.isBoundaryVertex.clear();
+    } else if (!result.points.empty()) {
+        LOG_DEBUG("  -> tessellatePart: Welding vertices and reindexing faces");
+        std::vector<int> oldToNew(result.points.size(), -1);
+        VtArray<GfVec3f> newPoints;
+        newPoints.reserve(result.points.size());
+        VtArray<bool> newIsBoundary;
+        if (!result.isBoundaryVertex.empty()) {
+            newIsBoundary.reserve(result.points.size());
+        }
+
+        for (int index : result.faceVertexIndices) {
+            if (oldToNew[index] == -1) {
+                oldToNew[index] = newPoints.size();
+                newPoints.push_back(result.points[index]);
+                if (!result.isBoundaryVertex.empty()) {
+                    newIsBoundary.push_back(result.isBoundaryVertex[index]);
+                }
+            }
+        }
+
+        for (int& index : result.faceVertexIndices) {
+            index = oldToNew[index];
+        }
+
+        result.points = std::move(newPoints);
+        if (!result.isBoundaryVertex.empty()) {
+            result.isBoundaryVertex = std::move(newIsBoundary);
+        }
+    }
+
     auto faceProcessEnd = Clock::now();
     LOG_DEBUG("  Face processing time: " + std::to_string(Seconds(faceProcessEnd - edgeWalkEnd).count()) + " s");
 
-    auto tesselateEnd = Clock::now();
-    LOG_DEBUG("  Total tesselatePart time: " + std::to_string(Seconds(tesselateEnd - tesselateStart).count()) + " s");
+    auto tessellateEnd = Clock::now();
+    LOG_DEBUG("  Total tessellatePart time: " + std::to_string(Seconds(tessellateEnd - tessellateStart).count()) + " s");
 
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.
     if (result.points.empty() && result.sketchCounts.empty() && result.wireframeCounts.empty()) {
-        LOG_DEBUG("  Warning: def produced no geometry or sketch curves in Shape");
+        LOG_DEBUG("def produced no geometry, wireframeCounts, sketch curves in Shape");
         return false;
     }
 
@@ -692,16 +726,15 @@ void UsdStepExporter::tessellateGeometry(
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
 
-                if (job.runMesherInParallel) {
-                    LOG_DEBUG("Job for " + job.prototypePath.GetString() + " is set to run mesher in parallel model");
-                }
-
-                bool bTesselate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, rootPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
                 
-                if (bTesselate) {
+                if (bTessellate) {
+                    if (job.runMesherInParallel) {
+                        LOG_DEBUG("Job for " + job.prototypePath.GetString() + " is set to run mesher in mesherInParallel model");
+                    }
                     LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
                     try {
-                        tesselatePart(job.result, defs[idx].second, job.params, job.runMesherInParallel);
+                        tessellatePart(job.result, defs[idx].second, job.params, job.runMesherInParallel);
                         int currentCount = ++completedJobs;
                         LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");

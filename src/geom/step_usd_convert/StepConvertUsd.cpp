@@ -45,7 +45,7 @@ const std::string argOptions =
     " StepConvertUsd -- Converts a Usd file containing StepFileContainers\n"
     " Options: \n"
     "    -i, --inputUsdFile <path>        Path to the input Usd file. \n"
-    "    -p, --prim <sdfPath>             Only tesselate the prim at this path including variants. Can be multiple paths.\n"
+    "    -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.\n"
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
