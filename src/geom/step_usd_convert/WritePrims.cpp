@@ -393,7 +393,7 @@ static void defineSketchGeometry(
             int count = r.sketchCounts[ci];
 
             UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
-                stage, sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))
+                stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))
             );
 
             pointOffset += count;
@@ -436,7 +436,7 @@ static void writeSketchGeometry(
                 r.sketchPoints.begin() + pointOffset + count
             );
 
-            UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))));
+            UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
 
             if (params.sketchMode.type == TessParams::CurveType::Cubic) {
                 sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);

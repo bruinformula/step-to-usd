@@ -39,7 +39,7 @@ def StepFileContainer "Wonderful"
         active = false
         prepend payload = @model1-assembly.usdc@
         variants = {
-            string LOD = "high"
+            string LOD = "low"
         }
         prepend variantSets = "LOD"
     )

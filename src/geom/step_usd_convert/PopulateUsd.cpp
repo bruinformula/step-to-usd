@@ -158,15 +158,15 @@ std::map<SdfPath, TessParams> resolveParams(
             }
         }
     }
-    /*
-    std::cout << "Params for prim" << prim.GetPath().GetString() << ":\n";
+    
+    LOG_DEBUG("Params for prim" + prim.GetPath().GetString() + ":");
     for (const auto& [path, params] : results) {
-        std::cout << "  " << path.GetString() << ": "
-                  << "meshLinearDeflection=" << params.meshLinearDeflection << ", "
-                  << "meshAngularDeflection=" << params.meshAngularDeflection << ", "
-                  << "sketchDefl=" << params.sketchDeflection << "\n";
+        LOG_DEBUG("  " + path.GetString() + ": "
+                + "meshLinearDeflection=" + std::to_string(params.meshLinearDeflection) + ", "
+                + "meshAngularDeflection=" + std::to_string(params.meshAngularDeflection) + ", "
+                + "sketchDefl=" + std::to_string(params.sketchDeflection));
     }
-    */
+    
 
     if (prim.HasAuthoredActive()) {
         prim.SetActive(initialActive);
@@ -265,14 +265,9 @@ std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const Us
         return std::nullopt;
     }
 
-    SdfPrimSpecHandleVector stack = paramsPrim.GetPrimStack();
-
-    if (stack.empty()) {
-        LOG_ERR("Default params target " + targets[0].GetString() + " has empty prim stack. Using hardcoded defaults.");
-        return std::nullopt;
-    }
-
-    SdfReference reference(stack[0]->GetLayer()->GetIdentifier(), stack[0]->GetPath());
+    // We want the path *in the container stage* because WritePrims will pair this 
+    // with a relative path pointing back to the container stage.
+    SdfReference reference("", targets[0]);
 
     return reference;
 }
@@ -321,8 +316,7 @@ static void resolveStageFilterInfo(
         }
 
         StageFilterInfo& info = stageFilterMap[stageKey];
-        const bool isSpecificPrototype =
-            cleanPath.HasPrefix(prototypesInContainerPath) && (cleanPath != prototypesInContainerPath);
+        const bool isSpecificPrototype = (cleanPath.HasPrefix(prototypesInContainerPath) && (cleanPath != prototypesInContainerPath)); // Protect variant specific subsets here
 
         if (isSpecificPrototype)
             info.hasSpecificPrototypes = true;
@@ -441,10 +435,6 @@ void UsdStepExporter::populateUsd(
     };
 
     {
-        // Clear existing payloads from the container stage beforehand to prevent OpenUSD core crashes
-        // and noisy warnings when the prototype layers are modified later on disk.
-        SdfChangeBlock block;
-
         bool hasSpecificPrototype = false;
         bool hasContainerRoot = false;
         for (const SdfPath& sel : selectedPaths) {
@@ -460,24 +450,26 @@ void UsdStepExporter::populateUsd(
             LOG_WARN("selectedPaths contains /Prototypes container. whole prototypes hierarchy will be rebuilt.");
         }
 
-        if (containerVariantPaths.empty()) {
-            if (UsdPrim p = containerStage->GetPrimAtPath(prototypesInContainerPath))
-                p.GetPayloads().ClearPayloads();
-        } else {
-            for (const SdfPath& path : containerVariantPaths) {
-                if (!selectedPaths.empty() && !isContainerVariantSelected(path)) {
-                    continue; // only clear payloads that are bing re tesselated
+        // Keep the pre-clear pass only for full runs. For filtered runs, clear payloads
+        // only on variants that are actually rewritten below.
+        if (selectedPaths.empty()) {
+            SdfChangeBlock block;
+            if (containerVariantPaths.empty()) {
+                if (UsdPrim p = containerStage->GetPrimAtPath(prototypesInContainerPath))
+                    p.GetPayloads().ClearPayloads();
+            } else {
+                for (const SdfPath& path : containerVariantPaths) {
+                    std::pair<std::string, std::string> variantSelection = path.GetVariantSelection();
+                    const std::string& variantSetName = variantSelection.first;
+                    const std::string& variantName = variantSelection.second;
+
+                    UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(variantSetName);
+
+                    varSet.SetVariantSelection(variantName);
+                    UsdEditContext ctx(varSet.GetVariantEditContext());
+                    UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
+                    prototypesPrim.GetPayloads().ClearPayloads();
                 }
-                std::pair<std::string, std::string> variantSelection = path.GetVariantSelection();
-                const std::string& variantSetName = variantSelection.first;
-                const std::string& variantName = variantSelection.second;
-
-                UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(variantSetName);
-
-                varSet.SetVariantSelection(variantName);
-                UsdEditContext ctx(varSet.GetVariantEditContext());
-                UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-                prototypesPrim.GetPayloads().ClearPayloads();
             }
         }
     }
@@ -498,8 +490,13 @@ void UsdStepExporter::populateUsd(
         }
 
         auto it = stageFilterMap.find(stageKey);
-        if (it == stageFilterMap.end()) return false; // stage not referenced at all
-        return it->second.makeFresh;
+        if (it != stageFilterMap.end()) return it->second.makeFresh; 
+
+        // Add Fallback: Check if the base container path (no variant) is targeted for a full hierarchy refresh
+        it = stageFilterMap.find(prototypesInContainerPath);
+        if (it != stageFilterMap.end()) return it->second.makeFresh;
+
+        return false;
     };
 
     // Setup Prototype Stages for all variants

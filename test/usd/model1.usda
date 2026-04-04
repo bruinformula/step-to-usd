@@ -40,7 +40,9 @@ def StepFileContainer "Wonderful" (
             float step:meshLinearDeflection = 0.1
         }
     }
-    over "CADPart" {
+
+    over "CADPart"
+    {
         over "Wireframe" (
             active = false
         )
