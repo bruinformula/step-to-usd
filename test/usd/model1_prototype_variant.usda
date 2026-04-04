@@ -43,6 +43,12 @@ def StepFileContainer "Wonderful"
             ) {
                 rel step:defaultParams = </HighOptions>
 
+                over "rod0"
+                {
+                    float step:meshAngularDeflection = 0.01
+                    float step:meshLinearDeflection = 0.01
+                }
+
             }
             "low" (
                 prepend payload = @LOD/model1-LOD-low-prototypes.usdc@</Prototypes>

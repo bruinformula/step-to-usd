@@ -15,16 +15,37 @@ def StepTessellationOptions "DefaultOptions"
     bool step:wireframeCombineCurves = 0
 }
 
-def StepFileContainer "Wonderful"
+def StepFileContainer "Wonderful" (
+    prepend payload = @model1-assembly.usdc@</Wonderful>
+)
 {
     asset step:sourceAsset = @step/model1.STEP@
 
-    over StepFilePrototypes "Prototypes" (
+    def StepFilePrototypes "Prototypes" (
         active = false
         prepend payload = @model1-prototypes.usdc@</Prototypes>
     )
     {
         rel step:defaultParams = </DefaultOptions>
+
+        over "rod0"
+        {
+            float step:meshAngularDeflection = 0.1
+            float step:meshLinearDeflection = 0.075
+        }
+
+        over "bolt0"
+        {
+            float step:meshAngularDeflection = 0.5
+            float step:meshLinearDeflection = 0.1
+        }
+    }
+    over "CADPart" {
+        over "Wireframe" (
+            active = false
+        )
+        {
+        }
     }
 }
 

@@ -37,6 +37,7 @@ def StepFileContainer "Wonderful"
 
     over "Prototypes" (
         active = false
+        prepend payload = @model1-assembly.usdc@
         variants = {
             string LOD = "high"
         }
@@ -81,6 +82,15 @@ def StepFileContainer "Wonderful"
                 rel step:defaultParams = </LowOptions>
 
             }
+        }
+    }
+
+    over "CADPart"
+    {
+        over "Wireframe" (
+            active = false
+        )
+        {
         }
     }
 }

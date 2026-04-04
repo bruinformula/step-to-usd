@@ -79,11 +79,17 @@ void UsdStepExporter::writeCadPart(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    UsdPrim cadPart = prototypesStage->CreateClassPrim(cadPartPath);
+    SdfPath containerPrimPath = prototypesPrimOnContainerStage.GetPath().GetParentPath();
+    SdfPath realCadPartPath = containerPrimPath.AppendChild(cadPartPath.GetNameToken());
+
+    UsdPrim cadPart = prototypesStage->CreateClassPrim(realCadPartPath);
+
+    prototypesStage->GetPrimAtPath(containerPrimPath).SetSpecifier(SdfSpecifierOver);
+
     UsdGeomImageable(cadPart).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = cadPartPath.AppendChild(TfToken(name));
+        SdfPath childPath = realCadPartPath.AppendChild(TfToken(name));
         UsdPrim child = prototypesStage->DefinePrim(childPath);
         UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
     };
@@ -126,7 +132,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
     
-    SdfPath cadPartPath("/CADPart");
+    SdfPath cadPartPath = containerPrimPath.AppendChild(TfToken("CADPart"));
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         std::string rawName = getLabelName(defs[defIdx].first);
@@ -679,7 +685,20 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
 
                 SdfPath copyPath = protoPath.GetVariantSelection().first.empty() ? protoPath : protoPath.StripAllVariantSelections();
-                SdfCopySpec(res.layer, copyPath, mainLayer, copyPath);
+                
+                SdfPrimSpecHandle srcSpec = res.layer->GetPrimAtPath(copyPath);
+                SdfPrimSpecHandle dstSpec = mainLayer->GetPrimAtPath(copyPath);
+                if (srcSpec && dstSpec) {
+                    dstSpec->SetTypeName(srcSpec->GetTypeName());
+                    for (const auto& prop : srcSpec->GetProperties()) {
+                        SdfCopySpec(res.layer, prop->GetPath(), mainLayer, prop->GetPath());
+                    }
+                    for (const auto& child : srcSpec->GetNameChildren()) {
+                        SdfCopySpec(res.layer, child->GetPath(), mainLayer, child->GetPath());
+                    }
+                } else {
+                    SdfCopySpec(res.layer, copyPath, mainLayer, copyPath);
+                }
             }
         }
     } // SdfChangeBlock

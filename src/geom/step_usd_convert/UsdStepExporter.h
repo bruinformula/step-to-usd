@@ -168,7 +168,6 @@ private:
     
     static UsdStageRefPtr initUsdStage(
         const fs::path& newStagePath, 
-        const SdfPath& containerPrimPath,
         bool clearExisting
     );
 

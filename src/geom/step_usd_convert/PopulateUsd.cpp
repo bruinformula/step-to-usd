@@ -509,7 +509,7 @@ void UsdStepExporter::populateUsd(
         fs::path prototypesStageFilePath = containerFilePath / (baseName + "-prototypes.usdc");
         bool makeFreshStage = getStageMakeFresh("", "");
 
-        UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, containerPrimPath, makeFreshStage);
+        UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
         UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesPath);
         if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
@@ -542,7 +542,7 @@ void UsdStepExporter::populateUsd(
             fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usdc");
             bool makeFreshStage = getStageMakeFresh(variantSetName, variantName);
 
-            UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, containerPrimPath, makeFreshStage);
+            UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
             UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesPath);
             if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
@@ -560,7 +560,7 @@ void UsdStepExporter::populateUsd(
     // Assembly Stage
     fs::path assemblyStageFilePath = containerFilePath / (model.stepPath.stem().string() + "-assembly.usdc");
     bool shouldCreateAssembly = !fs::exists(assemblyStageFilePath); // don't repopulate the stage if it alread exists 
-    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, containerPrimPath, shouldCreateAssembly);
+    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
     containerPrim = containerStage->GetPrimAtPath(containerPrimPath);
     
     assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
@@ -574,7 +574,7 @@ void UsdStepExporter::populateUsd(
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(model.definitionShapes.begin(), model.definitionShapes.end());
     LabelMap<SdfPath> prototypePaths;
 
-    { // Write Prototypes in their own stages
+    { // Write prototypes and assembly references in their own stages
         const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
 
         for (const auto& proto : prototypes) {
@@ -620,10 +620,9 @@ void UsdStepExporter::populateUsd(
     for (const auto& path : containerLayer->GetSubLayerPaths()) {
         if (path == assemblyRelativeFilePath) { alreadyExists = true; break; }
     }
+
     if (!alreadyExists) containerLayer->InsertSubLayerPath(assemblyRelativeFilePath);
-    assemblyStage->Save();
-
-
+    
     // Payload logic on container stage
     for (const auto& proto : prototypes) {
         std::string payloadPath = fs::relative(proto.filePath, containerFilePath).string();

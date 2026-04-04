@@ -185,7 +185,6 @@ std::vector<SdfPath> UsdStepExporter::computeNodePaths(
 
 UsdStageRefPtr UsdStepExporter::initUsdStage(
     const fs::path& newStagePath, 
-    const SdfPath& containerPrimPath,
     bool clearExisting
 ) {
     SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath.string());
@@ -200,16 +199,10 @@ UsdStageRefPtr UsdStepExporter::initUsdStage(
 
     if (!layer) return nullptr;
 
-    // Set metadata on the layer so composition knows where to look
-    layer->SetDefaultPrim(containerPrimPath.GetNameToken());
     layer->SetField(SdfPath::AbsoluteRootPath(), UsdGeomTokens->upAxis, VtValue(UsdGeomTokens->z));
 
     // Open the stage. 
     UsdStageRefPtr stage = UsdStage::Open(layer);
-
-    if (!stage->GetPrimAtPath(containerPrimPath)) {
-        stage->DefinePrim(containerPrimPath);
-    }
 
     stage->Save();
     return stage;

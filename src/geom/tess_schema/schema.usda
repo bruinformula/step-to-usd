@@ -97,7 +97,7 @@ class "StepTessellationAPI" (
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float step:wireframeDeflection = 0.01 (
+    float step:wireframeDeflection = 10 (
         doc = "Deflection tolerance for wireframe edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -117,7 +117,7 @@ class "StepTessellationAPI" (
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float step:sketchDeflection = 0.005 (
+    float step:sketchDeflection = 10 (
         doc = "Deflection tolerance for sketch/free-edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -197,12 +197,12 @@ class "StepTessellationOptions" (
     # Wireframe
     token step:wireframeType = "linear"
     token step:wireframeSampling = "underlying"
-    float step:wireframeDeflection = 0.01
+    float step:wireframeDeflection = 10
     bool step:wireframeCombineCurves = 1
     # Sketch
     token step:sketchType = "linear"
     token step:sketchSampling = "underlying"
-    float step:sketchDeflection = 0.005
+    float step:sketchDeflection = 10
     bool step:sketchCombineCurves = 1
     # Other
     float step:renderPurposeThreshold = 0.0
