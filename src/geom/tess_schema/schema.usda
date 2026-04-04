@@ -47,10 +47,12 @@ class "StepTessellationAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
-    int step:defIndex = 0 (
-        doc = "Unique index of the prototype. Used for debugging"
-        customData = { string variability = "SdfVariabilityUniform" }
+    int step:defIndex = 0 ( 
+        doc = "Unique index of the prototype. Used for debugging" 
+        customData = { string variability = "SdfVariabilityUniform" } 
     )
+
+    # Meshing
     float step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
@@ -61,38 +63,6 @@ class "StepTessellationAPI" (
     )
     double step:meshMinSize = 0.0 (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    token step:wireframeType = "linear" (
-        doc = "Curve type used for wireframe edges."
-        allowedTokens = ["none", "linear", "cubic"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    token step:wireframeSampling = "underlying" (
-        doc = "Sampling strategy for wireframe edge curves."
-        allowedTokens = ["underlying", "resampled"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    float step:wireframeDeflection = 0.01 (
-        doc = "Deflection tolerance for wireframe edge curve sampling."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    token step:sketchType = "none" (
-        doc = "Curve type used for sketch and free-edge curves."
-        allowedTokens = ["none", "linear", "cubic"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    token step:sketchSampling = "underlying" (
-        doc = "Sampling strategy for sketch and free-edge curves."
-        allowedTokens = ["underlying", "resampled"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    float step:sketchDeflection = 0.005 (
-        doc = "Deflection tolerance for sketch/free-edge curve sampling."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    float step:renderPurposeThreshold = 0.0 (
-        doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     double step:selfIntersectionThreshold = 1e-3 (
@@ -115,6 +85,68 @@ class "StepTessellationAPI" (
         doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
+
+    # Wireframe
+    token step:wireframeType = "linear" (
+        doc = "Curve type used for wireframe edges."
+        allowedTokens = ["none", "linear", "cubic"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token step:wireframeSampling = "underlying" (
+        doc = "Sampling strategy for wireframe edge curves."
+        allowedTokens = ["underlying", "resampled"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float step:wireframeDeflection = 0.01 (
+        doc = "Deflection tolerance for wireframe edge curve sampling."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:wireframeCombineCurves = 1 (
+        doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+
+    # Sketch
+    token step:sketchType = "linear" (
+        doc = "Curve type used for sketch and free-edge curves."
+        allowedTokens = ["none", "linear", "cubic"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    token step:sketchSampling = "underlying" (
+        doc = "Sampling strategy for sketch and free-edge curves."
+        allowedTokens = ["underlying", "resampled"]
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    float step:sketchDeflection = 0.005 (
+        doc = "Deflection tolerance for sketch/free-edge curve sampling."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:sketchCombineCurves = 1 (
+        doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+
+    # Other
+    float step:renderPurposeThreshold = 0.0 (
+        doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:enableSurfaceSubsets = 0 (
+        doc = "Whether to create USD subsets for each unique surface ID in the STEP file. This can be handy for material binding."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:enableUVs = 1 (
+        doc = "Whether to export UVs when available. Disabling this can speed up exports when UVs are not needed."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:enableSurfaceID = 0 (
+        doc = "Whether to export the TopoDS_Face surface ID as a primvar."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:enableIsBoundaryVertex = 0 (
+        doc = "Whether to export marked vertices that are on the boundary of TopoDS_Faces (i.e. the wireframe) as a primvar."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )  
 }
 
 # Concrete Types
@@ -153,19 +185,29 @@ class "StepTessellationOptions" (
         token schemaKind = "concreteTyped"
     }
 ) {
+    # Meshing 
     float step:meshLinearDeflection = 1.0
     float step:meshAngularDeflection = 0.5
     double step:meshMinSize = 0.0
-    token step:wireframeType = "linear"
-    token step:wireframeSampling = "underlying"
-    float step:wireframeDeflection = 0.01
-    token step:sketchType = "linear"
-    token step:sketchSampling = "underlying"
-    float step:sketchDeflection = 0.005
-    float step:renderPurposeThreshold = 0.0
     double step:selfIntersectionThreshold = 1e-3
     int step:maxNumberRemeshPasses = 1
     uint64 step:fixTimeout = 3000
     uint64 step:meshTimeout = 3000
     uint64 step:remeshTimeout = 3000
+    # Wireframe
+    token step:wireframeType = "linear"
+    token step:wireframeSampling = "underlying"
+    float step:wireframeDeflection = 0.01
+    bool step:wireframeCombineCurves = 1
+    # Sketch
+    token step:sketchType = "linear"
+    token step:sketchSampling = "underlying"
+    float step:sketchDeflection = 0.005
+    bool step:sketchCombineCurves = 1
+    # Other
+    float step:renderPurposeThreshold = 0.0
+    bool step:enableSurfaceSubsets = 0
+    bool step:enableUVs = 1
+    bool step:enableSurfaceID = 0
+    bool step:enableIsBoundaryVertex = 0
 }

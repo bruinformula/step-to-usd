@@ -12,6 +12,7 @@ def StepTessellationOptions "DefaultOptions"
 {
     float step:meshAngularDeflection = 15
     float step:meshLinearDeflection = 0.1
+    bool step:wireframeCombineCurves = 0
 }
 
 def StepFileContainer "Wonderful"

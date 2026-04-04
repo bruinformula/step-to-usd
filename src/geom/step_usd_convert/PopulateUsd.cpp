@@ -80,19 +80,10 @@ static TessParams getTessParams(
 
     AutolibStepTessellationAPI api(prim);
 
+    // Meshing
     updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
     updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
     updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize);
-
-    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection);
-    updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type);
-    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling);
-
-    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
-    updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
-    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
-
-    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
     updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold);
     updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses);
 
@@ -100,6 +91,24 @@ static TessParams getTessParams(
     updateIfAuthored(api.GetStepMeshTimeoutAttr(), &params.meshTimeout);
     updateIfAuthored(api.GetStepRemeshTimeoutAttr(), &params.remeshTimeout);
 
+    // Wireframe
+    updateIfAuthored(api.GetStepWireframeCombineCurvesAttr(), &params.wireframeCombineCurves);
+    updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection);
+    updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type);
+    updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling);
+
+    // Sketch
+    updateIfAuthored(api.GetStepSketchCombineCurvesAttr(), &params.sketchCombineCurves);
+    updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
+    updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
+    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
+
+    // Other
+    updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
+    updateIfAuthored(api.GetStepEnableSurfaceSubsetsAttr(), &params.enableSurfaceSubsets);
+    updateIfAuthored(api.GetStepEnableUVsAttr(), &params.enableUVs);
+    updateIfAuthored(api.GetStepEnableSurfaceIDAttr(), &params.enableSurfaceID);
+    updateIfAuthored(api.GetStepEnableIsBoundaryVertexAttr(), &params.enableIsBoundaryVertex);
 
     return params;
 }

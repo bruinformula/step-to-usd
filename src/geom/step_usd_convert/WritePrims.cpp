@@ -217,11 +217,13 @@ static void defineMeshGeometry(
 ) {
     UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
-    for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
-        UsdGeomSubset::Define(
-            stage,
-            proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
-        );
+    if (params.enableSurfaceSubsets) {
+        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+            UsdGeomSubset::Define(
+                stage,
+                proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
+            );
+        }
     }
     
     UsdGeomPrimvarsAPI api(proto);
@@ -238,19 +240,22 @@ static void writeMeshGeometry(
 ) {
     UsdGeomMesh proto(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
 
-    for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
-        int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
 
-        VtIntArray indices(count);
-        std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
+    if (params.enableSurfaceSubsets) {
+        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+            int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
+
+            VtIntArray indices(count);
+            std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
+            
+            UsdGeomSubset subset(stage->GetPrimAtPath(proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
+            subset.CreateElementTypeAttr().Set(UsdGeomTokens->face);
+            subset.CreateIndicesAttr().Set(indices);
+            subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
+        }
         
-        UsdGeomSubset subset(stage->GetPrimAtPath(proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
-        subset.CreateElementTypeAttr().Set(UsdGeomTokens->face);
-        subset.CreateIndicesAttr().Set(indices);
-        subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
+        UsdGeomSubset::SetFamilyType(proto, TfToken("materialBind"), UsdGeomTokens->partition);
     }
-
-    UsdGeomSubset::SetFamilyType(proto, TfToken("materialBind"), UsdGeomTokens->partition);
 
     proto.GetPointsAttr().Set(r.points);
     proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
@@ -260,9 +265,9 @@ static void writeMeshGeometry(
     proto.GetNormalsAttr().Set(r.normals);
 
     UsdGeomPrimvarsAPI api(proto);
-    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
-    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceID"))) p.Set(r.surfaceIDs);
-    if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
+    if (params.enableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
+    if (params.enableSurfaceID) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceID"))) p.Set(r.surfaceIDs);
+    if (params.enableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
 }
 
 static void defineWireframeGeometry(
@@ -274,19 +279,28 @@ static void defineWireframeGeometry(
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
     UsdGeomXform::Define(stage, wireframePath);
 
-    int pointOffset = 0;
-    for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
-        int count = r.wireframeCounts[ci];
-
+    if (params.wireframeCombineCurves) {
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
-            stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
+            stage, wireframePath.AppendChild(TfToken("Curves"))
         );
-        
-        if (ci < (int)r.curveContinuity.size()) {
+        if (!r.curveContinuity.empty()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
         }
+    } else {
+        int pointOffset = 0;
+        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
+            int count = r.wireframeCounts[ci];
 
-        pointOffset += count;
+            UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
+                stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
+            );
+            
+            if (ci < (int)r.curveContinuity.size()) {
+                UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
+            }
+
+            pointOffset += count;
+        }
     }
 }
 
@@ -298,35 +312,59 @@ static void writeWireframeGeometry(
 ) {
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
 
-    int pointOffset = 0;
-    for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
-        int count = r.wireframeCounts[ci];
+    if (params.wireframeCombineCurves) {
+        UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
-        VtArray<GfVec3f> pts(
-            r.curvePoints.begin() + pointOffset,
-            r.curvePoints.begin() + pointOffset + count
-        );
-
-        UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
-
-        if (params.wireframeMode.type == CurveType::Cubic) {
+        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
             curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
             curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
         curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        curve.GetPointsAttr().Set(pts);
-        curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-        curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+        curve.GetPointsAttr().Set(r.curvePoints);
+        curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
+        
+        curve.CreateWidthsAttr().Set(VtArray<float>{0.1f});
+        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.1f});
+        
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
-        if (ci < (int)r.curveContinuity.size()) {
+        if (!r.curveContinuity.empty()) {
             UsdGeomPrimvarsAPI api(curve);
-            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(VtIntArray{r.curveContinuity[ci]});
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(r.curveContinuity);
         }
+    } else {
+        int pointOffset = 0;
+        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
+            int count = r.wireframeCounts[ci];
 
-        pointOffset += count;
+            VtArray<GfVec3f> pts(
+                r.curvePoints.begin() + pointOffset,
+                r.curvePoints.begin() + pointOffset + count
+            );
+
+            UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
+
+            if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+                curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            curve.GetPointsAttr().Set(pts);
+            curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+            curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+            curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
+
+            if (ci < (int)r.curveContinuity.size()) {
+                UsdGeomPrimvarsAPI api(curve);
+                if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(VtIntArray{r.curveContinuity[ci]});
+            }
+
+            pointOffset += count;
+        }
     }
 }
 
@@ -339,15 +377,21 @@ static void defineSketchGeometry(
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
     UsdGeomScope::Define(stage, sketchPath);
 
-    int pointOffset = 0;
-    for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
-        int count = r.sketchCounts[ci];
-
-        UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
-            stage, sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))
+    if (params.sketchCombineCurves) {
+        UsdGeomBasisCurves::Define(
+            stage, sketchPath.AppendChild(TfToken("Curves"))
         );
+    } else {
+        int pointOffset = 0;
+        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
+            int count = r.sketchCounts[ci];
 
-        pointOffset += count;
+            UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
+                stage, sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))
+            );
+
+            pointOffset += count;
+        }
     }
 }
 
@@ -359,30 +403,49 @@ static void writeSketchGeometry(
 ) {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
 
-    int pointOffset = 0;
-    for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
-        int count = r.sketchCounts[ci];
+    if (params.sketchCombineCurves) {
+        UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curves"))));
 
-        VtArray<GfVec3f> pts(
-            r.sketchPoints.begin() + pointOffset,
-            r.sketchPoints.begin() + pointOffset + count
-        );
-
-        UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))));
-
-        if (params.sketchMode.type == CurveType::Cubic) {
+        if (params.sketchMode.type == TessParams::CurveType::Cubic) {
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
         sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        sketchCurve.GetPointsAttr().Set(pts);
-        sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-        sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+        sketchCurve.GetPointsAttr().Set(r.sketchPoints);
+        sketchCurve.GetCurveVertexCountsAttr().Set(r.sketchCounts);
+        
+        sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.1f});
+        UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.1f});
+        
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
+    } else {
+        int pointOffset = 0;
+        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
+            int count = r.sketchCounts[ci];
 
-        pointOffset += count;
+            VtArray<GfVec3f> pts(
+                r.sketchPoints.begin() + pointOffset,
+                r.sketchPoints.begin() + pointOffset + count
+            );
+
+            UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Sketch_" + std::to_string(ci)))));
+
+            if (params.sketchMode.type == TessParams::CurveType::Cubic) {
+                sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+            } else {
+                sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
+            }
+            sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+            sketchCurve.GetPointsAttr().Set(pts);
+            sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+            sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+            sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
+
+            pointOffset += count;
+        }
     }
 }
 

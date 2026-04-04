@@ -1,5 +1,4 @@
 #include <stddef.h>
-#include <_ctype.h>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -45,7 +44,6 @@
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
-#include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -227,44 +225,44 @@ void updateIfAuthored(const UsdAttribute& attr, T* value) {
 
 // Helper to read a token attr and convert to CurveType
 template <>
-void updateIfAuthored(const UsdAttribute& attr, CurveSampling* value) {
+void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveSampling* value) {
     bool hasValue = attr.HasValue();
     if (!hasValue) return;
 
     TfToken token;
     if (!attr.Get(&token)) {
-        *value = CurveSampling::Underlying;
+        *value = TessParams::CurveSampling::Underlying;
         return;
     }
 
     if (token == AutolibTokens->underlying) {
-        *value = CurveSampling::Underlying;
+        *value = TessParams::CurveSampling::Underlying;
         return;
     } else if (token == AutolibTokens->resampled) {
-        *value = CurveSampling::Resampled;
+        *value = TessParams::CurveSampling::Resampled;
         return;
     }
 }
 
 template <>
-void updateIfAuthored(const UsdAttribute& attr, CurveType* value) {
+void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveType* value) {
     bool hasValue = attr.HasValue();
     if (!hasValue) return;
 
     TfToken token;
     if (!attr.Get(&token)) {
-        *value = CurveType::None;
+        *value = TessParams::CurveType::None;
         return;
     }
 
     if (token == AutolibTokens->none) {
-        *value = CurveType::None;
+        *value = TessParams::CurveType::None;
         return;
     } else if (token == AutolibTokens->linear) {
-        *value = CurveType::Linear;
+        *value = TessParams::CurveType::Linear;
         return;
     } else if (token == AutolibTokens->cubic) {
-        *value = CurveType::Cubic;
+        *value = TessParams::CurveType::Cubic;
         return;
     }
 }
@@ -273,6 +271,7 @@ template void updateIfAuthored<float>(const UsdAttribute&, float*);
 template void updateIfAuthored<double>(const UsdAttribute&, double*);
 template void updateIfAuthored<int>(const UsdAttribute&, int*);
 template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
+template void updateIfAuthored<bool>(const UsdAttribute&, bool*);
 
 std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     const UsdPrim& prim

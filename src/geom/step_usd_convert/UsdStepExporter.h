@@ -23,22 +23,6 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-enum class CurveType {
-    None,                // ain't got nothing on me
-    Linear,              // polyline using the tessellated mesh boundary vertices directly
-    Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
-};
-
-enum class CurveSampling {
-    Underlying, // polyline using the tessellated mesh boundary vertices
-    Resampled   // resampled from the underlying curve geometry
-};
-
-struct CurveMode {
-    CurveType type;
-    CurveSampling sampling;
-};
-
 struct TessResult {
     SdfPath targetLayer;
 
@@ -73,27 +57,53 @@ struct TessResult {
 };
 
 struct TessParams {
-    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
-    // in the units of the model along the diagonal. 
-    // if proto is smaller it gets marked as a render only asset
-
-    float meshLinearDeflection = 0.05f; // as a fraction of the diagonal of the bounding box
-    float meshAngularDeflection = 0.35f;
-    double meshMinSize = 0.1;
-
-    float wireframeDeflection = 1.0f;
-    CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
-
-    float sketchDeflection = 0.5f;
-    CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
-
-    double selfIntersectionThreshold = 1e-3;
-    int maxNumberRemeshPasses = 3;
+    // Meshing
+    float meshLinearDeflection = 1.0f;       // Linear deflection as fraction of bounding-box diagonal
+    float meshAngularDeflection = 0.5f;      // Angular deflection in radians
+    double meshMinSize = 0.0;                // Minimum triangle edge length as fraction of bounding-box diagonal
+    double selfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
+    int maxNumberRemeshPasses = 1;           // Maximum remesh passes
 
     // Timeout in milliseconds
-    uint64_t fixTimeout = 3000;
-    uint64_t meshTimeout = 3000;
-    uint64_t remeshTimeout = 3000;
+    uint64_t fixTimeout = 3000;            
+    uint64_t meshTimeout = 3000;           
+    uint64_t remeshTimeout = 3000;   
+    
+    //
+    enum class CurveType {
+        None,                // ain't got nothing on me
+        Linear,              // polyline using the tessellated mesh boundary vertices directly
+        Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
+    };
+
+    enum class CurveSampling {
+        Underlying, // polyline using the tessellated mesh boundary vertices
+        Resampled   // resampled from the underlying curve geometry
+    };
+
+    struct CurveMode {
+        CurveType type;
+        CurveSampling sampling;
+    };
+
+    // Wireframe
+    float wireframeDeflection = 0.01f;     
+    CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
+    bool wireframeCombineCurves = true;    
+
+    // Sketch
+    float sketchDeflection = 0.005f;       
+    CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
+    bool sketchCombineCurves = true;       
+
+    // Other 
+    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
+    bool enableSurfaceSubsets = false;     
+    bool enableUVs = true;
+    bool enableSurfaceID = false;
+    bool enableIsBoundaryVertex = false;
+    // in the units of the model along the diagonal. 
+    // if proto is smaller it gets marked as a render only asset
 };
 
 struct UsdStepExporter {
@@ -256,15 +266,16 @@ template <typename T>
 void updateIfAuthored(const UsdAttribute& attr, T* value);
 
 template <>
-void updateIfAuthored<CurveType>(const UsdAttribute& attr, CurveType* value);
+void updateIfAuthored<TessParams::CurveType>(const UsdAttribute& attr, TessParams::CurveType* value);
 
 template <>
-void updateIfAuthored<CurveSampling>(const UsdAttribute& attr, CurveSampling* value);
+void updateIfAuthored<TessParams::CurveSampling>(const UsdAttribute& attr, TessParams::CurveSampling* value);
 
 extern template void updateIfAuthored<float>(const UsdAttribute&, float*);
 extern template void updateIfAuthored<double>(const UsdAttribute&, double*);
 extern template void updateIfAuthored<int>(const UsdAttribute&, int*);
 extern template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
+extern template void updateIfAuthored<bool>(const UsdAttribute&, bool*);
 
 std::map<SdfPath, TessParams> resolveParams(
     const UsdPrim& containerPrim,

@@ -345,7 +345,7 @@ bool UsdStepExporter::tessellatePart(
         }
 
         std::vector<TriNodeKey> edgeCanonicalKeys;
-        if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
+        if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
             edgeCanonicalKeys.reserve(numNodes);
 
         try {
@@ -370,7 +370,7 @@ bool UsdStepExporter::tessellatePart(
                     }
                 }
 
-                if (isSurfaceBoundary && params.wireframeMode.sampling == CurveSampling::Underlying)
+                if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
                     edgeCanonicalKeys.push_back(canonKey);
             }
         } catch (const Standard_Failure& e) {
@@ -381,8 +381,8 @@ bool UsdStepExporter::tessellatePart(
             std::cerr << "Unknown exception in face iteration\n";
         }
 
-        if (isSurfaceBoundary && params.wireframeMode.type != CurveType::None) {
-            if (params.wireframeMode.sampling == CurveSampling::Underlying) {
+        if (isSurfaceBoundary && params.wireframeMode.type != TessParams::CurveType::None) {
+            if (params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
                 if (edgeCanonicalKeys.size() >= 2)
                     deferredLinearCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
@@ -392,7 +392,7 @@ bool UsdStepExporter::tessellatePart(
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
 
-                    if (params.wireframeMode.type == CurveType::Cubic) {
+                    if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
                         result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -428,7 +428,7 @@ bool UsdStepExporter::tessellatePart(
     // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
-    if (params.sketchMode.type != CurveType::None) {
+    if (params.sketchMode.type != TessParams::CurveType::None) {
         for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
             const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
             if (BRep_Tool::Degenerated(edge)) continue;
@@ -441,7 +441,7 @@ bool UsdStepExporter::tessellatePart(
 
             double deflection;
             
-            if (params.sketchMode.type == CurveType::Linear) {
+            if (params.sketchMode.type == TessParams::CurveType::Linear) {
                 deflection = params.wireframeDeflection;
             } else {
                 deflection = params.sketchDeflection;
@@ -455,7 +455,7 @@ bool UsdStepExporter::tessellatePart(
 
             int n = sampler.NbPoints();
 
-            if (params.sketchMode.type == CurveType::Cubic) {
+            if (params.sketchMode.type == TessParams::CurveType::Cubic) {
                 // Phantom start — duplicate first point for Catmull-Rom
                 gp_Pnt p0 = sampler.Value(1);
                 result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -607,7 +607,6 @@ bool UsdStepExporter::tessellatePart(
         }
         uvPatches.push_back(std::move(patch));
     }
-
     result.perSurfaceUVs = packUVAtlas(uvPatches);
 
     result.isBoundaryVertex.resize(result.points.size(), false);
@@ -623,13 +622,13 @@ bool UsdStepExporter::tessellatePart(
                 resolved.push_back(it->second);
         }
         if (resolved.size() >= 2) {
-            if (params.wireframeMode.type == CurveType::Cubic) {
+            if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom start — duplicate first point
                 result.curvePoints.push_back(result.points[resolved.front()]);
             }
             for (int idx : resolved)
                 result.curvePoints.push_back(result.points[idx]);
-            if (params.wireframeMode.type == CurveType::Cubic) {
+            if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom end — duplicate last point
                 result.curvePoints.push_back(result.points[resolved.back()]);
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
