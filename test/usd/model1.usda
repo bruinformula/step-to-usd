@@ -31,7 +31,7 @@ def StepFileContainer "Wonderful" (
         over "rod0"
         {
             float step:meshAngularDeflection = 0.1
-            float step:meshLinearDeflection = 0.075
+            float step:meshLinearDeflection = 0.01
         }
 
         over "bolt0"
