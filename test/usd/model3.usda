@@ -1,0 +1,69 @@
+#usda 1.0
+(
+    defaultPrim = "Wonderful"
+    metersPerUnit = 0.001
+    subLayers = [
+        @model3-assembly.usdc@
+    ]
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    float step:meshAngularDeflection = 0.05
+    float step:meshLinearDeflection = 0.1
+    bool step:wireframeCombineCurves = 0
+}
+
+def StepFileContainer "Wonderful"
+{
+    asset step:sourceAsset = @step/model3.STEP@
+
+    def StepFilePrototypes "Prototypes" (
+        active = false
+        prepend payload = @model3-prototypes.usdc@</Prototypes>
+    )
+    {
+        rel step:defaultParams = </DefaultOptions>
+
+        over "rod0"
+        {
+            float step:meshAngularDeflection = 0.1
+            float step:meshLinearDeflection = 0.01
+        }
+
+        over "bolt0"
+        {
+            float step:meshAngularDeflection = 0.5
+            float step:meshLinearDeflection = 0.1
+        }
+    }
+
+    over "CADPart"
+    {
+        over "Wireframe" (
+            active = false
+        )
+        {
+        }
+
+        over "Sketch" (
+            active = false
+        )
+        {
+        }
+
+        over "SketchPlane" (
+            active = true
+        )
+        {
+        }
+
+        over "Mesh" (
+            active = false
+        )
+        {
+        }
+    }
+}
+

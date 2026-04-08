@@ -33,6 +33,9 @@
 #include <opencascade/BRepTools.hxx>
 #include <opencascade/BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
 #include <opencascade/Bnd_Box.hxx>
+#include <opencascade/BOPAlgo_Splitter.hxx>
+#include <opencascade/BRepBuilderAPI_MakeFace.hxx>
+#include <opencascade/BRep_Builder.hxx>
 #include <opencascade/GeomAbs_Shape.hxx>
 #include <opencascade/GeomAdaptor_Surface.hxx>
 #include <opencascade/NCollection_IndexedDataMap.hxx>
@@ -40,14 +43,19 @@
 #include <opencascade/NCollection_List.hxx>
 #include <opencascade/Poly_PolygonOnTriangulation.hxx>
 #include <opencascade/Poly_Triangle.hxx>
+#include <opencascade/ShapeAnalysis_FreeBounds.hxx>
 #include <opencascade/Standard_Failure.hxx>
 #include <opencascade/Standard_Handle.hxx>
 #include <opencascade/TopAbs_Orientation.hxx>
 #include <opencascade/TopAbs_ShapeEnum.hxx>
+#include <opencascade/TopTools_HSequenceOfShape.hxx>
+#include <opencascade/TopTools_IndexedMapOfShape.hxx>
 #include <opencascade/TopTools_ShapeMapHasher.hxx>
 #include <opencascade/TopoDS_Edge.hxx>
 #include <opencascade/TopoDS_Face.hxx>
 #include <opencascade/TopoDS_Shape.hxx>
+#include <opencascade/TopoDS_Vertex.hxx>
+#include <opencascade/TopoDS_Wire.hxx>
 #include <opencascade/gp_Pnt.hxx>
 #include <opencascade/gp_Pnt2d.hxx>
 #include <opencascade/gp_Vec.hxx>
@@ -425,17 +433,25 @@ bool UsdStepExporter::tessellatePart(
     auto edgeWalkEnd = Clock::now();
     LOG_DEBUG("  Edge-walk time: " + std::to_string(Seconds(edgeWalkEnd - meshEnd).count()) + " s");
 
+    std::vector<TopoDS_Edge> freeEdges;
+    freeEdges.reserve(edgeToFaces.Extent());
+    for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
+        if (BRep_Tool::Degenerated(edge)) continue;
+
+        int edgeIdx = edgeToFaces.FindIndex(edge);
+        bool isFreeEdge = (edgeIdx == 0) || (edgeToFaces.FindFromIndex(edgeIdx).Extent() == 0);
+        if (isFreeEdge) {
+            freeEdges.push_back(edge);
+        }
+    }
+    LOG_DEBUG("  -> Sketch plane input: freeEdges=" + std::to_string(freeEdges.size()));
+
     // sketches in Step 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
     if (params.sketchMode.type != TessParams::CurveType::None) {
-        for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
-            const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
-            if (BRep_Tool::Degenerated(edge)) continue;
-
-            int edgeIdx = edgeToFaces.FindIndex(edge);
-            bool isFreeEdge = (edgeIdx == 0) || (edgeToFaces.FindFromIndex(edgeIdx).Extent() == 0);
-            if (!isFreeEdge) continue;
+        for (const TopoDS_Edge& edge : freeEdges) {
 
             BRepAdaptor_Curve adaptor(edge);
 
@@ -475,6 +491,218 @@ bool UsdStepExporter::tessellatePart(
                 }
                 result.sketchCounts.push_back(n);
             }
+        }
+    }
+
+    // Build sketch planes from free edges using OCCT topology:
+    // split all free edges at intersections, connect split edges into wires,
+    // convert closed wires into planar faces, then triangulate those faces.
+    if (!freeEdges.empty()) {
+        try {
+            TopoDS_Compound freeEdgeCompound;
+            BRep_Builder builder;
+            builder.MakeCompound(freeEdgeCompound);
+            for (const TopoDS_Edge& edge : freeEdges) {
+                builder.Add(freeEdgeCompound, edge);
+            }
+
+            TopoDS_Shape splitShape = freeEdgeCompound;
+            BOPAlgo_Splitter splitter;
+            splitter.AddArgument(freeEdgeCompound);
+            splitter.Perform();
+            if (splitter.HasErrors()) {
+                LOG_DEBUG("  -> Sketch plane splitter reported errors; using unsplit free edges");
+            } else {
+                splitShape = splitter.Shape();
+                LOG_DEBUG("  -> Sketch plane splitter completed without errors");
+            }
+
+            TopTools_IndexedMapOfShape splitEdgeMap;
+            TopExp::MapShapes(splitShape, TopAbs_EDGE, splitEdgeMap);
+            LOG_DEBUG("  -> Sketch plane split edge count=" + std::to_string(splitEdgeMap.Extent()));
+
+            opencascade::handle<TopTools_HSequenceOfShape> edgeSeq = new TopTools_HSequenceOfShape();
+            for (int ei = 1; ei <= splitEdgeMap.Extent(); ++ei) {
+                const TopoDS_Edge& edge = TopoDS::Edge(splitEdgeMap.FindKey(ei));
+                if (!BRep_Tool::Degenerated(edge)) {
+                    edgeSeq->Append(edge);
+                }
+            }
+            LOG_DEBUG("  -> Sketch plane usable split edges=" + std::to_string(edgeSeq->Length()));
+
+            opencascade::handle<TopTools_HSequenceOfShape> wireSeq = new TopTools_HSequenceOfShape();
+            double edgeTolerance = std::max(1e-7, diagonal * 1e-7);
+            ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, Standard_True, wireSeq);
+            if (wireSeq->Length() >= edgeSeq->Length()) {
+                // Fallback: connect by geometric proximity when topology sharing is absent.
+                opencascade::handle<TopTools_HSequenceOfShape> fallbackWireSeq = new TopTools_HSequenceOfShape();
+                const double fallbackTolerance = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
+                ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTolerance, Standard_False, fallbackWireSeq);
+                if (fallbackWireSeq->Length() < wireSeq->Length()) {
+                    wireSeq = fallbackWireSeq;
+                    edgeTolerance = fallbackTolerance;
+                    LOG_DEBUG("  -> Sketch plane wire connect fallback used (shared=false)");
+                }
+            }
+            LOG_DEBUG(
+                "  -> Sketch plane wire candidates=" +
+                std::to_string(wireSeq->Length()) +
+                " (tol=" + std::to_string(edgeTolerance) + ")"
+            );
+
+            int closedWireCount = 0;
+            int makeFaceFailedCount = 0;
+            int emptyTriangulationCount = 0;
+            int emittedPlaneCount = 0;
+            int emittedPlaneTriangles = 0;
+            int geomClosedWireCount = 0;
+
+            auto isWireGeometricallyClosed = [&](const TopoDS_Wire& wire, double tol) {
+                TopoDS_Vertex vFirst;
+                TopoDS_Vertex vLast;
+                TopExp::Vertices(wire, vFirst, vLast);
+                if (vFirst.IsNull() || vLast.IsNull()) {
+                    return false;
+                }
+                if (vFirst.IsSame(vLast)) {
+                    return true;
+                }
+                const gp_Pnt pFirst = BRep_Tool::Pnt(vFirst);
+                const gp_Pnt pLast = BRep_Tool::Pnt(vLast);
+                return pFirst.Distance(pLast) <= tol;
+            };
+
+            for (int wi = 1; wi <= wireSeq->Length(); ++wi) {
+                const TopoDS_Wire wire = TopoDS::Wire(wireSeq->Value(wi));
+                const bool topologicallyClosed = BRep_Tool::IsClosed(wire);
+                const bool geometricallyClosed = isWireGeometricallyClosed(wire, edgeTolerance * 10.0);
+                if (geometricallyClosed) {
+                    geomClosedWireCount++;
+                }
+
+                if (!(topologicallyClosed || geometricallyClosed)) {
+                    if (wi <= 10) {
+                        int edgeCount = 0;
+                        for (TopExp_Explorer edgeExp(wire, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+                            edgeCount++;
+                        }
+                        LOG_DEBUG(
+                            "  -> Sketch plane open wire[" + std::to_string(wi) +
+                            "] edges=" + std::to_string(edgeCount)
+                        );
+                    }
+                    continue;
+                }
+                closedWireCount++;
+
+                BRepBuilderAPI_MakeFace makeFace(wire, Standard_True);
+                if (!makeFace.IsDone()) {
+                    makeFaceFailedCount++;
+                    continue;
+                }
+
+                const TopoDS_Face sketchFace = makeFace.Face();
+                if (sketchFace.IsNull()) {
+                    makeFaceFailedCount++;
+                    continue;
+                }
+
+                BRepMesh_IncrementalMesh planeMesher(sketchFace, meshParams);
+                planeMesher.Perform();
+
+                TopLoc_Location sketchLoc;
+                occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(sketchFace, sketchLoc);
+                if (tri.IsNull() || tri->NbTriangles() == 0 || tri->NbNodes() == 0) {
+                    emptyTriangulationCount++;
+                    continue;
+                }
+
+                emittedPlaneCount++;
+                emittedPlaneTriangles += tri->NbTriangles();
+
+                const gp_Trsf sketchTrsf = sketchLoc.Transformation();
+                const int basePoint = static_cast<int>(result.sketchPlanePoints.size());
+                const int faceCountStart = static_cast<int>(result.sketchPlaneFaceVertexCounts.size());
+                const int faceIndexStart = static_cast<int>(result.sketchPlaneFaceVertexIndices.size());
+                const int normalStart = static_cast<int>(result.sketchPlaneNormals.size());
+
+                for (int ni = 1; ni <= tri->NbNodes(); ++ni) {
+                    gp_Pnt p = tri->Node(ni).Transformed(sketchTrsf);
+                    result.sketchPlanePoints.push_back(GfVec3f(
+                        static_cast<float>(p.X()),
+                        static_cast<float>(p.Y()),
+                        static_cast<float>(p.Z())
+                    ));
+                }
+
+                const bool reversed = (sketchFace.Orientation() == TopAbs_REVERSED);
+                for (int ti = 1; ti <= tri->NbTriangles(); ++ti) {
+                    int n1 = 0, n2 = 0, n3 = 0;
+                    tri->Triangle(ti).Get(n1, n2, n3);
+                    if (reversed) std::swap(n2, n3);
+
+                    const int i1 = basePoint + (n1 - 1);
+                    const int i2 = basePoint + (n2 - 1);
+                    const int i3 = basePoint + (n3 - 1);
+
+                    result.sketchPlaneFaceVertexCounts.push_back(3);
+                    result.sketchPlaneFaceVertexIndices.push_back(i1);
+                    result.sketchPlaneFaceVertexIndices.push_back(i2);
+                    result.sketchPlaneFaceVertexIndices.push_back(i3);
+
+                    const GfVec3f& p1 = result.sketchPlanePoints[i1];
+                    const GfVec3f& p2 = result.sketchPlanePoints[i2];
+                    const GfVec3f& p3 = result.sketchPlanePoints[i3];
+                    GfVec3f normal = GfCross(p2 - p1, p3 - p1);
+                    if (normal.GetLength() > 1e-10f) {
+                        normal.Normalize();
+                    } else {
+                        normal = GfVec3f(0.0f, 0.0f, 1.0f);
+                    }
+
+                    result.sketchPlaneNormals.push_back(normal);
+                    result.sketchPlaneNormals.push_back(normal);
+                    result.sketchPlaneNormals.push_back(normal);
+                }
+
+                const int pointCount = static_cast<int>(result.sketchPlanePoints.size()) - basePoint;
+                const int faceCountCount = static_cast<int>(result.sketchPlaneFaceVertexCounts.size()) - faceCountStart;
+                const int faceIndexCount = static_cast<int>(result.sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
+                const int normalCount = static_cast<int>(result.sketchPlaneNormals.size()) - normalStart;
+
+                if (pointCount > 0 && faceCountCount > 0 && faceIndexCount > 0) {
+                    result.sketchPlaneBounds.push_back({
+                        basePoint,
+                        pointCount,
+                        faceCountStart,
+                        faceCountCount,
+                        faceIndexStart,
+                        faceIndexCount,
+                        normalStart,
+                        normalCount
+                    });
+                }
+            }
+
+            LOG_DEBUG(
+                "  -> Sketch plane summary: closedWires=" + std::to_string(closedWireCount) +
+                ", geomClosedWires=" + std::to_string(geomClosedWireCount) +
+                ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
+                ", emptyTriangulations=" + std::to_string(emptyTriangulationCount) +
+                ", emittedPlanes=" + std::to_string(emittedPlaneCount) +
+                ", emittedTriangles=" + std::to_string(emittedPlaneTriangles)
+            );
+            LOG_DEBUG(
+                "  -> Sketch plane output buffers: points=" + std::to_string(result.sketchPlanePoints.size()) +
+                ", faceCounts=" + std::to_string(result.sketchPlaneFaceVertexCounts.size()) +
+                ", faceIndices=" + std::to_string(result.sketchPlaneFaceVertexIndices.size())
+            );
+        } catch (const Standard_Failure& e) {
+            LOG_DEBUG(std::string("  -> Sketch plane reconstruction OCCT failure: ") + e.GetMessageString());
+        } catch (const std::exception& e) {
+            LOG_DEBUG(std::string("  -> Sketch plane reconstruction std failure: ") + e.what());
+        } catch (...) {
+            LOG_DEBUG("  -> Sketch plane reconstruction unknown failure");
         }
     }
 
@@ -682,7 +910,10 @@ bool UsdStepExporter::tessellatePart(
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.
-    if (result.points.empty() && result.sketchCounts.empty() && result.wireframeCounts.empty()) {
+    if (result.points.empty() &&
+        result.sketchCounts.empty() &&
+        result.wireframeCounts.empty() &&
+        result.sketchPlaneFaceVertexIndices.empty()) {
         LOG_DEBUG("def produced no geometry, wireframeCounts, sketch curves in Shape");
         return false;
     }

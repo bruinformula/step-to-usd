@@ -97,6 +97,7 @@ void UsdStepExporter::writeCadPart(
     makeClassChild("Mesh");
     makeClassChild("Wireframe");
     makeClassChild("Sketch");
+    makeClassChild("SketchPlanes");
     
     if (defaultParamsRef.has_value()) {
         cadPart.GetReferences().AddReference(
@@ -455,6 +456,74 @@ static void writeSketchGeometry(
     }
 }
 
+static void defineSketchPlaneGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params
+) {
+    SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
+    UsdGeomScope::Define(stage, sketchPlanesPath);
+    for (size_t pi = 0; pi < r.sketchPlaneBounds.size(); ++pi) {
+        UsdGeomMesh::Define(stage, sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi))));
+    }
+}
+
+static void writeSketchPlaneGeometry(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessResult& r,
+    const TessParams& params
+) {
+    SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
+    for (size_t pi = 0; pi < r.sketchPlaneBounds.size(); ++pi) {
+        const TessResult::SketchPlaneBounds& b = r.sketchPlaneBounds[pi];
+
+        if (b.pointStart < 0 || b.pointCount <= 0 ||
+            b.faceCountStart < 0 || b.faceCountCount <= 0 ||
+            b.faceIndexStart < 0 || b.faceIndexCount <= 0 ||
+            b.normalStart < 0 || b.normalCount <= 0) {
+            continue;
+        }
+
+        if (static_cast<size_t>(b.pointStart + b.pointCount) > r.sketchPlanePoints.size() ||
+            static_cast<size_t>(b.faceCountStart + b.faceCountCount) > r.sketchPlaneFaceVertexCounts.size() ||
+            static_cast<size_t>(b.faceIndexStart + b.faceIndexCount) > r.sketchPlaneFaceVertexIndices.size() ||
+            static_cast<size_t>(b.normalStart + b.normalCount) > r.sketchPlaneNormals.size()) {
+            continue;
+        }
+
+        VtArray<GfVec3f> points(
+            r.sketchPlanePoints.begin() + b.pointStart,
+            r.sketchPlanePoints.begin() + b.pointStart + b.pointCount
+        );
+        VtArray<int> counts(
+            r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
+            r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount
+        );
+        VtArray<int> indices(
+            r.sketchPlaneFaceVertexIndices.begin() + b.faceIndexStart,
+            r.sketchPlaneFaceVertexIndices.begin() + b.faceIndexStart + b.faceIndexCount
+        );
+        for (int& idx : indices) {
+            idx -= b.pointStart;
+        }
+        VtArray<GfVec3f> normals(
+            r.sketchPlaneNormals.begin() + b.normalStart,
+            r.sketchPlaneNormals.begin() + b.normalStart + b.normalCount
+        );
+
+        UsdGeomMesh mesh(stage->GetPrimAtPath(sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi)))));
+        mesh.GetPointsAttr().Set(points);
+        mesh.GetFaceVertexCountsAttr().Set(counts);
+        mesh.GetFaceVertexIndicesAttr().Set(indices);
+        mesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+        mesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+        mesh.GetNormalsAttr().Set(normals);
+        mesh.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.55f, 0.8f, 1.0f}});
+    }
+}
+
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& inJobs,
@@ -529,6 +598,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
                 threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
                 threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("SketchPlanes")));
 
                 if (r.renderOnly) {
                     UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr();
@@ -546,6 +616,10 @@ void UsdStepExporter::writePrototypeGeometries(
                     defineSketchGeometry(threadStage, baseProtoPath, r, params);
                 }
 
+                if (!r.sketchPlaneFaceVertexIndices.empty()) {
+                    defineSketchPlaneGeometry(threadStage, baseProtoPath, r, params);
+                }
+
             } else {
                 protoXform = UsdGeomScope::Get(threadStage, protoPath);
                 if (!protoXform) {
@@ -555,6 +629,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 threadStage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
                 threadStage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
                 threadStage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
+                threadStage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlanes")));
 
                 if (r.renderOnly) {
                     UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr();
@@ -570,6 +645,10 @@ void UsdStepExporter::writePrototypeGeometries(
 
                 if (!r.sketchCounts.empty()) {
                     defineSketchGeometry(threadStage, protoPath, r, params);
+                }
+
+                if (!r.sketchPlaneFaceVertexIndices.empty()) {
+                    defineSketchPlaneGeometry(threadStage, protoPath, r, params);
                 }
             }
         }
@@ -620,6 +699,10 @@ void UsdStepExporter::writePrototypeGeometries(
 
                 if (!r.sketchCounts.empty()) {
                     writeSketchGeometry(threadStage, writeProtoPath, r, params);
+                }
+
+                if (!r.sketchPlaneFaceVertexIndices.empty()) {
+                    writeSketchPlaneGeometry(threadStage, writeProtoPath, r, params);
                 }
 
                 int c = ++completed;
@@ -734,6 +817,7 @@ void UsdStepExporter::writePrototypeGeometries(
             stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
             stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
             stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
+            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("SketchPlanes")));
 
             if (r.renderOnly) {
                 UsdPrim p = stage->GetPrimAtPath(baseProtoPath);
@@ -745,16 +829,19 @@ void UsdStepExporter::writePrototypeGeometries(
             bool hasPoints = !r.points.empty();
             bool hasWireframe = !r.wireframeCounts.empty();
             bool hasSketch = !r.sketchCounts.empty();
+            bool hasSketchPlanes = !r.sketchPlaneFaceVertexIndices.empty();
 
             if (hasPoints) defineMeshGeometry(stage, baseProtoPath, r, params);
             if (hasWireframe) defineWireframeGeometry(stage, baseProtoPath, r, params);
             if (hasSketch) defineSketchGeometry(stage, baseProtoPath, r, params);
+            if (hasSketchPlanes) defineSketchPlaneGeometry(stage, baseProtoPath, r, params);
 
             {
                 SdfChangeBlock changeBlock;
                 if (hasPoints) writeMeshGeometry(stage, baseProtoPath, r, params);
                 if (hasWireframe) writeWireframeGeometry(stage, baseProtoPath, r, params);
                 if (hasSketch) writeSketchGeometry(stage, baseProtoPath, r, params);
+                if (hasSketchPlanes) writeSketchPlaneGeometry(stage, baseProtoPath, r, params);
             }
 
         }

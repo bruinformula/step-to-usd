@@ -52,6 +52,25 @@ struct TessResult {
     VtArray<GfVec3f> sketchPoints;
     VtArray<int> sketchCounts;
 
+    // Sketch planes reconstructed from closed free-edge loops
+    VtArray<GfVec3f> sketchPlanePoints;
+    VtArray<GfVec3f> sketchPlaneNormals;
+    VtArray<int> sketchPlaneFaceVertexCounts;
+    VtArray<int> sketchPlaneFaceVertexIndices;
+
+    struct SketchPlaneBounds {
+        int pointStart;
+        int pointCount;
+        int faceCountStart;
+        int faceCountCount;
+        int faceIndexStart;
+        int faceIndexCount;
+        int normalStart;
+        int normalCount;
+    };
+
+    std::vector<SketchPlaneBounds> sketchPlaneBounds;
+
     // Render Purpose
     bool renderOnly; 
 };
