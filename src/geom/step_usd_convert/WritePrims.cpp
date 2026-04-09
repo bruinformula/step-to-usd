@@ -332,8 +332,8 @@ static void writeWireframeGeometry(
         curve.GetPointsAttr().Set(r.curvePoints);
         curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
         
-        curve.CreateWidthsAttr().Set(VtArray<float>{0.1f});
-        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.1f});
+        curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
+        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
         
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
@@ -362,7 +362,7 @@ static void writeWireframeGeometry(
             curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
             curve.GetPointsAttr().Set(pts);
             curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+            curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
             if (ci < (int)r.curveContinuity.size()) {
@@ -423,8 +423,8 @@ static void writeSketchGeometry(
         sketchCurve.GetPointsAttr().Set(r.sketchPoints);
         sketchCurve.GetCurveVertexCountsAttr().Set(r.sketchCounts);
         
-        sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.1f});
-        UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.1f});
+        sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
+        UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
         
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
@@ -448,7 +448,7 @@ static void writeSketchGeometry(
             sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
             sketchCurve.GetPointsAttr().Set(pts);
             sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.1f));
+            sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
             pointOffset += count;

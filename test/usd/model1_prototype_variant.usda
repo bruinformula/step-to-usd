@@ -39,6 +39,12 @@ def StepFileContainer "Wonderful"
     {
         variantSet "LOD" = {
             "high" (
+                delete payload = [
+                    @LOD/model1-LOD-high-prototypes.usdc@</Prototypes>,
+                    @/Users/duck/cg/repos/livery-shaders/test/usd/LOD/model1-LOD-high-prototypes.usdc@</Prototypes>,
+                    @LOD/model1-LOD-low-prototypes.usdc@</Prototypes>,
+                    @/Users/duck/cg/repos/livery-shaders/test/usd/LOD/model1-LOD-low-prototypes.usdc@</Prototypes>
+                ]
                 prepend payload = @LOD/model1-LOD-high-prototypes.usdc@</Prototypes>
             ) {
                 rel step:defaultParams = </HighOptions>
@@ -51,6 +57,10 @@ def StepFileContainer "Wonderful"
 
             }
             "low" (
+                delete payload = [
+                    @LOD/model1-LOD-low-prototypes.usdc@</Prototypes>,
+                    @/Users/duck/cg/repos/livery-shaders/test/usd/LOD/model1-LOD-low-prototypes.usdc@</Prototypes>
+                ]
                 prepend payload = @LOD/model1-LOD-low-prototypes.usdc@</Prototypes>
             ) {
                 rel step:defaultParams = </LowOptions>
