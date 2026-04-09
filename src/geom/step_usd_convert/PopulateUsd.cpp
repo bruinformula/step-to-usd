@@ -35,6 +35,7 @@
 #include <pxr/usd/usd/variantSets.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usd/specializes.h>
+#include <pxr/usd/usd/primRange.h>
 
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/scope.h>
@@ -53,7 +54,9 @@
 #pragma pop_macro("Handle")
 
 #include "stepTessellationAPI.h"
+#include "stepFileContainerAPI.h"
 #include "stepFilePrototypesAPI.h"
+#include "stepFileContainer.h"
 #include "stepFilePrototypes.h"
 
 #include "UsdStepExporter.h"
@@ -400,6 +403,103 @@ bool UsdStepExporter::validateVariants(
     }
 
     return true;
+}
+
+std::optional<UsdStepExporter> UsdStepExporter::create(
+    const fs::path& inputUsdFile
+) {
+    UsdStageRefPtr stage = UsdStage::Open(inputUsdFile, UsdStage::LoadNone);
+    if (!stage) {
+        LOG_ERR("Failed to create stage at " + inputUsdFile.string());
+        return std::nullopt;
+    }
+
+    std::unordered_set<SdfAssetPath, SdfAssetPath::Hash> referencedStepAssetPaths;
+
+    // Do a scan for all refernced Step Assets, so 
+    // we can load them in parallel and cache the 
+    // results to avoid redundant parsing of the same STEP file.
+    // Helper to extract asset paths from a prim under its current variant context
+    auto collectFromPrim = [&](const UsdPrim& prim) {
+        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) return;
+
+        AutolibStepFileContainer container(prim);
+        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+
+        SdfAssetPath sdfAssetPath;
+        if (!pathAttr.Get(&sdfAssetPath)) {
+            LOG_ERR("Failed to get asset path from UsdAttribute");
+            return;
+        }
+
+        referencedStepAssetPaths.insert(sdfAssetPath);
+    };
+
+    // Recursively iterate all variant combinations for a prim
+    std::function<void(const UsdPrim&, const std::vector<std::string>&, int)> collectAllVariants;
+    collectAllVariants = [&](
+        const UsdPrim& prim,
+        const std::vector<std::string>& variantSetNames,
+        int depth)
+    {
+        if (depth == static_cast<int>(variantSetNames.size())) {
+            // All variant sets have a selectionm
+            collectFromPrim(prim);
+            return;
+        }
+
+        const std::string& setName = variantSetNames[depth];
+        UsdVariantSet variantSet   = prim.GetVariantSets().GetVariantSet(setName);
+        const std::string original = variantSet.GetVariantSelection();
+
+        for (const std::string& variantName : variantSet.GetVariantNames()) {
+            variantSet.SetVariantSelection(variantName);
+            collectAllVariants(prim, variantSetNames, depth + 1);
+        }
+
+        // Restore original selection
+        if (original.empty()) {
+            variantSet.ClearVariantSelection();
+        } else {
+            variantSet.SetVariantSelection(original);
+        }
+    };
+
+    for (const auto& prim : stage->TraverseAll()) {
+        const std::vector<std::string> variantSetNames =
+            prim.GetVariantSets().GetNames();
+
+        if (variantSetNames.empty()) {
+            collectFromPrim(prim);
+        } else {
+            collectAllVariants(prim, variantSetNames, 0);
+        }
+    }
+
+    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
+
+    {
+        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedStepAssetPaths.size()) + " files)");
+        WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
+            std::string resolvedPath = assetPath.GetResolvedPath();
+
+            if (resolvedPath.empty()) {
+                LOG_ERR("Failed to resolve path to: " + assetPath.GetAssetPath());
+                return;
+            }
+
+            std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
+
+            if (!optModel.has_value()) {
+                LOG_ERR("Failed to load STEP model from " + resolvedPath);
+                return;
+            }
+
+            modelCache.insert_or_assign(assetPath, std::move(*optModel));
+        });
+    }
+
+    return UsdStepExporter(stage, modelCache);
 }
 
 void UsdStepExporter::populateUsd(
@@ -794,4 +894,10 @@ void UsdStepExporter::populateUsd(
     if (!mark.IsClean()) {
         for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
+}
+
+static void populate(
+    UsdStageRefPtr stage
+) {
+
 }

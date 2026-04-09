@@ -153,54 +153,17 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    UsdStageRefPtr stage = UsdStage::Open(inputArgs.inputUsdFile, UsdStage::LoadNone);
-    if (!stage) {
-        LOG_ERR("Failed to create stage at " + inputArgs.inputUsdFile.string());
+    std::optional<UsdStepExporter> optionalStepExporter = UsdStepExporter::create(inputArgs.inputUsdFile);
+
+    if (!optionalStepExporter.has_value()) {
+        std::cerr << "Failed to initialize UsdStepExporter." << std::endl;
         return 1;
     }
 
-    std::unordered_set<SdfAssetPath, SdfAssetPath::Hash> referencedStepAssetPaths;
+    UsdStepExporter stepExporter = std::move(*optionalStepExporter);
 
-    // Do a scan for all refernced Step Assets, so 
-    // we can load them in parallel and cache the 
-    // results to avoid redundant parsing of the same STEP file.
-    for (const auto& prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
-
-        AutolibStepFileContainer container(prim);
-        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
-        
-        SdfAssetPath sdfAssetPath;
-        if (!pathAttr.Get(&sdfAssetPath)) {
-            LOG_ERR("Failed to get asset path from UsdAttribute");
-            continue;
-        }
-        
-        referencedStepAssetPaths.insert(sdfAssetPath);
-    }
-
-    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
-
-    {
-        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedStepAssetPaths.size()) + " files)");
-        WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
-            std::string resolvedPath = assetPath.GetResolvedPath();
-
-            if (resolvedPath.empty()) {
-                LOG_ERR("Failed to resolve path to: " + assetPath.GetAssetPath());
-                return;
-            }
-
-            std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
-
-            if (!optModel.has_value()) {
-                LOG_ERR("Failed to load STEP model from " + resolvedPath);
-                return;
-            }
-
-            modelCache.insert_or_assign(assetPath, std::move(*optModel));
-        });
-    }
+    const UsdStageRefPtr& stage = stepExporter.containerStage;
+    const std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash>& modelCache = stepExporter.modelCache;
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {

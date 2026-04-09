@@ -127,7 +127,11 @@ struct TessParams {
 };
 
 struct UsdStepExporter {
-    
+
+    static std::optional<UsdStepExporter> create(
+        const fs::path& inputUsdFile
+    );
+
     static void populateUsd(
         const StepModel& model, 
         UsdStageRefPtr containerStage,
@@ -135,7 +139,16 @@ struct UsdStepExporter {
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
     );
 
+    UsdStepExporter(
+        UsdStageRefPtr cs, 
+        std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> mc
+    ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
+
+    UsdStageRefPtr containerStage;
+    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
+
 private:
+
 
     struct UVPatch {
         std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
