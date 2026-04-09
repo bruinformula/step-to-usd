@@ -84,6 +84,24 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
     return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
 }
 
+static void removeTargetedPrototypePayload(
+    const UsdPrim& prototypesPrim,
+    const std::string& payloadIdentifier,
+    const SdfPath& prototypesPath,
+    const fs::path& containerFilePath
+) {
+    if (!prototypesPrim.IsValid() || payloadIdentifier.empty()) return;
+
+    UsdPayloads payloads = prototypesPrim.GetPayloads();
+
+    // Remove the relative payload arc we author for this generated stage.
+    payloads.RemovePayload(SdfPayload(payloadIdentifier, prototypesPath));
+
+    // Also remove an absolute identifier form if one was previously authored.
+    fs::path absolutePayloadPath = (containerFilePath / fs::path(payloadIdentifier)).lexically_normal();
+    payloads.RemovePayload(SdfPayload(absolutePayloadPath.string(), prototypesPath));
+}
+
 static TessParams getTessParams(
     UsdPrim prim,
     const TessParams& defaultParams = {}
@@ -470,7 +488,32 @@ void UsdStepExporter::populateUsd(
         return false;
     };
 
+    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
+    resolveStageFilterInfo(containerPrimPath, prototypesInContainerPath, selectedPaths, stageFilterMap);
+
+    // Look up whether a given (variantSetName, variantName) stage should be built fresh.
+    auto getStageMakeFresh = [&](const std::string& variantSetName, const std::string& variantName) -> bool {
+        if (selectedPaths.empty()) return true;
+
+        SdfPath stageKey;
+        if (variantSetName.empty()) {
+            stageKey = prototypesInContainerPath;
+        } else {
+            stageKey = prototypesInContainerPath.AppendVariantSelection(variantSetName, variantName);
+        }
+
+        auto it = stageFilterMap.find(stageKey);
+        if (it != stageFilterMap.end()) return it->second.makeFresh;
+
+        // Fallback: if /Prototypes (without container variant) is selected, refresh all variant stages.
+        it = stageFilterMap.find(prototypesInContainerPath);
+        if (it != stageFilterMap.end()) return it->second.makeFresh;
+
+        return false;
+    };
+
     {
+        SdfChangeBlock block;
         bool hasSpecificPrototype = false;
         bool hasContainerRoot = false;
         for (const SdfPath& sel : selectedPaths) {
@@ -486,54 +529,42 @@ void UsdStepExporter::populateUsd(
             LOG_WARN("selectedPaths contains /Prototypes container. whole prototypes hierarchy will be rebuilt.");
         }
 
-        // Keep the pre-clear pass only for full runs. For filtered runs, clear payloads
-        // only on variants that are actually rewritten below.
-        if (selectedPaths.empty()) {
-            SdfChangeBlock block;
-            if (containerVariantPaths.empty()) {
-                if (UsdPrim p = containerStage->GetPrimAtPath(prototypesInContainerPath))
-                    p.GetPayloads().ClearPayloads();
-            } else {
-                for (const SdfPath& path : containerVariantPaths) {
-                    std::pair<std::string, std::string> variantSelection = path.GetVariantSelection();
-                    const std::string& variantSetName = variantSelection.first;
-                    const std::string& variantName = variantSelection.second;
-
-                    UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(variantSetName);
-
-                    varSet.SetVariantSelection(variantName);
-                    UsdEditContext ctx(varSet.GetVariantEditContext());
-                    UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-                    prototypesPrim.GetPayloads().ClearPayloads();
+        // Pre-clear payloads only for stages that will be fully rebuilt.
+        // This avoids composing against a stage while its target layer is being reset.
+        if (containerVariantPaths.empty()) {
+            if (getStageMakeFresh("", "")) {
+                if (UsdPrim p = containerStage->GetPrimAtPath(prototypesInContainerPath)) {
+                    const fs::path stagePath = containerFilePath / (baseName + "-prototypes.usdc");
+                    const std::string payloadIdentifier = fs::relative(stagePath, containerFilePath).string();
+                    removeTargetedPrototypePayload(p, payloadIdentifier, prototypesPath, containerFilePath);
                 }
+            }
+        } else {
+            UsdPrim prototypesContainerPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
+            for (const SdfPath& path : containerVariantPaths) {
+                std::pair<std::string, std::string> variantSelection = path.GetVariantSelection();
+                const std::string& variantSetName = variantSelection.first;
+                const std::string& variantName = variantSelection.second;
+
+                if (!getStageMakeFresh(variantSetName, variantName)) {
+                    continue;
+                }
+
+                UsdVariantSet varSet = prototypesContainerPrim.GetVariantSet(variantSetName);
+                if (!varSet.IsValid()) {
+                    LOG_WARN("Unable to clear payloads for invalid variant set: " + variantSetName);
+                    continue;
+                }
+
+                varSet.SetVariantSelection(variantName);
+                UsdEditContext ctx(varSet.GetVariantEditContext());
+                UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
+                const fs::path stagePath = containerFilePath / variantSetName / (baseName + "-" + variantSetName + "-" + variantName + "-prototypes.usdc");
+                const std::string payloadIdentifier = fs::relative(stagePath, containerFilePath).string();
+                removeTargetedPrototypePayload(prototypesPrim, payloadIdentifier, prototypesPath, containerFilePath);
             }
         }
     }
-
-    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
-    resolveStageFilterInfo(containerPrimPath, prototypesInContainerPath, selectedPaths, stageFilterMap);
-
-    // Look up whether a given (variantSetName, variantName) stage should be built fresh.
-    auto getStageMakeFresh = [&](const std::string& variantSetName, const std::string& variantName) -> bool {
-        if (selectedPaths.empty()) return true;
-
-        SdfPath stageKey;
-        
-        if (variantSetName.empty()) {
-            stageKey = prototypesInContainerPath;
-        } else {
-            stageKey = prototypesInContainerPath.AppendVariantSelection(variantSetName, variantName);
-        }
-
-        auto it = stageFilterMap.find(stageKey);
-        if (it != stageFilterMap.end()) return it->second.makeFresh; 
-
-        // Add Fallback: Check if the base container path (no variant) is targeted for a full hierarchy refresh
-        it = stageFilterMap.find(prototypesInContainerPath);
-        if (it != stageFilterMap.end()) return it->second.makeFresh;
-
-        return false;
-    };
 
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
@@ -677,11 +708,11 @@ void UsdStepExporter::populateUsd(
             varSet.SetVariantSelection(proto.variantName);
             UsdEditContext ctx(varSet.GetVariantEditContext());
             UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-            prototypesPrim.GetPayloads().ClearPayloads();
+            removeTargetedPrototypePayload(prototypesPrim, payloadPath, prototypesPath, containerFilePath);
             prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
         } else {
             UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-            prototypesPrim.GetPayloads().ClearPayloads();
+            removeTargetedPrototypePayload(prototypesPrim, payloadPath, prototypesPath, containerFilePath);
             prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
         }
     }
