@@ -121,6 +121,7 @@ struct TessParams {
     bool enableUVs = true;
     bool enableSurfaceID = false;
     bool enableIsBoundaryVertex = false;
+    double unitScale = 1.0;                // Internal exporter scale: source model units -> target USD units.
     // in the units of the model along the diagonal. 
     // if proto is smaller it gets marked as a render only asset
 };
@@ -146,6 +147,7 @@ private:
         std::string variantName;
         fs::path filePath;
         UsdStageRefPtr stage;
+        bool makeFreshStage = false;
     };
 
     struct TessellationJob {
@@ -163,7 +165,7 @@ private:
         TessParams params;
     };
 
-    static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t);
+    static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale = 1.0);
 
     static std::string sanitizeUsdName(const std::string_view& name, int idx);
 
@@ -214,7 +216,8 @@ private:
         const SdfPath& containerPrimPath,
         const std::vector<StepModel::PartNode>& instances,
         const std::vector<SdfPath>& paths, 
-        const LabelMap<SdfPath>& prototypePaths
+        const LabelMap<SdfPath>& prototypePaths,
+        double linearScale
     );
 
     static void writePrototypeOverridesInAssemblyStage(

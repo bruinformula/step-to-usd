@@ -907,6 +907,19 @@ bool UsdStepExporter::tessellatePart(
     auto tessellateEnd = Clock::now();
     LOG_DEBUG("  Total tessellatePart time: " + std::to_string(Seconds(tessellateEnd - tessellateStart).count()) + " s");
 
+    if (params.unitScale != 1.0) {
+        const float s = static_cast<float>(params.unitScale);
+        auto scalePoints = [s](VtArray<GfVec3f>& points) {
+            for (GfVec3f& p : points) {
+                p *= s;
+            }
+        };
+        scalePoints(result.points);
+        scalePoints(result.curvePoints);
+        scalePoints(result.sketchPoints);
+        scalePoints(result.sketchPlanePoints);
+    }
+
     // A definition is valid if it has mesh geometry OR sketch curves.
     // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
     // but do carry sketch curves, so only reject if both are absent.

@@ -856,7 +856,8 @@ void UsdStepExporter::writeAssemblyXforms(
     const SdfPath& containerPrimPath,
     const std::vector<StepModel::PartNode>& partNodes,
     const std::vector<SdfPath>& paths, 
-    const LabelMap<SdfPath>& prototypePaths
+    const LabelMap<SdfPath>& prototypePaths,
+    double linearScale
 ) {
     LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
     
@@ -885,7 +886,7 @@ void UsdStepExporter::writeAssemblyXforms(
         {
             SdfChangeBlock changeBlock;
             // Usd composes the full world transform later
-            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform));
+            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
             if (node.type == StepModel::PartNodeType::Leaf) {
                 auto protoIter = prototypePaths.find(node.definitionLabel);
                 if (protoIter == prototypePaths.end()) {

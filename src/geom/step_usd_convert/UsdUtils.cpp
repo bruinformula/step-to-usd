@@ -49,14 +49,17 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 // rotation block: transposed relative to OCC Value(row,col) convention
 // // translation: from TranslationPart() into the last row
-GfMatrix4d UsdStepExporter::trsfToGfMatrix(const gp_Trsf& t) {
+GfMatrix4d UsdStepExporter::trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
     gp_XYZ trans = t.TranslationPart();
     auto clean = [](double v) { return std::abs(v) < 1e-10 ? 0.0 : v; };
     return GfMatrix4d(
         clean(t.Value(1,1)), clean(t.Value(2,1)), clean(t.Value(3,1)), 0.0,
         clean(t.Value(1,2)), clean(t.Value(2,2)), clean(t.Value(3,2)), 0.0,
         clean(t.Value(1,3)), clean(t.Value(2,3)), clean(t.Value(3,3)), 0.0,
-        clean(trans.X()),    clean(trans.Y()),    clean(trans.Z()),    1.0
+        clean(trans.X() * linearScale),
+        clean(trans.Y() * linearScale),
+        clean(trans.Z() * linearScale),
+        1.0
     );
 }
 

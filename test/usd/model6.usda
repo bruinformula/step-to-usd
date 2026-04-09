@@ -1,0 +1,30 @@
+#usda 1.0
+(
+    defaultPrim = "Wonderful"
+    metersPerUnit = 0.001
+    subLayers = [
+        @model6-assembly.usdc@
+    ]
+    upAxis = "Y"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    float step:meshAngularDeflection = 0.05
+    float step:meshLinearDeflection = 0.1
+    bool step:wireframeCombineCurves = 0
+}
+
+def StepFileContainer "Wonderful"
+{
+    asset step:sourceAsset = @step/model6.STEP@
+
+    def StepFilePrototypes "Prototypes" (
+        active = false
+        prepend payload = @model6-prototypes.usdc@</Prototypes>
+    )
+    {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+

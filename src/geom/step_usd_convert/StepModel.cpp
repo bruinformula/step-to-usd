@@ -2,8 +2,6 @@
 #include <filesystem>
 #include <unordered_map>
 #include <exception>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
 
 #include <opencascade/BinXCAFDrivers.hxx>
@@ -24,10 +22,7 @@
 #include <opencascade/PCDM_ReaderStatus.hxx>
 #include <opencascade/PCDM_StoreStatus.hxx>
 #include <opencascade/Quantity_TypeOfColor.hxx>
-#include <opencascade/STEPControl_Reader.hxx>
 #include <opencascade/Standard_Failure.hxx>
-#include <opencascade/TColStd_SequenceOfAsciiString.hxx>
-#include <opencascade/TCollection_AsciiString.hxx>
 #include <opencascade/TCollection_ExtendedString.hxx>
 #include <opencascade/TCollection_HAsciiString.hxx>
 #include <opencascade/TDF_LabelSequence.hxx>
@@ -40,50 +35,6 @@
 
 #include "StepModel.h"
 #include "Logger.h"
-
-// Init
-static fs::path unitsCachePath(const fs::path& xbfPath) {
-    fs::path p = xbfPath;
-    return p.replace_extension("units");
-}
-
-static void saveUnitsCache(const fs::path& xbfPath, double metersPerUnit) {
-    std::ofstream f(unitsCachePath(xbfPath));
-    if (f) f << std::setprecision(17) << metersPerUnit;
-}
-
-static double loadUnitsCache(const fs::path& xbfPath) {
-    std::ifstream f(unitsCachePath(xbfPath));
-    double v = 0.001;
-    if (f) f >> v;
-    return v;
-}
-
-static double readStepLengthUnit(STEPControl_Reader& cafReader) {
-    TColStd_SequenceOfAsciiString lengthUnits, angleUnits, solidAngleUnits;
-    cafReader.FileUnits(lengthUnits, angleUnits, solidAngleUnits);
-
-    if (lengthUnits.IsEmpty()) {
-        LOG_ERR("Warning: FileUnits() returned nothing, assuming mm");
-        return 0.001;
-    }
-
-    TCollection_AsciiString unit = lengthUnits.First();
-    unit.LowerCase();
-
-    if (unit == "metre"      || unit == "meter"      || unit == "m")   return 1.0;
-    if (unit == "millimetre" || unit == "millimeter"  || unit == "mm")  return 0.001;
-    if (unit == "centimetre" || unit == "centimeter"  || unit == "cm")  return 0.01;
-    if (unit == "micrometre" || unit == "micrometer"  || unit == "um")  return 1e-6;
-    if (unit == "kilometre"  || unit == "kilometer"   || unit == "km")  return 1000.0;
-    if (unit == "inch"       || unit == "in")                           return 0.0254;
-    if (unit == "foot"       || unit == "ft")                           return 0.3048;
-    if (unit == "yard"       || unit == "yd")                           return 0.9144;
-    if (unit == "mil"        || unit == "thou")                         return 2.54e-5;
-
-    LOG_ERR("Warning: unrecognised unit '" + std::string(unit.ToCString()) + "', assuming mm");
-    return 0.001;
-}
 
 std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;
@@ -101,6 +52,7 @@ std::string getLabelName(const TDF_Label& label) {
 
 std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
     try {
+        constexpr double kOcctWorkingMetersPerUnit = 0.001;
         OSD_Parallel::SetUseOcctThreads(true);
         occt::handle<TDocStd_Application> app = new TDocStd_Application();
         BinXCAFDrivers::DefineFormat(app);
@@ -109,7 +61,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         occt::handle<TDocStd_Document> doc;
         app->NewDocument("BinXCAF", doc);
 
-        double metersPerUnit = 0.0;
+        double metersPerUnit = kOcctWorkingMetersPerUnit;
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
             LOG_INFO("XBF doesn't exist or is out of date. Building from Step...");
             LOG_SCOPED_TIMER("Build XBF Document from STEP file");
@@ -118,9 +70,6 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
                 LOG_ERR("Error reading Step file");
                 return std::nullopt;
             }
-            STEPControl_Reader innerReader = reader.Reader();
-            metersPerUnit = readStepLengthUnit(innerReader);
-            LOG_INFO("Step length unit: " + std::to_string(metersPerUnit) + " m");
             if (!reader.Transfer(doc)) {
                 LOG_ERR("Error transferring Step data");
                 return std::nullopt;
@@ -129,16 +78,14 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
             doc->ChangeStorageFormat("BinXCAF");
             if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
                 LOG_ERR("Warning: failed to save XBF cache");
-            saveUnitsCache(xbfPath, metersPerUnit);
         } else {
             LOG_INFO("Loading cached XBF from " + xbfPath.string());
             if (app->Open(xbfPath.c_str(), doc) != PCDM_RS_OK) {
                 LOG_ERR("Error opening XBF");
                 return std::nullopt;
             }
-            metersPerUnit = loadUnitsCache(xbfPath);
-            LOG_INFO("Step length unit (cached): " + std::to_string(metersPerUnit) + " m");
         }
+        LOG_INFO("Working OCC length unit: " + std::to_string(metersPerUnit) + " m");
 
         auto shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
         auto colorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());

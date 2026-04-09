@@ -2,6 +2,7 @@
 #include <optional>
 #include <string>
 #include <filesystem>
+#include <cmath>
 #include <map>
 #include <unordered_set>
 #include <utility>
@@ -39,6 +40,7 @@
 #include <pxr/usd/usdGeom/scope.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/metrics.h>
 
 #include <pxr/usd/sdf/declareHandles.h>
 #include <pxr/usd/sdf/layer.h>
@@ -59,6 +61,28 @@
 #include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMetersPerUnit) {
+    if (!fs::exists(stagePath)) return false;
+
+    UsdStageRefPtr stage = UsdStage::Open(stagePath.string(), UsdStage::LoadNone);
+    if (!stage) {
+        LOG_WARN("Failed to open existing stage for unit check: " + stagePath.string() + ". Forcing rebuild.");
+        return true;
+    }
+
+    if (!stage->HasAuthoredMetadata(TfToken("metersPerUnit"))) {
+        return true;
+    }
+
+    double stageMetersPerUnit = 0.0;
+    if (!stage->GetMetadata(TfToken("metersPerUnit"), &stageMetersPerUnit)) {
+        return true;
+    }
+
+    constexpr double kUnitTolerance = 1e-12;
+    return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
+}
 
 static TessParams getTessParams(
     UsdPrim prim,
@@ -391,7 +415,19 @@ void UsdStepExporter::populateUsd(
         return;
     }
 
+    // Generated layers follow the root stage unit if authored.
+    // If missing, author a deterministic fallback of 1.0 meters-per-unit on the root.
+    constexpr double fallbackMetersPerUnit = 1.0;
+    double outputMetersPerUnit = fallbackMetersPerUnit;
+    if (UsdGeomStageHasAuthoredMetersPerUnit(containerStage)) {
+        outputMetersPerUnit = UsdGeomGetStageMetersPerUnit(containerStage);
+    } else {
+        UsdGeomSetStageMetersPerUnit(containerStage, fallbackMetersPerUnit);
+    }
+    const double sourceToOutputScale = model.metersPerUnit / outputMetersPerUnit;
+
     containerStage->Unload();
+
 
     fs::path containerFilePath = fs::canonical(containerStage->GetRootLayer()->GetResolvedPath().GetPathString()).remove_filename();
     std::string baseName = model.stepPath.stem().string();
@@ -505,6 +541,10 @@ void UsdStepExporter::populateUsd(
     if (containerVariantPaths.empty()) {
         fs::path prototypesStageFilePath = containerFilePath / (baseName + "-prototypes.usdc");
         bool makeFreshStage = getStageMakeFresh("", "");
+        if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
+            LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
+            makeFreshStage = true;
+        }
 
         UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
@@ -512,12 +552,13 @@ void UsdStepExporter::populateUsd(
         if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
             existingPrototypesContainer.SetActive(true);
 
-        prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
+        UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
+        prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
         AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
         prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
         prototypesStage->Save();
 
-        prototypes.push_back({"", "", prototypesStageFilePath, prototypesStage});
+        prototypes.push_back({"", "", prototypesStageFilePath, prototypesStage, makeFreshStage});
 
     } else {
         baseName += "-";
@@ -538,6 +579,10 @@ void UsdStepExporter::populateUsd(
 
             fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usdc");
             bool makeFreshStage = getStageMakeFresh(variantSetName, variantName);
+            if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
+                LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
+                makeFreshStage = true;
+            }
 
             UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
@@ -545,22 +590,26 @@ void UsdStepExporter::populateUsd(
             if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
                 existingPrototypesContainer.SetActive(true);
 
-            prototypesStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
+            UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
             AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
             prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
             prototypesStage->Save();
 
-            prototypes.push_back({variantSetName, variantName, prototypesStageFilePath, prototypesStage});
+            prototypes.push_back({variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
         }
     }
     
     // Assembly Stage
     fs::path assemblyStageFilePath = containerFilePath / (model.stepPath.stem().string() + "-assembly.usdc");
     bool shouldCreateAssembly = !fs::exists(assemblyStageFilePath); // don't repopulate the stage if it alread exists 
+    if (stageNeedsUnitReset(assemblyStageFilePath, outputMetersPerUnit)) {
+        LOG_INFO("Resetting assembly stage due to metersPerUnit mismatch: " + assemblyStageFilePath.string());
+        shouldCreateAssembly = true;
+    }
     UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
     containerPrim = containerStage->GetPrimAtPath(containerPrimPath);
     
-    assemblyStage->SetMetadata(TfToken("metersPerUnit"), model.metersPerUnit);
+    UsdGeomSetStageMetersPerUnit(assemblyStage, outputMetersPerUnit);
     assemblyStage->SetDefaultPrim(assemblyStage->OverridePrim(containerPrimPath));
     UsdGeomXform::Define(assemblyStage, assemblyInContainerPath);
 
@@ -581,8 +630,6 @@ void UsdStepExporter::populateUsd(
             }
 
             writeCadPart(proto.stage, prototypesPrim, SdfPath("/CADPart"));
-            bool makeFreshStage = getStageMakeFresh(proto.variantSetName, proto.variantName);
-
             writePrototypeXformsInPrototypesStage(
                 proto.stage, 
                 containerPrim, 
@@ -593,7 +640,7 @@ void UsdStepExporter::populateUsd(
                 proto.variantSetName, 
                 proto.variantName, 
                 prototypePaths, 
-                makeFreshStage
+                proto.makeFreshStage
             );
             proto.stage->Save();
         }
@@ -608,7 +655,8 @@ void UsdStepExporter::populateUsd(
             containerPrim.GetPrimPath(), 
             model.partNodes, 
             nodePaths, 
-            prototypePaths
+            prototypePaths,
+            sourceToOutputScale
         );
         assemblyStage->Save();
     }
@@ -672,7 +720,7 @@ void UsdStepExporter::populateUsd(
             protocontainerPrim.SetActive(initialActive);
         }
 
-        bool runMesherInParallel = !getStageMakeFresh(proto.variantSetName, proto.variantName);
+        bool runMesherInParallel = !proto.makeFreshStage;
 
         for (size_t i = 0; i < defs.size(); ++i) {
             SdfPath protoPath = prototypePaths.at(defs[i].first); // /Prototypes/rod0
@@ -690,6 +738,7 @@ void UsdStepExporter::populateUsd(
                 if (kv.first.GetPrimPath() == paramKeyPath) {
                     foundVariantForProto = true;
                     params = kv.second;
+                    params.unitScale = sourceToOutputScale;
                     
                     // We need the prototypePath to include the variant
                     // selections so writer knows where to author
@@ -705,6 +754,7 @@ void UsdStepExporter::populateUsd(
             }
             
             if (!foundVariantForProto) {
+                params.unitScale = sourceToOutputScale;
                 tessJobs.push_back({&proto, (int)i, protoPath, params, TessResult(), runMesherInParallel});
             }
         }
