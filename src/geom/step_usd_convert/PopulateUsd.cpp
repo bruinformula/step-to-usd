@@ -87,24 +87,6 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
     return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
 }
 
-static void removeTargetedPrototypePayload(
-    const UsdPrim& prototypesPrim,
-    const std::string& payloadIdentifier,
-    const SdfPath& prototypesPath,
-    const fs::path& containerFilePath
-) {
-    if (!prototypesPrim.IsValid() || payloadIdentifier.empty()) return;
-
-    UsdPayloads payloads = prototypesPrim.GetPayloads();
-
-    // Remove the relative payload arc we author for this generated stage.
-    payloads.RemovePayload(SdfPayload(payloadIdentifier, prototypesPath));
-
-    // Also remove an absolute identifier form if one was previously authored.
-    fs::path absolutePayloadPath = (containerFilePath / fs::path(payloadIdentifier)).lexically_normal();
-    payloads.RemovePayload(SdfPayload(absolutePayloadPath.string(), prototypesPath));
-}
-
 static TessParams getTessParams(
     UsdPrim prim,
     const TessParams& defaultParams = {}
@@ -553,15 +535,10 @@ void UsdStepExporter::populateUsd(
     SdfPath assemblyPath("/Assembly");
     SdfPath prototypesPath("/Prototypes");
     SdfPath containerPrimPath = containerPrim.GetPath();
-    SdfPath assemblyInContainerPath = containerPrimPath.AppendChild(TfToken("Assembly"));
-    SdfPath prototypesInContainerPath = containerPrimPath.AppendChild(TfToken("Prototypes"));
+    SdfPath assemblyInContainerPath = assemblyPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
+    SdfPath prototypesInContainerPath = prototypesPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
 
-    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths;
-
-    UsdPrim protoPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
-    if (protoPrim) {
-        containerVariantPaths = getVariantsOnPrim(protoPrim);
-    }
+    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = getVariantsOnPrim(containerPrim);
 
     auto isContainerVariantSelected = [&](const SdfPath& variantPath) -> bool {
         if (selectedPaths.empty()) return true;
@@ -599,7 +576,7 @@ void UsdStepExporter::populateUsd(
         if (variantSetName.empty()) {
             stageKey = prototypesInContainerPath;
         } else {
-            stageKey = prototypesInContainerPath.AppendVariantSelection(variantSetName, variantName);
+            stageKey = containerPrimPath.AppendVariantSelection(variantSetName, variantName).AppendChild(TfToken("Prototypes"));
         }
 
         auto it = stageFilterMap.find(stageKey);
@@ -634,13 +611,12 @@ void UsdStepExporter::populateUsd(
         if (containerVariantPaths.empty()) {
             if (getStageMakeFresh("", "")) {
                 if (UsdPrim p = containerStage->GetPrimAtPath(prototypesInContainerPath)) {
-                    const fs::path stagePath = containerFilePath / (baseName + "-prototypes.usdc");
-                    const std::string payloadIdentifier = fs::relative(stagePath, containerFilePath).string();
-                    removeTargetedPrototypePayload(p, payloadIdentifier, prototypesPath, containerFilePath);
+                    p.GetPayloads().ClearPayloads();
                 }
             }
         } else {
-            UsdPrim prototypesContainerPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
+            UsdPrim containerPrimForClear = containerStage->GetPrimAtPath(containerPrimPath);
+
             for (const SdfPath& path : containerVariantPaths) {
                 std::pair<std::string, std::string> variantSelection = path.GetVariantSelection();
                 const std::string& variantSetName = variantSelection.first;
@@ -650,7 +626,7 @@ void UsdStepExporter::populateUsd(
                     continue;
                 }
 
-                UsdVariantSet varSet = prototypesContainerPrim.GetVariantSet(variantSetName);
+                UsdVariantSet varSet = containerPrimForClear.GetVariantSet(variantSetName); 
                 if (!varSet.IsValid()) {
                     LOG_WARN("Unable to clear payloads for invalid variant set: " + variantSetName);
                     continue;
@@ -659,9 +635,7 @@ void UsdStepExporter::populateUsd(
                 varSet.SetVariantSelection(variantName);
                 UsdEditContext ctx(varSet.GetVariantEditContext());
                 UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-                const fs::path stagePath = containerFilePath / variantSetName / (baseName + "-" + variantSetName + "-" + variantName + "-prototypes.usdc");
-                const std::string payloadIdentifier = fs::relative(stagePath, containerFilePath).string();
-                removeTargetedPrototypePayload(prototypesPrim, payloadIdentifier, prototypesPath, containerFilePath);
+                prototypesPrim.GetPayloads().ClearPayloads();
             }
         }
     }
@@ -670,7 +644,7 @@ void UsdStepExporter::populateUsd(
     std::vector<PrototypeContainer> prototypes;
 
     if (containerVariantPaths.empty()) {
-        fs::path prototypesStageFilePath = containerFilePath / (baseName + "-prototypes.usdc");
+        fs::path prototypesStageFilePath = containerFilePath / (baseName + "-assembly.usda");
         bool makeFreshStage = getStageMakeFresh("", "");
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
             LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -679,18 +653,22 @@ void UsdStepExporter::populateUsd(
 
         UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
-        UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesPath);
+        UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
         if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
             existingPrototypesContainer.SetActive(true);
 
         UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
-        AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
-        prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
+        UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
+        prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
+
+        AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesInContainerPath);
+
+        UsdGeomXform::Define(prototypesStage, assemblyInContainerPath);
         prototypesStage->Save();
-
+        
         prototypes.push_back({"", "", prototypesStageFilePath, prototypesStage, makeFreshStage});
-
+        
     } else {
         baseName += "-";
         for (const SdfPath& variantPath : containerVariantPaths) {
@@ -708,7 +686,7 @@ void UsdStepExporter::populateUsd(
                 }
             }
 
-            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usdc");
+            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-assembly.usda");
             bool makeFreshStage = getStageMakeFresh(variantSetName, variantName);
             if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
                 LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -717,55 +695,44 @@ void UsdStepExporter::populateUsd(
 
             UsdStageRefPtr prototypesStage = UsdStepExporter::initUsdStage(prototypesStageFilePath, makeFreshStage);
 
-            UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesPath);
+            UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
             if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
                 existingPrototypesContainer.SetActive(true);
 
             UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
-            AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
-            prototypesStage->SetDefaultPrim(prototypesScope.GetPrim());
-            prototypesStage->Save();
+            AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesInContainerPath);
+            
+            UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
+            prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
+            UsdGeomXform::Define(prototypesStage, assemblyInContainerPath);
 
+            prototypesStage->Save();
             prototypes.push_back({variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
         }
     }
-    
-    // Assembly Stage
-    fs::path assemblyStageFilePath = containerFilePath / (model.stepPath.stem().string() + "-assembly.usdc");
-    bool shouldCreateAssembly = !fs::exists(assemblyStageFilePath); // don't repopulate the stage if it alread exists 
-    if (stageNeedsUnitReset(assemblyStageFilePath, outputMetersPerUnit)) {
-        LOG_INFO("Resetting assembly stage due to metersPerUnit mismatch: " + assemblyStageFilePath.string());
-        shouldCreateAssembly = true;
-    }
-    UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
-    containerPrim = containerStage->GetPrimAtPath(containerPrimPath);
-    
-    UsdGeomSetStageMetersPerUnit(assemblyStage, outputMetersPerUnit);
-    assemblyStage->SetDefaultPrim(assemblyStage->OverridePrim(containerPrimPath));
-    UsdGeomXform::Define(assemblyStage, assemblyInContainerPath);
 
     SdfLayerHandle containerLayer = containerStage->GetRootLayer();
-    std::string assemblyRelativeFilePath = fs::relative(assemblyStageFilePath, containerFilePath).string();
     
     // Write Xforms
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(model.definitionShapes.begin(), model.definitionShapes.end());
     LabelMap<SdfPath> prototypePaths;
 
     { // Write prototypes and assembly references in their own stages
-        const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
-
+        std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInContainerPath);
+        
         for (const auto& proto : prototypes) {
             if (!proto.variantSetName.empty()) {
-                UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(proto.variantSetName);
+                UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrimPath).GetVariantSet(proto.variantSetName);
                 varSet.SetVariantSelection(proto.variantName);
             }
+            const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
 
             writeCadPart(proto.stage, prototypesPrim, SdfPath("/CADPart"));
             writePrototypeXformsInPrototypesStage(
                 proto.stage, 
                 containerPrim, 
                 defs, 
-                prototypesPath, 
+                prototypesInContainerPath, 
                 selectedPaths, 
                 containerPrimPath, 
                 proto.variantSetName, 
@@ -773,47 +740,33 @@ void UsdStepExporter::populateUsd(
                 prototypePaths, 
                 proto.makeFreshStage
             );
+
+            writeAssemblyXforms(
+                proto.stage, 
+                containerPrim.GetPrimPath(), 
+                model.partNodes, 
+                nodePaths, 
+                prototypePaths,
+                sourceToOutputScale
+            );
+
             proto.stage->Save();
         }
     }
-
-    writePrototypeOverridesInAssemblyStage(assemblyStage, containerPrim, prototypePaths);
-    std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInContainerPath);
-    
-    if (shouldCreateAssembly) { 
-        writeAssemblyXforms(
-            assemblyStage, 
-            containerPrim.GetPrimPath(), 
-            model.partNodes, 
-            nodePaths, 
-            prototypePaths,
-            sourceToOutputScale
-        );
-        assemblyStage->Save();
-    }
-
-    bool alreadyExists = false;
-    for (const auto& path : containerLayer->GetSubLayerPaths()) {
-        if (path == assemblyRelativeFilePath) { alreadyExists = true; break; }
-    }
-
-    if (!alreadyExists) containerLayer->InsertSubLayerPath(assemblyRelativeFilePath);
     
     // Payload logic on container stage
     for (const auto& proto : prototypes) {
         std::string payloadPath = fs::relative(proto.filePath, containerFilePath).string();
         
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrimPath).GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
-            UsdEditContext ctx(varSet.GetVariantEditContext());
-            UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-            removeTargetedPrototypePayload(prototypesPrim, payloadPath, prototypesPath, containerFilePath);
-            prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
+            UsdEditContext ctx(varSet.GetVariantEditContext()); // edits now land inside /Wonderful{LOD=high}{ }
+            containerPrim.GetPayloads().ClearPayloads();
+            containerPrim.GetPayloads().AddPayload(SdfPayload(payloadPath));
         } else {
-            UsdPrim prototypesPrim = containerStage->OverridePrim(prototypesInContainerPath);
-            removeTargetedPrototypePayload(prototypesPrim, payloadPath, prototypesPath, containerFilePath);
-            prototypesPrim.GetPayloads().AddPayload(SdfPayload(payloadPath, prototypesPath));
+            containerPrim.GetPayloads().ClearPayloads();
+            containerPrim.GetPayloads().AddPayload(SdfPayload(payloadPath));
         }
     }
     
@@ -828,7 +781,7 @@ void UsdStepExporter::populateUsd(
     for (const auto& proto : prototypes) {
 
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = containerStage->GetPrimAtPath(prototypesInContainerPath).GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrimPath).GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
         }
 
@@ -925,10 +878,4 @@ void UsdStepExporter::populateUsd(
     if (!mark.IsClean()) {
         for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";
     }
-}
-
-static void populate(
-    UsdStageRefPtr stage
-) {
-
 }

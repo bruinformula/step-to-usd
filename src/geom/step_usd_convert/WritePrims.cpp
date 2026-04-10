@@ -1,3 +1,4 @@
+#include <ostream>
 #include <stddef.h>
 #include <iostream>
 #include <utility>
@@ -899,7 +900,7 @@ void UsdStepExporter::writeAssemblyXforms(
                     continue;
                 }
 
-                SdfPath assemblyProtoPath = protoIter->second.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
+                const SdfPath& assemblyProtoPath = protoIter->second;
 
                 xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));

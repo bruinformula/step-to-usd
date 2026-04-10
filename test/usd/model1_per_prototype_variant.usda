@@ -2,9 +2,6 @@
 (
     defaultPrim = "Wonderful"
     metersPerUnit = 0.001
-    subLayers = [
-        @model1-assembly.usdc@
-    ]
     upAxis = "Z"
 )
 
@@ -20,13 +17,14 @@ def StepTessellationOptions "OptionsB"
     float step:meshLinearDeflection = 0.1
 }
 
-def StepFileContainer "Wonderful"
+def StepFileContainer "Wonderful" (
+    prepend payload = @model1-assembly.usda@
+)
 {
     asset step:sourceAsset = @step/model1.STEP@
 
     over StepFilePrototypes "Prototypes" (
         active = false
-        prepend payload = @model1-prototypes.usdc@</Prototypes>
     )
     {
         rel step:defaultParams = </OptionsA>

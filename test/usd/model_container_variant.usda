@@ -1,0 +1,60 @@
+#usda 1.0
+(
+    defaultPrim = "Wonderful"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    int step:maxNumberRemeshPasses = 5
+}
+
+def StepTessellationOptions "HighOptions"
+{
+    float step:meshAngularDeflection = 0.1
+    float step:meshLinearDeflection = 0.1
+}
+
+def StepTessellationOptions "LowOptions"
+{
+    float step:meshAngularDeflection = 10
+    float step:meshLinearDeflection = 10
+}
+
+def StepFileContainer "Wonderful" (
+    prepend payload = @model1.usda@
+    variants = {
+        string LOD = "high"
+        string model = "v1"
+    }
+    prepend variantSets = [ "LOD", "model" ]
+)
+{
+    variantSet "model" = {
+        "v1" {
+            asset step:sourceAsset = @step/model1.STEP@
+        }
+        "v2" {
+            asset step:sourceAsset = @step/model2.STEP@
+        }
+    }
+
+    variantSet "LOD" = {
+        "high" {
+            over StepFileContainer "Prototypes"
+            {
+                rel step:defaultParams = </HighOptions>
+            }
+
+        }
+        "low" {
+            over StepFileContainer "Prototypes"
+            {
+                rel step:defaultParams = </LowOptions>
+            }
+
+        }
+    }
+}
+
