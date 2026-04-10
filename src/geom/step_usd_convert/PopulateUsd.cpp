@@ -235,8 +235,13 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
 
     // Resolve the fully qualified prototypes path for the current container variant permutation
     SdfPath basePrototypesKey = containerPrimPath.AppendChild(TfToken("Prototypes"));
-    SdfPath prototypesKey = variantSetName.empty() ? basePrototypesKey 
-                          : basePrototypesKey.AppendVariantSelection(variantSetName, variantName);
+    SdfPath prototypesKey;
+
+    if (variantSetName.empty()) {
+        prototypesKey = basePrototypesKey;
+    } else {
+        prototypesKey = basePrototypesKey.AppendVariantSelection(variantSetName, variantName);
+    }
 
     // Project prototypePath onto this container
     SdfPath absoluteProtoPath;
@@ -286,6 +291,34 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
         }
 
         if (!hasConflictingVariant) return true;
+    }
+
+    return false;
+}
+
+bool UsdStepExporter::isAssemblyActiveInFilter(
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+    const SdfPath& containerPrimPath,
+    const SdfPath& prototypePath
+) {
+    if (selectedPaths.empty()) return true;
+
+    // remove all {Variant=Selection}
+    SdfPath cleanProto = prototypePath.StripAllVariantSelections();
+    SdfPath cleanContainer = containerPrimPath.StripAllVariantSelections();
+    SdfPath assemblyBase = cleanContainer.AppendChild(TfToken("Assembly"));
+
+    if (!cleanProto.HasPrefix(assemblyBase)) {
+        return false;
+    }
+    // Check against selections
+    for (const SdfPath& sel : selectedPaths) {
+        SdfPath cleanSel = sel.StripAllVariantSelections();
+        // Selection is a parent: /Container or /Container/Assembly
+        // Selection is the prim or a child: /Container/Assembly/rod0 or /Container/Assembly/rod0/screw
+        if (cleanProto.HasPrefix(cleanSel) || cleanSel.HasPrefix(cleanProto)) {
+            return true;
+        }
     }
 
     return false;
@@ -446,11 +479,18 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
         if (!prim.HasAPI<AutolibStepFileContainerAPI>()) return;
 
         AutolibStepFileContainer container(prim);
+        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
+
         UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
 
         SdfAssetPath sdfAssetPath;
         if (!pathAttr.Get(&sdfAssetPath)) {
             LOG_ERR("Failed to get asset path from UsdAttribute");
+            return;
+        }
+
+        if (sdfAssetPath.GetAssetPath().empty()) {
+            LOG_ERR("Resolved asset path is empty for prim: " + prim.GetPath().GetString());
             return;
         }
 
@@ -525,13 +565,35 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
 }
 
 void UsdStepExporter::populateUsd(
-    const StepModel& model, 
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
     const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
 ) {
     LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
+    
+    AutolibStepFileContainer container(containerPrim);
+
+    if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
+    UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+    
+    SdfAssetPath sdfAssetPath;
+    if (!pathAttr.Get(&sdfAssetPath)) {
+        LOG_ERR("Failed to get asset path from UsdAttribute");
+        return;
+    }
+
+    fs::path assetPath = sdfAssetPath.GetResolvedPath();
+    LOG_INFO("Processing STEP file: " + assetPath.string());
+
+    // Load the model, using the cache to avoid re-parsing the same STEP file.
+    auto iter = modelCache.find(sdfAssetPath);
+    if (iter == modelCache.end()) {
+        LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
+        return;
+    }
+
+    const StepModel& model = iter->second;
 
     if (!validateVariants(containerStage, containerPrim.GetPath(), selectedPaths)) {
         return;
@@ -546,12 +608,10 @@ void UsdStepExporter::populateUsd(
     } else {
         UsdGeomSetStageMetersPerUnit(containerStage, fallbackMetersPerUnit);
     }
-    const double sourceToOutputScale = model.metersPerUnit / outputMetersPerUnit;
 
     containerStage->Unload();
 
     fs::path containerFilePath = fs::canonical(containerStage->GetRootLayer()->GetResolvedPath().GetPathString()).remove_filename();
-    std::string baseName = model.stepPath.stem().string();
 
     SdfPath assemblyPath("/Assembly");
     SdfPath prototypesPath("/Prototypes");
@@ -663,6 +723,7 @@ void UsdStepExporter::populateUsd(
     }
 
     // Create the root layer for the container stage
+    std::string baseName = model.stepPath.stem().string();
     fs::path rootPath = containerFilePath / (baseName);
     fs::path rootStageFilePath = rootPath / (baseName + "-container.usda");
 
@@ -755,6 +816,7 @@ void UsdStepExporter::populateUsd(
     // Write Xforms
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(model.definitionShapes.begin(), model.definitionShapes.end());
     LabelMap<SdfPath> prototypePaths;
+    const double sourceToOutputScale = model.metersPerUnit / outputMetersPerUnit;
 
     { // Write prototypes and assembly references in their own stages
         std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInContainerPath);
@@ -785,11 +847,15 @@ void UsdStepExporter::populateUsd(
             proto.stage->Save();
         }
 
-        bool shouldCreateAssembly = !fs::exists(assemblyStageFilePath); // don't repopulate the stage if it already exists 
-        if (stageNeedsUnitReset(assemblyStageFilePath, outputMetersPerUnit)) {
+        bool assemblyNeedsUnitReset = stageNeedsUnitReset(assemblyStageFilePath, outputMetersPerUnit);
+        if (assemblyNeedsUnitReset) {
             LOG_INFO("Resetting assembly stage due to metersPerUnit mismatch: " + assemblyStageFilePath.string());
-            shouldCreateAssembly = true;
         }
+        bool isAssemblyInFilter = isAssemblyActiveInFilter(selectedPaths, containerPrimPath, assemblyInContainerPath);
+        if (!isAssemblyInFilter) {
+            LOG_DEBUG("Assembly stage will be skipped in generation because it is not targeted by selectedPaths.");
+        }
+        bool shouldCreateAssembly = assemblyNeedsUnitReset || isAssemblyInFilter;
         UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
         
         UsdGeomSetStageMetersPerUnit(assemblyStage, outputMetersPerUnit);

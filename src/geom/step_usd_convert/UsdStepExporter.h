@@ -132,8 +132,7 @@ struct UsdStepExporter {
         const fs::path& inputUsdFile
     );
 
-    static void populateUsd(
-        const StepModel& model, 
+    void populateUsd(
         UsdStageRefPtr containerStage,
         UsdPrim& containerPrim,
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
@@ -188,6 +187,12 @@ private:
         UsdStageRefPtr containerStage,
         const SdfPath& containerPrimPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
+    );
+
+    static bool isAssemblyActiveInFilter(
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+        const SdfPath& containerPrimPath,
+        const SdfPath& prototypePath
     );
 
     static bool isPrototypeActiveInFilter(

@@ -16,7 +16,6 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/variantSets.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
@@ -164,54 +163,13 @@ int main(int argc, char** argv) {
     const UsdStageRefPtr& stage = stepExporter.containerStage;
     const std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash>& modelCache = stepExporter.modelCache;
 
-    struct ContainerJob {
-        SdfPath primPath;
-        SdfAssetPath assetPath;
-    };
-    
-    std::vector<ContainerJob> jobs;
-
+    // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
         if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
 
-        AutolibStepFileContainer container(prim);
-        SdfAssetPath sdfAssetPath;
-        if (!container.GetStepSourceAssetAttr().Get(&sdfAssetPath)) {
-            LOG_ERR("Failed to get asset path from UsdAttribute");
-            continue;
-        }
-
-        // Skip prims that have no source asset (e.g. AutolibStepFilePrototypes 
-        // which also carries the API but no step:sourceAsset)
-        if (sdfAssetPath.GetAssetPath().empty()) continue;
-
-        // Skip if not resolvable
-        if (sdfAssetPath.GetResolvedPath().empty()) {
-            LOG_ERR("Failed to resolve asset path: " + sdfAssetPath.GetAssetPath());
-            continue;
-        }
-
-        jobs.push_back({prim.GetPath(), sdfAssetPath});
+        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
     }
 
-    // stage traversal is no longer live
-    for (const auto& job : jobs) {
-        UsdPrim prim = stage->GetPrimAtPath(job.primPath);
-        if (!prim.IsValid()) {
-            LOG_ERR("Prim no longer valid after stage mutation: " + job.primPath.GetString());
-            continue;
-        }
-
-        LOG_INFO("Processing STEP file: " + job.assetPath.GetResolvedPath());
-
-        auto iter = modelCache.find(job.assetPath);
-        if (iter == modelCache.end()) {
-            LOG_ERR("Model not found in cache for asset path: " + job.assetPath.GetAssetPath());
-            continue;
-        }
-
-        UsdStepExporter::populateUsd(iter->second, stage, prim, inputArgs.selectedPaths);
-    }
     stage->GetRootLayer()->Save();
 
     if (Logger::activeLevel == Logger::Level::INFO) {
@@ -221,3 +179,32 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+
+/*
+    for (UsdPrim prim : stage->TraverseAll()) {
+        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
+
+        AutolibStepFileContainer container(prim);
+
+        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) continue;
+        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+        
+        SdfAssetPath sdfAssetPath;
+        if (!pathAttr.Get(&sdfAssetPath)) {
+            LOG_ERR("Failed to get asset path from UsdAttribute");
+            continue;
+        }
+
+        fs::path assetPath = sdfAssetPath.GetResolvedPath();
+        LOG_INFO("Processing STEP file: " + assetPath.string());
+
+        // Load the model, using the cache to avoid re-parsing the same STEP file.
+        auto iter = modelCache.find(sdfAssetPath);
+        if (iter == modelCache.end()) {
+            LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
+            continue;
+        }
+
+        UsdStepExporter::populateUsd(iter->second, stage, prim, inputArgs.selectedPaths);
+    }
+*/
