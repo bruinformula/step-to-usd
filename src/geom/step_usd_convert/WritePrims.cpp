@@ -112,7 +112,6 @@ void UsdStepExporter::writeCadPart(
 // Prototype Xforms
 void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     UsdStageRefPtr prototypesStage,
-    const UsdPrim& containerPrim,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -133,6 +132,8 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
+
+    UsdGeomXform::Define(prototypesStage, containerPrimPath);
     
     SdfPath cadPartPath = containerPrimPath.AppendChild(TfToken("CADPart"));
 
@@ -190,7 +191,6 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
 void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
     UsdStageRefPtr assemblyStage,
-    const UsdPrim& containerPrim,
     LabelMap<SdfPath>& prototypePaths
 ) {
     LOG_SCOPED_TIMER("writePrototypeOverridesInAssemblyStage");
@@ -201,12 +201,11 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
 
         for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
             const SdfPath& protoPath = protoIter->second;
-            SdfPath assemblyProtoPath = protoPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
-            assemblyStage->OverridePrim(assemblyProtoPath);
+            assemblyStage->OverridePrim(protoPath);
 
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + assemblyProtoPath.GetString());
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + protoPath.GetString());
             } else {
                 LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
             }
@@ -593,7 +592,6 @@ void UsdStepExporter::writePrototypeGeometries(
                 UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
                 vset.AddVariant(variantSelection.second);
                 vset.SetVariantSelection(variantSelection.second);
-                
                 UsdEditContext ctx(vset.GetVariantEditContext());
                 
                 threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
@@ -680,6 +678,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (!variantSelection.first.empty()) {
                     UsdPrim basePrim = threadStage->GetPrimAtPath(writeProtoPath);
                     UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+                    vset.AddVariant(variantSelection.second);
                     vset.SetVariantSelection(variantSelection.second);
                     ctx.emplace(vset.GetVariantEditContext());
                 }
@@ -810,7 +809,15 @@ void UsdStepExporter::writePrototypeGeometries(
                 continue;
             }
 
-            UsdVariantSet vset = basePrim.GetVariantSets().GetVariantSet(variantSelection.first);
+            // t
+            bool initialActive = true;
+            if (basePrim.GetPrim().HasAuthoredActive()) {
+                initialActive = basePrim.GetPrim().IsActive();
+                basePrim.GetPrim().SetActive(true);
+            }
+
+            UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+            vset.AddVariant(variantSelection.second);
             vset.SetVariantSelection(variantSelection.second);
             UsdEditContext ctx(vset.GetVariantEditContext());
 
@@ -845,6 +852,9 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (hasSketchPlanes) writeSketchPlaneGeometry(stage, baseProtoPath, r, params);
             }
 
+            if (basePrim.GetPrim().HasAuthoredActive()) {
+                basePrim.GetPrim().SetActive(initialActive);
+            }
         }
     }
 

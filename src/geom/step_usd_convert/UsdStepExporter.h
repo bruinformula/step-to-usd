@@ -235,7 +235,6 @@ private:
 
     static void writePrototypeOverridesInAssemblyStage(
         UsdStageRefPtr assemblyStage,
-        const UsdPrim& containerPrim,
         LabelMap<SdfPath>& prototypePaths
     );
 
@@ -247,7 +246,6 @@ private:
 
     static void writePrototypeXformsInPrototypesStage(
         UsdStageRefPtr prototypesStage,
-        const UsdPrim& containerPrim,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const SdfPath& prototypesPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,

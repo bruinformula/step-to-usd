@@ -65,6 +65,28 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+static void addStageSubLayer(
+    const UsdStageRefPtr& stage, 
+    const fs::path& subLayerPath
+) {
+    SdfLayerHandle rootLayer = stage->GetRootLayer();
+
+    bool alreadyExists = false;
+    for (const auto& path : rootLayer->GetSubLayerPaths()) {
+        if (path == subLayerPath.string() || path == subLayerPath) { 
+            alreadyExists = true; 
+            break; 
+        }
+    }
+
+    if (!alreadyExists) {
+        rootLayer->InsertSubLayerPath(subLayerPath.string());
+        LOG_DEBUG("Added sublayer: " + subLayerPath.string());
+    } else {
+        LOG_DEBUG("Sublayer already exists, skipping: " + subLayerPath.string());
+    }
+}
+
 static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMetersPerUnit) {
     if (!fs::exists(stagePath)) return false;
 
@@ -528,13 +550,13 @@ void UsdStepExporter::populateUsd(
 
     containerStage->Unload();
 
-
     fs::path containerFilePath = fs::canonical(containerStage->GetRootLayer()->GetResolvedPath().GetPathString()).remove_filename();
     std::string baseName = model.stepPath.stem().string();
 
     SdfPath assemblyPath("/Assembly");
     SdfPath prototypesPath("/Prototypes");
-    SdfPath containerPrimPath = containerPrim.GetPath();
+    SdfPath containerParentPath = containerPrim.GetPath().GetParentPath();
+    SdfPath containerPrimPath = containerPrim.GetPath().ReplacePrefix(containerParentPath, SdfPath::AbsoluteRootPath());
     SdfPath assemblyInContainerPath = assemblyPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
     SdfPath prototypesInContainerPath = prototypesPath.ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
 
@@ -640,11 +662,28 @@ void UsdStepExporter::populateUsd(
         }
     }
 
+    // Create the root layer for the container stage
+    fs::path rootPath = containerFilePath / (baseName);
+    fs::path rootStageFilePath = rootPath / (baseName + "-container.usda");
+
+    bool rootPathExists = fs::exists(rootPath);
+    bool rootFileExists = fs::exists(rootStageFilePath);
+
+    if (!fs::exists(rootPath)) {
+        LOG_INFO("Creating output directory: " + rootPath.string());
+        fs::create_directory(rootPath);
+    }
+
+    bool shouldMakeNewRootStage = !rootFileExists;
+    UsdStageRefPtr rootStage = initUsdStage(rootStageFilePath, shouldMakeNewRootStage);
+    UsdGeomSetStageMetersPerUnit(rootStage, outputMetersPerUnit);
+    rootStage->GetRootLayer()->SetDocumentation("This is a sandwhich layer that can contain overrides on prototypes before it is loaded in the container stage");
+
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
 
     if (containerVariantPaths.empty()) {
-        fs::path prototypesStageFilePath = containerFilePath / (baseName + "-assembly.usda");
+        fs::path prototypesStageFilePath = rootPath / (baseName + "-prototypes.usda");
         bool makeFreshStage = getStageMakeFresh("", "");
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
             LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -661,6 +700,7 @@ void UsdStepExporter::populateUsd(
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
         UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
         prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
+        prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
 
         AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesInContainerPath);
 
@@ -679,14 +719,14 @@ void UsdStepExporter::populateUsd(
             const std::string& variantSetName = variantSelection.first;
             const std::string& variantName = variantSelection.second;
 
-            fs::path variantSubPath = containerFilePath / variantSetName;
+            fs::path variantSubPath = rootPath / variantSetName;
             if (!fs::exists(variantSubPath)) {
                 if (!fs::create_directory(variantSubPath)) {
                     std::cerr << "Error: Failed to create directory " << variantSubPath << "\n";
                 }
             }
 
-            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-assembly.usda");
+            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usda");
             bool makeFreshStage = getStageMakeFresh(variantSetName, variantName);
             if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
                 LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -704,14 +744,13 @@ void UsdStepExporter::populateUsd(
             
             UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
             prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
+            prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
             UsdGeomXform::Define(prototypesStage, assemblyInContainerPath);
 
             prototypesStage->Save();
             prototypes.push_back({variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
         }
     }
-
-    SdfLayerHandle containerLayer = containerStage->GetRootLayer();
     
     // Write Xforms
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(model.definitionShapes.begin(), model.definitionShapes.end());
@@ -719,6 +758,7 @@ void UsdStepExporter::populateUsd(
 
     { // Write prototypes and assembly references in their own stages
         std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyInContainerPath);
+        fs::path assemblyStageFilePath = rootPath / (model.stepPath.stem().string() + "-assembly.usda");
         
         for (const auto& proto : prototypes) {
             if (!proto.variantSetName.empty()) {
@@ -729,8 +769,7 @@ void UsdStepExporter::populateUsd(
 
             writeCadPart(proto.stage, prototypesPrim, SdfPath("/CADPart"));
             writePrototypeXformsInPrototypesStage(
-                proto.stage, 
-                containerPrim, 
+                proto.stage,
                 defs, 
                 prototypesInContainerPath, 
                 selectedPaths, 
@@ -740,18 +779,43 @@ void UsdStepExporter::populateUsd(
                 prototypePaths, 
                 proto.makeFreshStage
             );
+            fs::path rootRelativeFilePath = fs::relative(rootStageFilePath, proto.filePath.parent_path());
+            addStageSubLayer(proto.stage, rootRelativeFilePath);
 
+            proto.stage->Save();
+        }
+
+        bool shouldCreateAssembly = !fs::exists(assemblyStageFilePath); // don't repopulate the stage if it already exists 
+        if (stageNeedsUnitReset(assemblyStageFilePath, outputMetersPerUnit)) {
+            LOG_INFO("Resetting assembly stage due to metersPerUnit mismatch: " + assemblyStageFilePath.string());
+            shouldCreateAssembly = true;
+        }
+        UsdStageRefPtr assemblyStage = UsdStepExporter::initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
+        
+        UsdGeomSetStageMetersPerUnit(assemblyStage, outputMetersPerUnit);
+        assemblyStage->SetDefaultPrim(assemblyStage->OverridePrim(containerPrimPath));
+        assemblyStage->GetRootLayer()->SetDocumentation("Auto generated file that contains the assembly hierarchy with empty overs for prototypes that are authored in a parent layer");
+
+        if (shouldCreateAssembly) {
+            // Write a bunch of empty `over` so references in the 
+            // assembly stage can resolve 
+            writePrototypeOverridesInAssemblyStage(
+                assemblyStage, 
+                prototypePaths
+            );
             writeAssemblyXforms(
-                proto.stage, 
-                containerPrim.GetPrimPath(), 
+                assemblyStage, 
+                containerPrimPath, 
                 model.partNodes, 
                 nodePaths, 
                 prototypePaths,
                 sourceToOutputScale
             );
-
-            proto.stage->Save();
         }
+
+        // Add the assembly as a sublayer of the root layer, so it composes under the prototypes stage.
+        fs::path assemblyRelativeFilePath = fs::relative(assemblyStageFilePath, rootStageFilePath.parent_path());
+        addStageSubLayer(rootStage, assemblyRelativeFilePath);
     }
     
     // Payload logic on container stage
@@ -796,7 +860,7 @@ void UsdStepExporter::populateUsd(
         if (protocontainerPrim.HasAuthoredActive() && !initialActive) {
             protocontainerPrim.SetActive(true);
         }
-        for (const UsdPrim& child : protocontainerPrim.GetChildren()) {
+        for (const UsdPrim& child : protocontainerPrim.GetAllChildren()) {
             std::map<SdfPath, TessParams> childParams = resolveParams(child, variantLevelParams);
             paramsBank.insert(childParams.begin(), childParams.end());
         }
@@ -844,9 +908,7 @@ void UsdStepExporter::populateUsd(
         }
     }
 
-    // Tessellation
-    TessParams containerParams = getTessParams(containerPrim);
-    
+    // Tessellation  
     tessellateGeometry(tessJobs, defs, selectedPaths, containerPrimPath);
 
     // Write Geometry

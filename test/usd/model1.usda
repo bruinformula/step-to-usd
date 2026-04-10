@@ -12,7 +12,10 @@ def StepTessellationOptions "DefaultOptions"
     bool step:wireframeCombineCurves = 0
 }
 
-def StepFileContainer "Wonderful" {
+def StepFileContainer "Wonderful" (
+    prepend payload = @model1/model1-prototypes.usda@
+)
+{
     asset step:sourceAsset = @step/model1.STEP@
 
     def StepFilePrototypes "Prototypes" (

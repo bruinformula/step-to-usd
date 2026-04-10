@@ -39,7 +39,6 @@
 #include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
-namespace fs = std::filesystem;
 
 const std::string argOptions =
     " StepConvertUsd -- Converts a Usd file containing StepFileContainers\n"
