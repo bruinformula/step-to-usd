@@ -1,0 +1,25 @@
+#usda 1.0
+(
+    defaultPrim = "Wonderful"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    float step:meshAngularDeflection = 0.1
+    float step:meshLinearDeflection = 0.1
+}
+
+def StepFileContainer "Wonderful" (
+    prepend payload = @solidworks_mirror/solidworks_mirror-prototypes.usdc@
+)
+{
+    asset step:sourceAsset = @step/solidworks_mirror.STP@
+
+    def StepFilePrototypes "Prototypes"
+    {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+
