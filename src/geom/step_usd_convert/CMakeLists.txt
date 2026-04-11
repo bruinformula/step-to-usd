@@ -7,6 +7,7 @@ set(AUTOLIB_GEOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/WritePrims.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/UsdUtils.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/PopulateUsd.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TessellationParams.cpp"
 )
 
 # AutolibGeom

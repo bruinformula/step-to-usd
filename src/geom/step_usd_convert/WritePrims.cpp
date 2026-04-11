@@ -1,5 +1,4 @@
 #include <ostream>
-#include <stddef.h>
 #include <iostream>
 #include <utility>
 #include <unordered_map>
@@ -12,6 +11,7 @@
 #include <opencascade/TDF_Label.hxx>
 #include <opencascade/Quantity_Color.hxx>
 #include <opencascade/TopoDS_Shape.hxx>
+#include <opencascade/gp_XYZ.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -60,6 +60,7 @@
 #include "UsdStepExporter.h"
 #include "StepModel.h"
 #include "Logger.h"
+#include "UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -109,7 +110,7 @@ void UsdStepExporter::writeCadPart(
     }
 }
 
-// Prototype Xforms
+// MARK: - Write Prototype Xforms
 void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     UsdStageRefPtr prototypesStage,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
@@ -215,7 +216,9 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
     LOG_PROGRESS_DONE();
 }
 
-// Prototype Geometry
+// MARK: - Prototype Geometry
+
+// MARK: Mesh
 static void defineMeshGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -277,6 +280,7 @@ static void writeMeshGeometry(
     if (params.enableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
 }
 
+// MARK: Wireframe
 static void defineWireframeGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -375,6 +379,7 @@ static void writeWireframeGeometry(
     }
 }
 
+// MARK: Sketch
 static void defineSketchGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -456,6 +461,7 @@ static void writeSketchGeometry(
     }
 }
 
+// MARK: SketchPlane
 static void defineSketchPlaneGeometry(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -524,6 +530,112 @@ static void writeSketchPlaneGeometry(
     }
 }
 
+
+
+// rotation block: transposed relative to OCC Value(row,col) convention
+// translation: from TranslationPart() into the last row
+static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
+    gp_XYZ trans = t.TranslationPart();
+    auto clean = [](double v) { return std::abs(v) < 1e-10 ? 0.0 : v; };
+    return GfMatrix4d(
+        clean(t.Value(1,1)), clean(t.Value(2,1)), clean(t.Value(3,1)), 0.0,
+        clean(t.Value(1,2)), clean(t.Value(2,2)), clean(t.Value(3,2)), 0.0,
+        clean(t.Value(1,3)), clean(t.Value(2,3)), clean(t.Value(3,3)), 0.0,
+        clean(trans.X() * linearScale),
+        clean(trans.Y() * linearScale),
+        clean(trans.Z() * linearScale),
+        1.0
+    );
+}
+
+// Assembly Xforms
+void UsdStepExporter::writeAssemblyXforms(
+    UsdStageRefPtr stage, 
+    const SdfPath& containerPrimPath,
+    const std::vector<StepModel::PartNode>& partNodes,
+    const std::vector<SdfPath>& paths, 
+    const LabelMap<SdfPath>& prototypePaths,
+    double linearScale
+) {
+    LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
+    
+    // pre compute which instances have children
+    std::vector<bool> hasChildren(partNodes.size(), false);
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        if (partNodes[i].parentIdx != -1)
+            hasChildren[partNodes[i].parentIdx] = true;
+    }
+    // Define all xform nodes, wire references, and author transforms
+    const int total = (int)partNodes.size();
+    int completed = 0;
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        const StepModel::PartNode& node = partNodes[i];
+        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
+        if (!xform) {
+            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
+            completed++;
+            if (Logger::activeLevel == Logger::DEBUG) {
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
+            } else {
+                LOG_PROGRESS(completed, total, "Writing Assembly");
+            }
+            continue;
+        }
+        {
+            SdfChangeBlock changeBlock;
+            // Usd composes the full world transform later
+            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
+            if (node.type == StepModel::PartNodeType::Leaf) {
+                auto protoIter = prototypePaths.find(node.definitionLabel);
+                if (protoIter == prototypePaths.end()) {
+                    completed++;
+                    if (Logger::activeLevel == Logger::DEBUG) {
+                        LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
+                    } else {
+                        LOG_PROGRESS(completed, total, "Writing Assembly");
+                    }
+                    continue;
+                }
+
+                const SdfPath& assemblyProtoPath = protoIter->second;
+
+                xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
+                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
+                if (!hasChildren[i]) {
+                    xform.GetPrim().SetInstanceable(true);
+                }
+                if (node.color.has_value()) {
+                    VtArray<GfVec3f> displayColor = {{
+                        static_cast<float>(node.color->Red()),
+                        static_cast<float>(node.color->Green()),
+                        static_cast<float>(node.color->Blue())
+                    }};
+                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
+                        TfToken("primvars:displayColor"),
+                        SdfValueTypeNames->Color3fArray,
+                        false
+                    );
+                    colorAttr.Set(displayColor);
+                }
+                if (!node.visible) {
+                    UsdGeomImageable(xform.GetPrim())
+                        .CreateVisibilityAttr()
+                        .Set(UsdGeomTokens->invisible);
+                }
+            } else {
+                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
+            }
+        } // SdfChangeBlock
+        completed++;
+        if (Logger::activeLevel == Logger::DEBUG) {
+            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
+        } else {
+            LOG_PROGRESS(completed, total, "Writing Assembly");
+        }
+    }
+    LOG_PROGRESS_DONE();
+}
+
 void UsdStepExporter::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& inJobs,
@@ -571,7 +683,7 @@ void UsdStepExporter::writePrototypeGeometries(
             const TessResult& r = jobs[i].result;
             const TessParams& params = jobs[i].params;
 
-            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
+            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
                 continue;
             }
 
@@ -659,7 +771,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 const TessResult& r = jobs[i].result;
                 const TessParams& params = jobs[i].params;
 
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
                     if (Logger::activeLevel == Logger::DEBUG) {
                         LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
@@ -762,7 +874,7 @@ void UsdStepExporter::writePrototypeGeometries(
             if (!res.layer) continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i].protoPath;
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
                     continue; // Skip filtered
                 }
                 if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
@@ -792,7 +904,7 @@ void UsdStepExporter::writePrototypeGeometries(
         for (size_t i = res.startIdx; i < res.endIdx; i++) {
             const SdfPath& protoPath = jobs[i].protoPath;
             if (!selectedPaths.empty() &&
-                !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, variantSetName, variantName, protoPath)) {
+                !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
                 continue;
             }
 
@@ -861,93 +973,5 @@ void UsdStepExporter::writePrototypeGeometries(
         }
     }
 
-    LOG_PROGRESS_DONE();
-}
-
-// Assembly Xforms
-void UsdStepExporter::writeAssemblyXforms(
-    UsdStageRefPtr stage, 
-    const SdfPath& containerPrimPath,
-    const std::vector<StepModel::PartNode>& partNodes,
-    const std::vector<SdfPath>& paths, 
-    const LabelMap<SdfPath>& prototypePaths,
-    double linearScale
-) {
-    LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
-    
-    // pre compute which instances have children
-    std::vector<bool> hasChildren(partNodes.size(), false);
-    for (size_t i = 0; i < partNodes.size(); i++) {
-        if (partNodes[i].parentIdx != -1)
-            hasChildren[partNodes[i].parentIdx] = true;
-    }
-    // Define all xform nodes, wire references, and author transforms
-    const int total = (int)partNodes.size();
-    int completed = 0;
-    for (size_t i = 0; i < partNodes.size(); i++) {
-        const StepModel::PartNode& node = partNodes[i];
-        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
-        if (!xform) {
-            std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
-            completed++;
-            if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
-            } else {
-                LOG_PROGRESS(completed, total, "Writing Assembly");
-            }
-            continue;
-        }
-        {
-            SdfChangeBlock changeBlock;
-            // Usd composes the full world transform later
-            xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
-            if (node.type == StepModel::PartNodeType::Leaf) {
-                auto protoIter = prototypePaths.find(node.definitionLabel);
-                if (protoIter == prototypePaths.end()) {
-                    completed++;
-                    if (Logger::activeLevel == Logger::DEBUG) {
-                        LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
-                    } else {
-                        LOG_PROGRESS(completed, total, "Writing Assembly");
-                    }
-                    continue;
-                }
-
-                const SdfPath& assemblyProtoPath = protoIter->second;
-
-                xform.GetPrim().GetReferences().AddInternalReference(assemblyProtoPath);
-                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("component"));
-                if (!hasChildren[i]) {
-                    xform.GetPrim().SetInstanceable(true);
-                }
-                if (node.color.has_value()) {
-                    VtArray<GfVec3f> displayColor = {{
-                        static_cast<float>(node.color->Red()),
-                        static_cast<float>(node.color->Green()),
-                        static_cast<float>(node.color->Blue())
-                    }};
-                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
-                        TfToken("primvars:displayColor"),
-                        SdfValueTypeNames->Color3fArray,
-                        false
-                    );
-                    colorAttr.Set(displayColor);
-                }
-                if (!node.visible) {
-                    UsdGeomImageable(xform.GetPrim())
-                        .CreateVisibilityAttr()
-                        .Set(UsdGeomTokens->invisible);
-                }
-            } else {
-                UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
-            }
-        } // SdfChangeBlock
-        completed++;
-        if (Logger::activeLevel == Logger::DEBUG) {
-            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
-        } else {
-            LOG_PROGRESS(completed, total, "Writing Assembly");
-        }
-    }
     LOG_PROGRESS_DONE();
 }

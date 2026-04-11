@@ -1,4 +1,4 @@
-#include <stddef.h>
+
 #include <iostream>
 #include <chrono>
 #include <utility>
@@ -110,6 +110,85 @@ private:
     std::chrono::time_point<Clock> _deadline;
     bool _timedOut;
 };
+
+struct UVPatch {
+    std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
+    float uMin, uMax, vMin, vMax;
+};
+
+static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
+    
+    int n = (int)patches.size();
+
+    // Each patch's needs to have normalized UVs to local [0,1]
+    std::vector<float> tileWidths(n), tileHeights(n);
+    for (int i = 0; i < n; i++) {
+        float uRange = std::max(patches[i].uMax - patches[i].uMin, 1e-10f);
+        float vRange = std::max(patches[i].vMax - patches[i].vMin, 1e-10f);
+        for (auto& uv : patches[i].uvs) {
+            uv[0] = (uv[0] - patches[i].uMin) / uRange;
+            uv[1] = (uv[1] - patches[i].vMin) / vRange;
+        }
+        // Tile dims proportional to param range
+        float area = std::sqrt(uRange * vRange);
+        tileWidths[i] = uRange / area;
+        tileHeights[i] = vRange / area;
+    }
+
+    // Scale so patches roughly tile a unit square
+    float invSqrtN = 1.0f / std::sqrt((float)std::max(n, 1));
+    for (int i = 0; i < n; i++) { 
+        tileWidths[i] *= invSqrtN; 
+        tileHeights[i] *= invSqrtN; 
+    }
+
+    // sorting
+    std::vector<int> order(n);
+    std::iota(order.begin(), order.end(), 0); // fills an array 0,1,2,3...
+    std::sort(
+        order.begin(), 
+        order.end(), 
+        [&](int a, int b) { 
+            return tileHeights[a] > tileHeights[b]; 
+        }
+    );
+
+    constexpr float padding = 0.001f;
+    std::vector<GfVec4f> placements(n); // (x, y, w, h)
+    float shelfX = 0, shelfY = 0, shelfH = 0;
+    float atlasW = 0, atlasH = 0;
+
+    for (int idx : order) {
+        if (shelfX + tileWidths[idx] > 1.0f + 1e-5f) {
+            shelfY += shelfH + padding;
+            shelfX = 0;
+            shelfH = 0;
+        }
+        placements[idx] = GfVec4f(shelfX, shelfY, tileWidths[idx], tileHeights[idx]);
+        shelfX += tileWidths[idx] + padding;
+        shelfH = std::max(shelfH, tileHeights[idx]);
+        atlasW = std::max(atlasW, shelfX);
+        atlasH = std::max(atlasH, shelfY + shelfH);
+    }
+
+    atlasW = std::max(atlasW, 1e-10f);
+    atlasH = std::max(atlasH, 1e-10f);
+
+    int totalFaceVerts = 0;
+    for (auto& p : patches) totalFaceVerts += (int)p.uvs.size();
+
+    VtArray<GfVec2f> result(totalFaceVerts);
+    int offset = 0;
+    for (int i = 0; i < n; i++) {
+        float px = placements[i][0] / atlasW;
+        float py = placements[i][1] / atlasH;
+        float pw = placements[i][2] / atlasW;
+        float ph = placements[i][3] / atlasH;
+        for (const auto& uv : patches[i].uvs)
+            result[offset++] = GfVec2f(px + uv[0] * pw, py + uv[1] * ph);
+    }
+    return result;
+}
 
 bool UsdStepExporter::tessellatePart(
     TessResult& result, 
@@ -969,7 +1048,7 @@ void UsdStepExporter::tessellateGeometry(
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
 
-                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, containerPrimPath, job.proto->variantSetName, job.proto->variantName, job.prototypePath);
+                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, containerPrimPath, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
                 
                 if (bTessellate) {
                     if (job.runMesherInParallel) {
