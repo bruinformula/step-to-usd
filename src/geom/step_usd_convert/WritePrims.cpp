@@ -810,8 +810,9 @@ void UsdStepExporter::writePrototypeGeometries(
             }
 
             // t
+            bool hasAuthoredActive = basePrim.GetPrim().HasAuthoredActive();
             bool initialActive = true;
-            if (basePrim.GetPrim().HasAuthoredActive()) {
+            if (hasAuthoredActive) {
                 initialActive = basePrim.GetPrim().IsActive();
                 basePrim.GetPrim().SetActive(true);
             }
@@ -852,8 +853,10 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (hasSketchPlanes) writeSketchPlaneGeometry(stage, baseProtoPath, r, params);
             }
 
-            if (basePrim.GetPrim().HasAuthoredActive()) {
+            if (hasAuthoredActive) {
                 basePrim.GetPrim().SetActive(initialActive);
+            } else {
+                basePrim.GetPrim().ClearActive();
             }
         }
     }
