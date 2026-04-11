@@ -353,6 +353,79 @@ std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const Us
 
     return reference;
 }
+
+bool UsdStepExporter::resolveParamsBank(
+    const UsdStageRefPtr& containerStage,
+    const UsdPrim& containerPrim,
+    const PrototypeContainer& proto,
+    const SdfPath& prototypesPath,
+    const TessParams& variantLevelParams,
+    std::map<SdfPath, TessParams>& paramsBank
+) {
+    fs::path containerFilePath = fs::canonical(
+        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
+    );
+
+    UsdStageRefPtr throwawayStage = UsdStage::Open(
+        containerFilePath.string(),
+        UsdStage::LoadAll
+    );
+
+    if (!throwawayStage) {
+        LOG_WARN("Could not open throwaway stage from " + containerFilePath.string()
+                 + ", falling back to variant-level params.");
+        return false;
+    }
+
+    throwawayStage->SetEditTarget(
+        UsdEditTarget(throwawayStage->GetSessionLayer())
+    );
+
+    SdfPath throwawayContainerPath = containerPrim.GetPath();
+    SdfPath throwawayPrototypesPath =
+        throwawayContainerPath.AppendChild(TfToken("Prototypes"));
+
+    UsdPrim throwawayContainer =
+        throwawayStage->GetPrimAtPath(throwawayContainerPath);
+
+    if (!proto.variantSetName.empty() && throwawayContainer.IsValid()) {
+        throwawayContainer.GetVariantSet(proto.variantSetName).SetVariantSelection(proto.variantName);
+    }
+
+    UsdPrim prototypesOnThrowaway =
+        throwawayStage->GetPrimAtPath(throwawayPrototypesPath);
+
+    LOG_DEBUG("prototypesOnThrowaway valid: " +
+              std::string(prototypesOnThrowaway.IsValid() ? "yes" : "no"));
+
+    if (!prototypesOnThrowaway.IsValid()) {
+        return false;
+    }
+
+    bool wasActive = prototypesOnThrowaway.IsActive();
+    if (!wasActive) {
+        prototypesOnThrowaway.SetActive(true);
+    }
+
+    for (const UsdPrim& child : prototypesOnThrowaway.GetAllChildren()) {
+        auto childParams = resolveParams(child, variantLevelParams);
+
+        for (const auto& [throwawayPath, params] : childParams) {
+            SdfPath remapped = throwawayPath.ReplacePrefix(
+                throwawayPrototypesPath,
+                prototypesPath
+            );
+            paramsBank[remapped] = params;
+        }
+    }
+
+    if (!wasActive) {
+        prototypesOnThrowaway.SetActive(wasActive);
+    }
+
+    return true;
+}
+
 // Stage Filtering
 struct StageFilterInfo {
     bool makeFresh = false; // whole stage targeted
@@ -672,24 +745,6 @@ void UsdStepExporter::populateUsd(
         return false;
     };
 
-    {
-        SdfChangeBlock block;
-        bool hasSpecificPrototype = false;
-        bool hasContainerRoot = false;
-        for (const SdfPath& sel : selectedPaths) {
-            SdfPath cleanPath = sel.StripAllVariantSelections();
-            if (cleanPath == prototypesPath) {
-                hasContainerRoot = true;
-            } else if (cleanPath.HasPrefix(prototypesPath) && cleanPath != prototypesPath) {
-                hasSpecificPrototype = true;
-            }
-        }
-
-        if (hasContainerRoot && hasSpecificPrototype) {
-            LOG_WARN("selectedPaths contains /Prototypes container. whole prototypes hierarchy will be rebuilt.");
-        }
-    }
-
     // Create the root layer for the container stage
     std::string baseName = model.stepPath.stem().string();
     fs::path rootPath = containerFilePath / (baseName);
@@ -706,13 +761,13 @@ void UsdStepExporter::populateUsd(
     bool shouldMakeNewRootStage = !rootFileExists;
     UsdStageRefPtr rootStage = initUsdStage(rootStageFilePath, shouldMakeNewRootStage);
     UsdGeomSetStageMetersPerUnit(rootStage, outputMetersPerUnit);
-    rootStage->GetRootLayer()->SetDocumentation("This is a sandwhich layer that can contain overrides on prototypes before it is loaded in the container stage");
+    rootStage->GetRootLayer()->SetDocumentation("This is a sandwich layer that can contain overrides on prototypes before it is loaded in the container stage");
 
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
 
     if (containerVariantPaths.empty()) {
-        fs::path prototypesStageFilePath = rootPath / (baseName + "-prototypes.usda");
+        fs::path prototypesStageFilePath = rootPath / (baseName + "-prototypes.usdc");
         bool makeFreshStage = getStageMakeFresh("", "");
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
             LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -755,7 +810,7 @@ void UsdStepExporter::populateUsd(
                 }
             }
 
-            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usda");
+            fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usdc");
             bool makeFreshStage = getStageMakeFresh(variantSetName, variantName);
             if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
                 LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -788,11 +843,11 @@ void UsdStepExporter::populateUsd(
 
     { // Write prototypes and assembly references in their own stages
         std::vector<SdfPath> nodePaths = computeNodePaths(model.partNodes, assemblyPath);
-        fs::path assemblyStageFilePath = rootPath / (model.stepPath.stem().string() + "-assembly.usda");
+        fs::path assemblyStageFilePath = rootPath / (model.stepPath.stem().string() + "-assembly.usdc");
         
         for (const auto& proto : prototypes) {
             if (!proto.variantSetName.empty()) {
-                UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrim.GetPrimPath()).GetVariantSet(proto.variantSetName);
+                UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
                 varSet.SetVariantSelection(proto.variantName);
             }
             const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
@@ -857,7 +912,7 @@ void UsdStepExporter::populateUsd(
         std::string payloadPath = fs::relative(proto.filePath, containerFilePath).string();
         
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrim.GetPrimPath()).GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
             UsdEditContext ctx(varSet.GetVariantEditContext());
             containerPrim.GetPayloads().AddPayload(SdfPayload(payloadPath));
@@ -865,19 +920,13 @@ void UsdStepExporter::populateUsd(
             containerPrim.GetPayloads().AddPayload(SdfPayload(payloadPath));
         }
     }
-    
-    containerStage->GetRootLayer()->Save();
-    containerStage->Reload();
-    containerPrim = containerStage->GetPrimAtPath(containerPrim.GetPrimPath());
-    containerStage->Load(containerPrim.GetPath()); // Ensure payloads are loaded for variant discovery!
-    containerStage->GetRootLayer()->Save();
 
     // Flatten Tessellation Jobs
     std::vector<TessellationJob> tessJobs;
     for (const auto& proto : prototypes) {
 
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet = containerStage->GetPrimAtPath(containerPrim.GetPrimPath()).GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
         }
 
@@ -886,19 +935,16 @@ void UsdStepExporter::populateUsd(
 
         TessParams containerParams = getTessParams(containerPrim);
         TessParams variantLevelParams = getTessParams(protocontainerPrim, containerParams);
-        
+
         std::map<SdfPath, TessParams> paramsBank;
-        bool initialActive = protocontainerPrim.IsActive();
-        if (protocontainerPrim.HasAuthoredActive() && !initialActive) {
-            protocontainerPrim.SetActive(true);
-        }
-        for (const UsdPrim& child : protocontainerPrim.GetAllChildren()) {
-            std::map<SdfPath, TessParams> childParams = resolveParams(child, variantLevelParams);
-            paramsBank.insert(childParams.begin(), childParams.end());
-        }
-        if (protocontainerPrim.HasAuthoredActive()) {
-            protocontainerPrim.SetActive(initialActive);
-        }
+        resolveParamsBank(
+            containerStage,
+            containerPrim,
+            proto,
+            prototypesPath,
+            variantLevelParams,
+            paramsBank
+        );
 
         bool runMesherInParallel = !proto.makeFreshStage;
 
@@ -962,12 +1008,12 @@ void UsdStepExporter::populateUsd(
     }
 
     LOG_DEBUG("Deactivating original prototype container in container stage: " + prototypesPath.GetString());
-    UsdPrim prototypeContainer = containerStage->GetPrimAtPath(prototypesInContainerPath);
-    if (prototypeContainer.IsValid()) {
-        prototypeContainer.SetActive(false);
-        containerStage->GetRootLayer()->Save();
-        LOG_DEBUG("Prototype container deactivated and container layer saved.");
-    }
+    //UsdPrim prototypeContainer = containerStage->GetPrimAtPath(prototypesInContainerPath);
+    //if (prototypeContainer.IsValid()) {
+    //    prototypeContainer.SetActive(false);
+    //    containerStage->GetRootLayer()->Save();
+    //    LOG_DEBUG("Prototype container deactivated and container layer saved.");
+    //}
 
     if (!mark.IsClean()) {
         for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";

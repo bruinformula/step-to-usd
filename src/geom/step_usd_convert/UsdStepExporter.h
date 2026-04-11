@@ -229,6 +229,15 @@ private:
         const SdfPath& assemblyPath
     );
 
+    static bool resolveParamsBank(
+        const UsdStageRefPtr& containerStage,
+        const UsdPrim& containerPrim,
+        const PrototypeContainer& proto,
+        const SdfPath& prototypesPath,
+        const TessParams& variantLevelParams,
+        std::map<SdfPath, TessParams>& paramsBank
+    );
+
     static void writeAssemblyXforms(
         UsdStageRefPtr stage, 
         const SdfPath& containerPrimPath,

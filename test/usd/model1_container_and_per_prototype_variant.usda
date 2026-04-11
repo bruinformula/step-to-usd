@@ -70,7 +70,7 @@ def StepFileContainer "Wonderful" (
     }
     variantSet "LOD" = {
         "high" (
-            prepend payload = @model1/LOD/model1-LOD-high-prototypes.usda@
+            prepend payload = @model1/LOD/model1-LOD-high-prototypes.usdc@
         ) {
             over StepFileContainer "Prototypes"
             {
@@ -85,7 +85,7 @@ def StepFileContainer "Wonderful" (
 
         }
         "low" (
-            prepend payload = @model1/LOD/model1-LOD-low-prototypes.usda@
+            prepend payload = @model1/LOD/model1-LOD-low-prototypes.usdc@
         ) {
             over StepFileContainer "Prototypes"
             {
