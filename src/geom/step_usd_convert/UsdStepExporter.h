@@ -126,6 +126,11 @@ struct TessParams {
     // if proto is smaller it gets marked as a render only asset
 };
 
+struct StageFilterInfo {
+    bool makeFresh = false; // whole stage targeted
+    bool hasSpecificPrototypes = false; // individual prototypes targeted
+};
+
 struct UsdStepExporter {
 
     static std::optional<UsdStepExporter> create(
@@ -229,13 +234,59 @@ private:
         const SdfPath& assemblyPath
     );
 
-    static bool resolveParamsBank(
+    static bool populatePrototypeContainers(
+        const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+        fs::path rootPath,
+        std::string baseName,
+        const SdfPath& prototypesPath,
+        const SdfPath& prototypesInContainerPath,
+        const SdfPath& containerPrimPath,
+        const SdfPath& assemblyPath,
+        double outputMetersPerUnit,
+        const std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap,
+        std::vector<PrototypeContainer>& prototypes
+    );
+
+    static bool buildPrototypeAndAssemblyStages(
+        const StepModel& model,
+        const std::vector<PrototypeContainer>& prototypes,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+        const SdfPath& assemblyPath,
+        const SdfPath& containerPrimPath,
+        const SdfPath& prototypesPath,
+        const SdfPath& prototypesInContainerPath,
+        const UsdStageRefPtr& containerStage,
+        const UsdPrim& containerPrim,
+        const UsdStageRefPtr& rootStage,
+        const fs::path& rootStageFilePath,
+        const fs::path& rootPath,
+        double outputMetersPerUnit,
+        double sourceToOutputScale,
+
+        LabelMap<SdfPath>& prototypePaths,
+        std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
+    );
+
+    static bool populateParamsBank(
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
         const PrototypeContainer& proto,
         const SdfPath& prototypesPath,
         const TessParams& variantLevelParams,
         std::map<SdfPath, TessParams>& paramsBank
+    );
+
+    static bool populateTessellationJobs(
+        const std::vector<PrototypeContainer>& prototypes,
+        const UsdStageRefPtr& containerStage,
+        const UsdPrim& containerPrim,
+        const SdfPath& prototypesInContainerPath,
+        const SdfPath& prototypesPath,
+        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
+        const LabelMap<SdfPath>& prototypePaths,
+        double sourceToOutputScale,
+        std::vector<TessellationJob>& tessJobs
     );
 
     static void writeAssemblyXforms(
