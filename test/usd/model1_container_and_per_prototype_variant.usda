@@ -28,70 +28,73 @@ def StepTessellationOptions "LowOptions"
     float step:meshLinearDeflection = 10
 }
 
-def StepFileContainer "Wonderful" (
-    variants = {
-        string LOD = "high"
-    }
-    prepend variantSets = "LOD"
-)
+def "World"
 {
-    asset step:sourceAsset = @step/model1.STEP@
-
-    over "Prototypes" (
-        active = false
+    def StepFileContainer "Wonderful" (
+        variants = {
+            string LOD = "low"
+        }
+        prepend variantSets = "LOD"
     )
     {
-        over "rod0" (
+        asset step:sourceAsset = @step/model1.STEP@
+
+        over "Prototypes" (
             active = false
-            variants = {
-                string quality = "default"
-            }
-            variantSets = "quality"
         )
         {
-            variantSet "quality" = {
-                "default" (
-                    references = </DefaultOptions>
-                ) {
-
+            over "rod0" (
+                active = false
+                variants = {
+                    string quality = "default"
                 }
-                "draft" (
-                    references = </LowOptions>
-                ) {
+                variantSets = "quality"
+            )
+            {
+                variantSet "quality" = {
+                    "default" (
+                        references = </DefaultOptions>
+                    ) {
 
-                }
-                "final" (
-                    references = </FinalOptions>
-                ) {
+                    }
+                    "draft" (
+                        references = </LowOptions>
+                    ) {
 
+                    }
+                    "final" (
+                        references = </FinalOptions>
+                    ) {
+
+                    }
                 }
             }
         }
-    }
-    variantSet "LOD" = {
-        "high" (
-            prepend payload = @model1/LOD/model1-LOD-high-prototypes.usdc@
-        ) {
-            over StepFileContainer "Prototypes"
-            {
-                rel step:defaultParams = </HighOptions>
-
-                over "rod0"
+        variantSet "LOD" = {
+            "high" (
+                prepend payload = @model1/LOD/model1-LOD-high-prototypes.usdc@
+            ) {
+                over StepFileContainer "Prototypes"
                 {
-                    float step:meshAngularDeflection = 0.01
-                    float step:meshLinearDeflection = 0.01
+                    rel step:defaultParams = </HighOptions>
+
+                    over "rod0"
+                    {
+                        float step:meshAngularDeflection = 0.01
+                        float step:meshLinearDeflection = 0.01
+                    }
                 }
-            }
 
-        }
-        "low" (
-            prepend payload = @model1/LOD/model1-LOD-low-prototypes.usdc@
-        ) {
-            over StepFileContainer "Prototypes"
-            {
-                rel step:defaultParams = </LowOptions>
             }
+            "low" (
+                prepend payload = @model1/LOD/model1-LOD-low-prototypes.usdc@
+            ) {
+                over StepFileContainer "Prototypes"
+                {
+                    rel step:defaultParams = </LowOptions>
+                }
 
+            }
         }
     }
 }

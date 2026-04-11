@@ -558,12 +558,11 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
     std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
 ) {
     std::vector<SdfPath> nodePaths;
-    { 
+    {       
+        std::unordered_map<std::string, int> nameCounts;
         // compute Part Nodes paths and ensure unique 
         // names by appending a count suffix when duplicates are found.
-        std::unordered_map<std::string, int> nameCounts;
-        std::vector<SdfPath> paths(model.partNodes.size());
-
+        nodePaths.resize(model.partNodes.size());
         // pre-order guarantees parent path is always assigned before we 
         // reach any of its children or Usd will omplain about missing 
         // parent prims when we try to define them
@@ -574,14 +573,14 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
             if (model.partNodes[i].parentIdx == -1) {
                 parentPath = assemblyPath;
             } else {
-                parentPath = paths[model.partNodes[i].parentIdx];
+                parentPath = nodePaths[model.partNodes[i].parentIdx];
             }
 
             int count = nameCounts[node.name]++;
             std::string finalName = sanitizeUsdName(node.name, count);
-            paths[i] = parentPath.AppendChild(TfToken(finalName));
+            nodePaths[i] = parentPath.AppendChild(TfToken(finalName));
         }
-    } 
+    }
 
     fs::path assemblyStageFilePath = rootPath / (model.stepPath.stem().string() + "-assembly.usdc");
 
@@ -837,7 +836,7 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
 void UsdStepExporter::populateUsd(
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
 ) {
     LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
@@ -865,10 +864,9 @@ void UsdStepExporter::populateUsd(
 
     const StepModel& model = iter->second;
 
-    if (!validateVariants(containerStage, containerPrim.GetPath(), selectedPaths)) {
+    if (!validateVariants(containerStage, containerPrim.GetPath(), selectedInContainerPaths)) {
         return;
     }
-
     // Generated layers follow the root stage unit if authored.
     // If missing, author a deterministic fallback of 1.0 meters-per-unit on the root.
     constexpr double fallbackMetersPerUnit = 1.0;
@@ -891,7 +889,28 @@ void UsdStepExporter::populateUsd(
     SdfPath assemblyPath = SdfPath("/Assembly").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
     SdfPath prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
 
-    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = getVariantsOnPrim(containerPrim);
+    // Normalize paths from container-space to raw-space
+    auto reparentPaths = [&](const std::unordered_set<SdfPath, SdfPath::Hash>& paths) -> std::unordered_set<SdfPath, SdfPath::Hash> {
+        std::unordered_set<SdfPath, SdfPath::Hash> reparented;
+        if (containerParentPath == SdfPath::AbsoluteRootPath()) {
+            return paths;
+        }
+        for (const SdfPath& p : paths) {
+            if (p.HasPrefix(containerParentPath)) {
+                reparented.insert(p.ReplacePrefix(containerParentPath, SdfPath::AbsoluteRootPath()));
+            } else {
+                reparented.insert(p);
+            }
+        }
+        return reparented;
+    };
+
+    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = reparentPaths(getVariantsOnPrim(containerPrim));
+    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = reparentPaths(selectedInContainerPaths);
+
+    for (const auto& path : selectedPaths) {
+        std::cout << path.GetString() << std::endl;
+    }
 
     std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
     resolveStageFilterInfo(selectedPaths, containerPrimPath, prototypesPath, stageFilterMap);
