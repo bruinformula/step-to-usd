@@ -597,21 +597,20 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
     for (const auto& proto : prototypes) {
 
         if (!proto.variantSetName.empty()) {
-            UsdVariantSet varSet =
-                containerPrim.GetVariantSet(proto.variantSetName);
+            UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
         }
 
-        const UsdPrim& prototypesPrim =
-            containerStage->GetPrimAtPath(prototypesInContainerPath);
+        const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(prototypesInContainerPath);
 
         if (!prototypesPrim.IsValid()) {
             LOG_WARN("Invalid prototypes prim at: " + prototypesInContainerPath.GetString());
             return false;
         }
 
-        writeCadPart(proto.stage, prototypesPrim, SdfPath("/CADPart"));
+        writeCadPart(proto.stage, prototypesPrim, containerPrimPath, SdfPath("/CADPart"));
 
+        LabelMap<SdfPath> variantPrototypePaths; // fresh per variant
         writePrototypeXformsInPrototypesStage(
             proto.stage,
             defs,
@@ -621,12 +620,12 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
             proto.variantSetName,
             proto.variantName,
             model.definitionNames,
-            prototypePaths,
+            variantPrototypePaths,
             proto.makeFreshStage
         );
+        prototypePaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
 
-        fs::path rootRelativeFilePath =
-            fs::relative(rootStageFilePath, proto.filePath.parent_path());
+        fs::path rootRelativeFilePath = fs::relative(rootStageFilePath, proto.filePath.parent_path());
 
         addStageSubLayer(proto.stage, rootRelativeFilePath);
 

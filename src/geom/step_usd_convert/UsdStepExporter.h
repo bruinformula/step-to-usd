@@ -274,8 +274,9 @@ private:
 
     static void writeCadPart(
         UsdStageRefPtr prototypesStage,
-        const UsdPrim& containerPrim,
-        const SdfPath cadPartPath
+        const UsdPrim& prototypesPrimOnContainerStage,
+        const SdfPath& containerPrimPath,
+        const SdfPath& cadPartPath
     );
 
     static void writePrototypeXformsInPrototypesStage(

@@ -254,13 +254,13 @@ void StepModel::fillLeaf(
     
     partNodes[myIdx].name = resolved;
 
-    std::ostringstream e, pe;
-    defLabel.EntryDump(e);
-    defLabel.Father().EntryDump(pe);
-    LOG_DEBUG("fillLeaf: name=" + resolved 
-        + " entry=" + e.str() 
-        + " parent=" + pe.str()
-        + " shapeType=" + std::to_string(shapeTool->GetShape(defLabel).ShapeType()));
+    // std::ostringstream e, pe;
+    // defLabel.EntryDump(e);
+    // defLabel.Father().EntryDump(pe);
+    // LOG_DEBUG("fillLeaf: name=" + resolved 
+    //     + " entry=" + e.str() 
+    //     + " parent=" + pe.str()
+    //     + " shapeType=" + std::to_string(shapeTool->GetShape(defLabel).ShapeType()));
 
     Quantity_Color color(0.8, 0.8, 0.8, Quantity_TOC_RGB);
     
