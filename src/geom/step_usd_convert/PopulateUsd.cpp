@@ -566,11 +566,14 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
         // pre-order guarantees parent path is always assigned before we 
         // reach any of its children or Usd will omplain about missing 
         // parent prims when we try to define them
-        for (size_t i = 0; i < model.partNodes.size(); i++) {
+
+        nodePaths[0] = assemblyPath;
+        for (size_t i = 1; i < model.partNodes.size(); i++) {
+            TfErrorMark mark;
             const StepModel::PartNode& node = model.partNodes[i];
 
             SdfPath parentPath;
-            if (model.partNodes[i].parentIdx == -1) {
+            if (model.partNodes[i].parentIdx == 0) {
                 parentPath = assemblyPath;
             } else {
                 parentPath = nodePaths[model.partNodes[i].parentIdx];
@@ -578,7 +581,13 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
 
             int count = nameCounts[node.name]++;
             std::string finalName = sanitizeUsdName(node.name, count);
+
+            if (parentPath.IsEmpty()) continue;
+
             nodePaths[i] = parentPath.AppendChild(TfToken(finalName));
+            if (!mark.IsClean()) {
+                for (const auto& error : mark) std::cerr << "Usd Error: " << error.GetCommentary() << "\n";
+            }
         }
     }
 
@@ -611,6 +620,7 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
             containerPrimPath,
             proto.variantSetName,
             proto.variantName,
+            model.definitionNames,
             prototypePaths,
             proto.makeFreshStage
         );
@@ -863,6 +873,8 @@ void UsdStepExporter::populateUsd(
     }
 
     const StepModel& model = iter->second;
+
+    //model.debugPrintInstances();
 
     if (!validateVariants(containerStage, containerPrim.GetPath(), selectedInContainerPaths)) {
         return;

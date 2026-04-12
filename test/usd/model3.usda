@@ -7,16 +7,18 @@
 
 def StepTessellationOptions "DefaultOptions"
 {
-    float step:meshAngularDeflection = 15
-    float step:meshLinearDeflection = 0.1
+    float step:meshAngularDeflection = 0.075
+    float step:meshLinearDeflection = 0.075
     bool step:wireframeCombineCurves = 0
 }
 
 def StepFileContainer "Wonderful" (
-    prepend payload = @model1/model1-prototypes.usda@
+    prepend payload = [
+        @model3/model3-prototypes.usdc@
+    ]
 )
 {
-    asset step:sourceAsset = @step/model1.STEP@
+    asset step:sourceAsset = @step/model3.STEP@
 
     def StepFilePrototypes "Prototypes" (
         active = false

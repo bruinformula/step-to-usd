@@ -98,7 +98,7 @@ std::string sanitizeUsdName(const std::string_view& name, int idx) {
 
     for (char c : name) {
         if (std::isalnum(c) || c == '_') result += c;
-        else result += '_'; // replace hyphens, spaces, dots, etc.
+        else result += '_'; // replace hyphens, spaces, dots
     }
 
     // Usd prim names must start with a letter or underscore
@@ -106,9 +106,12 @@ std::string sanitizeUsdName(const std::string_view& name, int idx) {
         result = "_" + result;
 
     if (result.empty()) 
-        return "Node_";
+        return "Node_" + std::to_string(idx);
 
-    return result + std::to_string(idx);
+    if (idx != 0)
+        result += "_" + std::to_string(idx);
+
+    return result;
 }
 
 template <typename T>

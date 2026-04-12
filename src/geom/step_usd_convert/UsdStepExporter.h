@@ -233,7 +233,6 @@ private:
         const fs::path& rootPath,
         double outputMetersPerUnit,
         double sourceToOutputScale,
-
         LabelMap<SdfPath>& prototypePaths,
         std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
     );
@@ -287,6 +286,7 @@ private:
         const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
+        const LabelMap<std::string>& definitionNames,
         LabelMap<SdfPath>& prototypePaths,
         bool makeFreshStage
     );
