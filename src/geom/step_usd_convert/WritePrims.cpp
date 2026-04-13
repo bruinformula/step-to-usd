@@ -511,6 +511,7 @@ static void writeSketchPlaneGeometry(
     const TessParams& params
 ) {
     SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
+
     for (size_t pi = 0; pi < r.sketchPlaneBounds.size(); ++pi) {
         const TessResult::SketchPlaneBounds& b = r.sketchPlaneBounds[pi];
 
@@ -528,38 +529,57 @@ static void writeSketchPlaneGeometry(
             continue;
         }
 
-        VtArray<GfVec3f> points(
-            r.sketchPlanePoints.begin() + b.pointStart,
-            r.sketchPlanePoints.begin() + b.pointStart + b.pointCount
-        );
+        // Build a compact point array and remap indices in one pass.
+        // The stored indices are absolute into sketchPlanePoints; we need
+        // them rebased to a local [0, N) range for this plane's mesh prim.
+        std::unordered_map<int, int> globalToLocal;
+        VtArray<GfVec3f> points;
+        VtArray<GfVec3f> normals;
+
         VtArray<int> counts(
             r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
             r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount
         );
-        VtArray<int> indices(
-            r.sketchPlaneFaceVertexIndices.begin() + b.faceIndexStart,
-            r.sketchPlaneFaceVertexIndices.begin() + b.faceIndexStart + b.faceIndexCount
-        );
-        for (int& idx : indices) {
-            idx -= b.pointStart;
+
+        VtArray<int> indices;
+        indices.reserve(b.faceIndexCount);
+
+        for (int fi = b.faceIndexStart; fi < b.faceIndexStart + b.faceIndexCount; ++fi) {
+            int globalIdx = r.sketchPlaneFaceVertexIndices[fi];
+
+            auto [it, inserted] = globalToLocal.emplace(globalIdx, (int)points.size());
+            if (inserted) {
+                if (static_cast<size_t>(globalIdx) >= r.sketchPlanePoints.size()) {
+                    // Corrupt index — skip entire plane
+                    goto nextPlane;
+                }
+                points.push_back(r.sketchPlanePoints[globalIdx]);
+            }
+            indices.push_back(it->second);
         }
-        VtArray<GfVec3f> normals(
+
+        // Normals are faceVarying (one per face-vertex), slice directly
+        normals = VtArray<GfVec3f>(
             r.sketchPlaneNormals.begin() + b.normalStart,
             r.sketchPlaneNormals.begin() + b.normalStart + b.normalCount
         );
 
-        UsdGeomMesh mesh(stage->GetPrimAtPath(sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi)))));
-        mesh.GetPointsAttr().Set(points);
-        mesh.GetFaceVertexCountsAttr().Set(counts);
-        mesh.GetFaceVertexIndicesAttr().Set(indices);
-        mesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-        mesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-        mesh.GetNormalsAttr().Set(normals);
-        mesh.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.55f, 0.8f, 1.0f}});
+        {
+            UsdGeomMesh mesh(stage->GetPrimAtPath(
+                sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi)))
+            ));
+            mesh.GetPointsAttr().Set(points);
+            mesh.GetFaceVertexCountsAttr().Set(counts);
+            mesh.GetFaceVertexIndicesAttr().Set(indices);
+            mesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+            mesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+            mesh.GetNormalsAttr().Set(normals);
+            mesh.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.55f, 0.8f, 1.0f}});
+        }
+
+        nextPlane:;
     }
 }
-
-
 
 // rotation block: transposed relative to OCC Value(row,col) convention
 // translation: from TranslationPart() into the last row
@@ -735,7 +755,7 @@ void UsdStepExporter::writePrototypeGeometries(
             bool hasPoints = !r.points.empty();
             bool hasWireframe = !r.wireframeCounts.empty();
             bool hasSketch = !r.sketchCounts.empty();
-            bool hasSketchPlanes = !r.sketchPlaneFaceVertexIndices.empty();
+            bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
             
             if (!variantSelection.first.empty()) {
                 SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
@@ -836,7 +856,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 bool hasPoints = !r.points.empty();
                 bool hasWireframe = !r.wireframeCounts.empty();
                 bool hasSketch = !r.sketchCounts.empty();
-                bool hasSketchPlanes = !r.sketchPlaneFaceVertexIndices.empty();
+                bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
 
                 if (r.renderOnly) UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render); 
 
@@ -982,7 +1002,7 @@ void UsdStepExporter::writePrototypeGeometries(
             bool hasPoints = !r.points.empty();
             bool hasWireframe = !r.wireframeCounts.empty();
             bool hasSketch = !r.sketchCounts.empty();
-            bool hasSketchPlanes = !r.sketchPlaneFaceVertexIndices.empty();
+            bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
 
             if (hasPoints) defineMeshGeometry(stage, baseProtoPath, r, params);
             if (hasWireframe) defineWireframeGeometry(stage, baseProtoPath, r, params);

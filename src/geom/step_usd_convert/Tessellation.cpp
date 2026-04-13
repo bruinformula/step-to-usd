@@ -606,7 +606,7 @@ bool UsdStepExporter::tessellatePart(
             if (wireSeq->Length() >= edgeSeq->Length()) {
                 // Fallback: connect by geometric proximity when topology sharing is absent.
                 opencascade::handle<TopTools_HSequenceOfShape> fallbackWireSeq = new TopTools_HSequenceOfShape();
-                const double fallbackTolerance = std::max(edgeTolerance, diagonal * params.sketchDeflection);
+                const double fallbackTolerance = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
                 ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTolerance, Standard_False, fallbackWireSeq);
                 if (fallbackWireSeq->Length() < wireSeq->Length()) {
                     wireSeq = fallbackWireSeq;
@@ -667,12 +667,32 @@ bool UsdStepExporter::tessellatePart(
 
                 BRepBuilderAPI_MakeFace makeFace(wire, Standard_True);
                 if (!makeFace.IsDone()) {
+                    std::string message;
+                    switch (makeFace.Error()) {
+                        case BRepBuilderAPI_FaceDone:
+                            message = "FaceDone";
+                            break;
+                        case BRepBuilderAPI_NoFace:
+                            message = "NoFace";
+                            break;
+                        case BRepBuilderAPI_NotPlanar:
+                            message = "NotPlanar";
+                            break;
+                        case BRepBuilderAPI_CurveProjectionFailed:
+                            message = "CurveProjectionFailed";
+                            break;
+                        case BRepBuilderAPI_ParametersOutOfRange:
+                            message = "ParametersOutOfRange";
+                            break;
+                    }
+                    LOG_DEBUG("  -> Sketch plane makeFace failed, error: " + message);
                     makeFaceFailedCount++;
                     continue;
                 }
 
                 const TopoDS_Face sketchFace = makeFace.Face();
                 if (sketchFace.IsNull()) {
+                    LOG_DEBUG("  -> Sketch plane sketchFace is null");
                     makeFaceFailedCount++;
                     continue;
                 }
@@ -745,7 +765,7 @@ bool UsdStepExporter::tessellatePart(
                 const int faceIndexCount = static_cast<int>(result.sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
                 const int normalCount = static_cast<int>(result.sketchPlaneNormals.size()) - normalStart;
 
-                if (pointCount > 0 && faceCountCount > 0 && faceIndexCount > 0) {
+                if (pointCount > 0 && faceCountCount > 0 && faceIndexCount > 0 && normalCount == faceIndexCount) { 
                     result.sketchPlaneBounds.push_back({
                         basePoint,
                         pointCount,

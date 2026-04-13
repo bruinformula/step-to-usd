@@ -55,7 +55,7 @@ struct TessParams {
     };
 
     // Wireframe
-    float wireframeDeflection = 0.01f;     
+    double wireframeDeflection = 0.01f;     
     CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
     bool wireframeCombineCurves = true;
     bool wireframeEmbedSurfaceNormals = true;
@@ -75,7 +75,7 @@ struct TessParams {
     uint64_t sketchPlaneMeshTimeout = 3000;     
 
     // Other 
-    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
+    double renderPurposeThreshold = std::numeric_limits<double>::infinity();
     bool meshEnableSurfaceSubsets = false;     
     bool meshEnableUVs = true;
     bool meshEnableSurfaceID = false;

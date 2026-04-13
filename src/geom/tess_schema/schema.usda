@@ -151,7 +151,7 @@ class "StepTessellationAPI" (
         doc = "Angular deflection in radians."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlaneMinSize = 0.0 (
+    double step:sketchPlaneMinSize = 0.01 (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -230,7 +230,7 @@ class "StepTessellationOptions" (
     # Meshing 
     double step:meshLinearDeflection = 1.0
     double step:meshAngularDeflection = 0.5
-    double step:meshMinSize = 0.0
+    double step:meshMinSize = 0.01
     double step:meshSelfIntersectionThreshold = 1e-3
     int step:meshMaxNumberRemeshPasses = 1
     uint64 step:meshFixTimeout = 3000
@@ -249,7 +249,7 @@ class "StepTessellationOptions" (
     # Sketch Planes
     double step:sketchPlaneLinearDeflection = 1.0
     double step:sketchPlaneAngularDeflection = 0.5
-    double step:sketchPlaneMinSize = 0.0
+    double step:sketchPlaneMinSize = 0.01
     double step:sketchPlaneCombineTolerance = 1e-5
     uint64 step:sketchPlaneFixTimeout = 3000
     uint64 step:sketchPlaneMeshTimeout = 3000
