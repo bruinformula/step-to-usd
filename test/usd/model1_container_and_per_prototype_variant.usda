@@ -7,25 +7,25 @@
 
 def StepTessellationOptions "DefaultOptions"
 {
-    int step:maxNumberRemeshPasses = 1
+    int step:meshMaxNumberRemeshPasses = 1
 }
 
 def StepTessellationOptions "FinalOptions"
 {
-    float step:meshAngularDeflection = 0.05
-    float step:meshLinearDeflection = 0.05
+    double step:meshAngularDeflection = 0.05
+    double step:meshLinearDeflection = 0.05
 }
 
 def StepTessellationOptions "HighOptions"
 {
-    float step:meshAngularDeflection = 0.1
-    float step:meshLinearDeflection = 0.1
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
 }
 
 def StepTessellationOptions "LowOptions"
 {
-    float step:meshAngularDeflection = 10
-    float step:meshLinearDeflection = 10
+    double step:meshAngularDeflection = 10
+    double step:meshLinearDeflection = 10
 }
 
 def "World"
@@ -43,7 +43,7 @@ def "World"
             active = false
         )
         {
-            over "rod0" (
+            over "rod_1__78316e9d" (
                 active = false
                 variants = {
                     string quality = "default"
@@ -78,10 +78,10 @@ def "World"
                 {
                     rel step:defaultParams = </HighOptions>
 
-                    over "rod0"
+                    over "rod_1__78316e9d"
                     {
-                        float step:meshAngularDeflection = 0.01
-                        float step:meshLinearDeflection = 0.01
+                        double step:meshAngularDeflection = 0.01
+                        double step:meshLinearDeflection = 0.01
                     }
                 }
 

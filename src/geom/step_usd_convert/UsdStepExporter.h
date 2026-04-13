@@ -23,6 +23,68 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+struct TessParams {
+    // Meshing
+    double meshLinearDeflection = 1.0f;       // Linear deflection as fraction of bounding-box diagonal
+    double meshAngularDeflection = 0.5f;      // Angular deflection in radians
+    double meshMinSize = 0.0;                // Minimum triangle edge length as fraction of bounding-box diagonal
+    double meshSelfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
+    int meshMaxNumberRemeshPasses = 1;           // Maximum remesh passes
+    double meshFixPrecision = 1e-7;          // Tolerance for shape fixing
+    double meshFixTolerance = 1e-7;       // Tolerance for meshing operations
+
+    // Timeout in milliseconds
+    uint64_t meshFixTimeout = 3000;            
+    uint64_t meshMeshTimeout = 3000;           
+    uint64_t meshRemeshTimeout = 3000;   
+    
+    enum class CurveType {
+        None,                // ain't got nothing on me
+        Linear,              // polyline using the tessellated mesh boundary vertices directly
+        Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
+    };
+
+    enum class CurveSampling {
+        Underlying, // polyline using the tessellated mesh boundary vertices
+        Resampled   // resampled from the underlying curve geometry
+    };
+
+    struct CurveMode {
+        CurveType type;
+        CurveSampling sampling;
+    };
+
+    // Wireframe
+    float wireframeDeflection = 0.01f;     
+    CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
+    bool wireframeCombineCurves = true;
+    bool wireframeEmbedSurfaceNormals = true;
+
+    // Sketch
+    double sketchDeflection = 0.005f;       
+    CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
+    bool sketchCombineCurves = true;
+    bool sketchEmbedSurfaceNormals = true;
+
+    // Sketch Plane 
+    double sketchPlaneLinearDeflection = 0.01f;
+    double sketchPlaneAngularDeflection = 0.5f;
+    double sketchPlaneMinSize = 0.0;
+    double sketchPlaneCombineTolerance = 1e-5;
+    uint64_t sketchPlaneFixTimeout = 3000;            
+    uint64_t sketchPlaneMeshTimeout = 3000;     
+
+    // Other 
+    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
+    bool meshEnableSurfaceSubsets = false;     
+    bool meshEnableUVs = true;
+    bool meshEnableSurfaceID = false;
+    bool meshEnableIsBoundaryVertex = false;
+    double unitScale = 1.0;                // Internal exporter scale: source model units -> target USD units.
+    // in the units of the model along the diagonal. 
+    // if proto is smaller it gets marked as a render only asset
+};
+
 struct TessResult {
     SdfPath targetLayer;
 
@@ -46,11 +108,13 @@ struct TessResult {
     // Wireframe curves 
     VtArray<GfVec3f> curvePoints;
     VtArray<int> wireframeCounts;
+    VtArray<GfVec3f> wireframeSurfaceNormals;
     VtArray<int> curveContinuity;
 
     // Sketch curves
     VtArray<GfVec3f> sketchPoints;
     VtArray<int> sketchCounts;
+    VtArray<GfVec3f> sketchSurfaceNormals;
 
     // Sketch planes reconstructed from closed free-edge loops
     VtArray<GfVec3f> sketchPlanePoints;
@@ -73,57 +137,6 @@ struct TessResult {
 
     // Render Purpose
     bool renderOnly; 
-};
-
-struct TessParams {
-    // Meshing
-    float meshLinearDeflection = 1.0f;       // Linear deflection as fraction of bounding-box diagonal
-    float meshAngularDeflection = 0.5f;      // Angular deflection in radians
-    double meshMinSize = 0.0;                // Minimum triangle edge length as fraction of bounding-box diagonal
-    double selfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
-    int maxNumberRemeshPasses = 1;           // Maximum remesh passes
-
-    // Timeout in milliseconds
-    uint64_t fixTimeout = 3000;            
-    uint64_t meshTimeout = 3000;           
-    uint64_t remeshTimeout = 3000;   
-    
-    //
-    enum class CurveType {
-        None,                // ain't got nothing on me
-        Linear,              // polyline using the tessellated mesh boundary vertices directly
-        Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
-    };
-
-    enum class CurveSampling {
-        Underlying, // polyline using the tessellated mesh boundary vertices
-        Resampled   // resampled from the underlying curve geometry
-    };
-
-    struct CurveMode {
-        CurveType type;
-        CurveSampling sampling;
-    };
-
-    // Wireframe
-    float wireframeDeflection = 0.01f;     
-    CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
-    bool wireframeCombineCurves = true;    
-
-    // Sketch
-    float sketchDeflection = 0.005f;       
-    CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
-    bool sketchCombineCurves = true;       
-
-    // Other 
-    float renderPurposeThreshold = std::numeric_limits<float>::infinity();
-    bool enableSurfaceSubsets = false;     
-    bool enableUVs = true;
-    bool enableSurfaceID = false;
-    bool enableIsBoundaryVertex = false;
-    double unitScale = 1.0;                // Internal exporter scale: source model units -> target USD units.
-    // in the units of the model along the diagonal. 
-    // if proto is smaller it gets marked as a render only asset
 };
 
 struct StageFilterInfo {

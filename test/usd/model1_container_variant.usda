@@ -7,19 +7,19 @@
 
 def StepTessellationOptions "HighOptions"
 {
-    float step:meshAngularDeflection = 0.1
-    float step:meshLinearDeflection = 0.1
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
 }
 
 def StepTessellationOptions "LowOptions"
 {
-    float step:meshAngularDeflection = 10
-    float step:meshLinearDeflection = 10
+    double step:meshAngularDeflection = 10
+    double step:meshLinearDeflection = 10
 }
 
 def StepFileContainer "Wonderful" (
     variants = {
-        string LOD = "high"
+        string LOD = "low"
     }
     prepend variantSets = "LOD"
 )
@@ -29,21 +29,20 @@ def StepFileContainer "Wonderful" (
     over "Prototypes" (
         active = false
     )
-    { 
-        
+    {
     }
     variantSet "LOD" = {
         "high" (
             prepend payload = @model1/LOD/model1-LOD-high-prototypes.usdc@
         ) {
-            over StepFileContainer "Prototypes"
+            over StepFilePrototypes "Prototypes"
             {
                 rel step:defaultParams = </HighOptions>
 
-                over "rod0"
+                over "rod_1__78316e9d"
                 {
-                    float step:meshAngularDeflection = 0.01
-                    float step:meshLinearDeflection = 0.01
+                    double step:meshAngularDeflection = 0.01
+                    double step:meshLinearDeflection = 0.01
                 }
             }
 
@@ -51,7 +50,7 @@ def StepFileContainer "Wonderful" (
         "low" (
             prepend payload = @model1/LOD/model1-LOD-low-prototypes.usdc@
         ) {
-            over StepFileContainer "Prototypes"
+            over StepFilePrototypes "Prototypes"
             {
                 rel step:defaultParams = </LowOptions>
             }

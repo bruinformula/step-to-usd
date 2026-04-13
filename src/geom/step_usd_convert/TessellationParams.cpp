@@ -43,31 +43,33 @@ TessParams UsdStepExporter::getTessParams(
     updateIfAuthored(api.GetStepMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
     updateIfAuthored(api.GetStepMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
     updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize);
-    updateIfAuthored(api.GetStepSelfIntersectionThresholdAttr(), &params.selfIntersectionThreshold);
-    updateIfAuthored(api.GetStepMaxNumberRemeshPassesAttr(), &params.maxNumberRemeshPasses);
+    updateIfAuthored(api.GetStepMeshSelfIntersectionThresholdAttr(), &params.meshSelfIntersectionThreshold);
+    updateIfAuthored(api.GetStepMeshMaxNumberRemeshPassesAttr(), &params.meshMaxNumberRemeshPasses);
 
-    updateIfAuthored(api.GetStepFixTimeoutAttr(), &params.fixTimeout);
-    updateIfAuthored(api.GetStepMeshTimeoutAttr(), &params.meshTimeout);
-    updateIfAuthored(api.GetStepRemeshTimeoutAttr(), &params.remeshTimeout);
+    updateIfAuthored(api.GetStepMeshFixTimeoutAttr(), &params.meshFixTimeout);
+    updateIfAuthored(api.GetStepMeshMeshTimeoutAttr(), &params.meshMeshTimeout);
+    updateIfAuthored(api.GetStepMeshRemeshTimeoutAttr(), &params.meshRemeshTimeout);
 
     // Wireframe
     updateIfAuthored(api.GetStepWireframeCombineCurvesAttr(), &params.wireframeCombineCurves);
     updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection);
     updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type);
+    updateIfAuthored(api.GetStepWireframeEmbedSurfaceNormalsAttr(), &params.wireframeEmbedSurfaceNormals);
     updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling);
 
     // Sketch
     updateIfAuthored(api.GetStepSketchCombineCurvesAttr(), &params.sketchCombineCurves);
     updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
     updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
+    updateIfAuthored(api.GetStepSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
     updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
 
     // Other
     updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
-    updateIfAuthored(api.GetStepEnableSurfaceSubsetsAttr(), &params.enableSurfaceSubsets);
-    updateIfAuthored(api.GetStepEnableUVsAttr(), &params.enableUVs);
-    updateIfAuthored(api.GetStepEnableSurfaceIDAttr(), &params.enableSurfaceID);
-    updateIfAuthored(api.GetStepEnableIsBoundaryVertexAttr(), &params.enableIsBoundaryVertex);
+    updateIfAuthored(api.GetStepMeshEnableSurfaceSubsetsAttr(), &params.meshEnableSurfaceSubsets);
+    updateIfAuthored(api.GetStepMeshEnableUVsAttr(), &params.meshEnableUVs);
+    updateIfAuthored(api.GetStepMeshEnableSurfaceIDAttr(), &params.meshEnableSurfaceID);
+    updateIfAuthored(api.GetStepMeshEnableIsBoundaryVertexAttr(), &params.meshEnableIsBoundaryVertex);
 
     return params;
 }

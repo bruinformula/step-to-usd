@@ -7,18 +7,20 @@
 
 def StepTessellationOptions "OptionsA"
 {
-    float step:meshAngularDeflection = 15
-    float step:meshLinearDeflection = 0.1
+    double step:meshAngularDeflection = 15
+    double step:meshLinearDeflection = 0.1
 }
 
 def StepTessellationOptions "OptionsB"
 {
-    float step:meshAngularDeflection = 0.1
-    float step:meshLinearDeflection = 0.1
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
 }
 
 def StepFileContainer "Wonderful" (
-    prepend payload = @model1-assembly.usda@
+    prepend payload = [
+        @model1/model1-prototypes.usdc@
+    ]
 )
 {
     asset step:sourceAsset = @step/model1.STEP@
@@ -29,7 +31,7 @@ def StepFileContainer "Wonderful" (
     {
         rel step:defaultParams = </OptionsA>
 
-        over "rod0" (
+        over "rod_1__78316e9d" (
             variants = {
                 string quality = "final"
             }

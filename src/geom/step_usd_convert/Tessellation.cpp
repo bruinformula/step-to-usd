@@ -204,18 +204,17 @@ bool UsdStepExporter::tessellatePart(
 
     LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
     ShapeFix_Shape fixer(defShape);
-    fixer.SetPrecision(1e-4);
-    fixer.SetMaxTolerance(0.1);
+    fixer.SetPrecision(params.meshFixPrecision);
+    fixer.SetMaxTolerance(params.meshFixTolerance);
     
-    opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.fixTimeout));
+    opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshFixTimeout));
     Message_ProgressRange fixRange = fixProgress->Start();
     fixer.Perform(fixRange);
 
     if (fixProgress->timedOut()) {
         LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
-        // workingShape is still usable
-        // OCCT leaves it in a partially-fixed state
     }
+    
     TopoDS_Shape workingShape = fixer.Shape();
 
     LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
@@ -234,11 +233,11 @@ bool UsdStepExporter::tessellatePart(
         std::pow(zmax - zmin, 2)
     );
 
-    result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<float>::infinity() && diagonal < params.renderPurposeThreshold;
+    result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<double>::infinity() && diagonal < params.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
     meshParams.InParallel = mesherInParallel; 
-    meshParams.Deflection = static_cast<float>(diagonal * params.meshLinearDeflection);
+    meshParams.Deflection = diagonal * params.meshLinearDeflection;
     meshParams.Angle = params.meshAngularDeflection; // in radians
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     
@@ -246,7 +245,7 @@ bool UsdStepExporter::tessellatePart(
     BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
 
     LOG_DEBUG("  -> tessellatePart: mesher.Perform()");
-    opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshTimeout));
+    opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshMeshTimeout));
     Message_ProgressRange meshRange = meshProgress->Start();
     mesher.Perform(meshRange);
 
@@ -254,7 +253,7 @@ bool UsdStepExporter::tessellatePart(
         LOG_DEBUG("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
     }
 
-    int maxPasses = params.maxNumberRemeshPasses;
+    int maxPasses = params.meshMaxNumberRemeshPasses;
     IMeshTools_Parameters repairParams = meshParams;
 
     // repeat check for self-intersections 
@@ -268,7 +267,7 @@ bool UsdStepExporter::tessellatePart(
     LOG_DEBUG("  -> tessellatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
         LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
-        BRepExtrema_SelfIntersection checker(workingShape, params.selfIntersectionThreshold);
+        BRepExtrema_SelfIntersection checker(workingShape, params.meshSelfIntersectionThreshold);
         LOG_DEBUG("  -> checker.Perform()");
         checker.Perform();
 
@@ -295,7 +294,7 @@ bool UsdStepExporter::tessellatePart(
         LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair)");
         BRepMesh_IncrementalMesh remesher(workingShape, repairParams);
         
-        opencascade::handle<DeadlineProgressIndicator> remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.remeshTimeout));
+        opencascade::handle<DeadlineProgressIndicator> remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshRemeshTimeout));
         Message_ProgressRange remeshRange = remeshProgress->Start();
         remesher.Perform(remeshRange);
         if (remeshProgress->timedOut()) {
@@ -534,16 +533,8 @@ bool UsdStepExporter::tessellatePart(
 
             BRepAdaptor_Curve adaptor(edge);
 
-            double deflection;
-            
-            if (params.sketchMode.type == TessParams::CurveType::Linear) {
-                deflection = params.wireframeDeflection;
-            } else {
-                deflection = params.sketchDeflection;
-            }
-
             GCPnts_QuasiUniformDeflection sampler(
-                adaptor, deflection,
+                adaptor, params.sketchDeflection,
                 adaptor.FirstParameter(), adaptor.LastParameter()
             );
             if (!sampler.IsDone() || sampler.NbPoints() < 2) continue;
@@ -610,12 +601,12 @@ bool UsdStepExporter::tessellatePart(
             LOG_DEBUG("  -> Sketch plane usable split edges=" + std::to_string(edgeSeq->Length()));
 
             opencascade::handle<TopTools_HSequenceOfShape> wireSeq = new TopTools_HSequenceOfShape();
-            double edgeTolerance = std::max(1e-7, diagonal * 1e-7);
+            double edgeTolerance = std::max(params.sketchPlaneCombineTolerance, diagonal * params.sketchPlaneCombineTolerance);
             ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, Standard_True, wireSeq);
             if (wireSeq->Length() >= edgeSeq->Length()) {
                 // Fallback: connect by geometric proximity when topology sharing is absent.
                 opencascade::handle<TopTools_HSequenceOfShape> fallbackWireSeq = new TopTools_HSequenceOfShape();
-                const double fallbackTolerance = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
+                const double fallbackTolerance = std::max(edgeTolerance, diagonal * params.sketchDeflection);
                 ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTolerance, Standard_False, fallbackWireSeq);
                 if (fallbackWireSeq->Length() < wireSeq->Length()) {
                     wireSeq = fallbackWireSeq;
@@ -686,7 +677,12 @@ bool UsdStepExporter::tessellatePart(
                     continue;
                 }
 
-                BRepMesh_IncrementalMesh planeMesher(sketchFace, meshParams);
+                IMeshTools_Parameters sketchPlaneMeshParams;
+                sketchPlaneMeshParams.Deflection = diagonal * params.sketchPlaneLinearDeflection;
+                sketchPlaneMeshParams.Angle = params.sketchPlaneAngularDeflection;
+                sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
+
+                BRepMesh_IncrementalMesh planeMesher(sketchFace, sketchPlaneMeshParams);
                 planeMesher.Perform();
 
                 TopLoc_Location sketchLoc;

@@ -90,9 +90,22 @@ std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     return variantPaths;
 }
 
-std::string sanitizeUsdName(const std::string_view& name, int idx) {
-    if (name.empty()) return "Node_" + std::to_string(idx);
+std::string stableLabelSuffix(const TDF_Label& label) {
+    std::ostringstream oss;
+    label.EntryDump(oss);
+    std::string entry = oss.str();
+    // FNV-1a 32-bit
+    uint32_t h = 2166136261u;
+    for (unsigned char c : entry) {
+        h ^= c;
+        h *= 16777619u;
+    }
+    char buf[9];
+    snprintf(buf, sizeof(buf), "%08x", h);
+    return std::string(buf);
+}
 
+std::string sanitizeUsdName(const std::string_view& name) {
     std::string result;
     result.reserve(name.size());
 
@@ -100,16 +113,6 @@ std::string sanitizeUsdName(const std::string_view& name, int idx) {
         if (std::isalnum(c) || c == '_') result += c;
         else result += '_'; // replace hyphens, spaces, dots
     }
-
-    // Usd prim names must start with a letter or underscore
-    if (!result.empty() && std::isdigit(result[0]))
-        result = "_" + result;
-
-    if (result.empty()) 
-        return "Node_" + std::to_string(idx);
-
-    if (idx != 0)
-        result += "_" + std::to_string(idx);
 
     return result;
 }

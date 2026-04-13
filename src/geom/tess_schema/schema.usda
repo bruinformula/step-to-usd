@@ -53,11 +53,19 @@ class "StepTessellationAPI" (
     )
 
     # Meshing
-    float step:meshLinearDeflection = 1.0 (
+    double step:meshFixPrecision = 1e-7 (
+        doc = "Tolerance for shape fixing operations. Expressed as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:meshFixTolerance = 1e-7 (
+        doc = "Tolerance for meshing operations. Expressed as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:meshLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float step:meshAngularDeflection = 0.5 (
+    double step:meshAngularDeflection = 0.5 (
         doc = "Angular deflection in radians."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -65,23 +73,23 @@ class "StepTessellationAPI" (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:selfIntersectionThreshold = 1e-3 (
+    double step:meshSelfIntersectionThreshold = 1e-3 (
         doc = "Threshold for detecting self-intersecting triangles during meshing."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    int step:maxNumberRemeshPasses = 1 (
+    int step:meshMaxNumberRemeshPasses = 1 (
         doc = "Maximum number of remeshing passes to attempt if self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:fixTimeout = 3000 (
+    uint64 step:meshFixTimeout = 3000 (
         doc = "Timeout in milliseconds for the shape fixing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:meshTimeout = 3000 (
+    uint64 step:meshMeshTimeout = 3000 (
         doc = "Timeout in milliseconds for the initial meshing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:remeshTimeout = 3000 (
+    uint64 step:meshRemeshTimeout = 3000 (
         doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -97,12 +105,16 @@ class "StepTessellationAPI" (
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float step:wireframeDeflection = 10 (
+    double step:wireframeDeflection = 10 (
         doc = "Deflection tolerance for wireframe edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     bool step:wireframeCombineCurves = 1 (
         doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    bool step:wireframeEmbedSurfaceNormals = 1 (
+        doc = "Whether to embed the surface normals of the underlying mesh as primvars on wireframe curve prims."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
@@ -117,7 +129,7 @@ class "StepTessellationAPI" (
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    float step:sketchDeflection = 10 (
+    double step:sketchDeflection = 10 (
         doc = "Deflection tolerance for sketch/free-edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -125,25 +137,55 @@ class "StepTessellationAPI" (
         doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
         customData = { string variability = "SdfVariabilityUniform" }
     )
+    bool step:sketchEmbedSurfaceNormals = 1 (
+        doc = "Whether to embed the surface normals of the underlying sketch as primvars on sketch curve prims."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+
+    # Meshing
+    double step:sketchPlaneLinearDeflection = 1.0 (
+        doc = "Linear deflection as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:sketchPlaneAngularDeflection = 0.5 (
+        doc = "Angular deflection in radians."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:sketchPlaneMinSize = 0.0 (
+        doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:sketchPlaneCombineTolerance = 1e-5 (
+        doc = "Tolerance for combining coplanar faces into a single plane during meshing. Expressed as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:sketchPlaneFixTimeout = 3000 (
+        doc = "Timeout in milliseconds for the shape fixing pass."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:sketchPlaneTimeout = 3000 (
+        doc = "Timeout in milliseconds for the initial meshing pass."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
 
     # Other
-    float step:renderPurposeThreshold = 0.0 (
+    double step:renderPurposeThreshold = 0.0 (
         doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:enableSurfaceSubsets = 0 (
+    bool step:meshEnableSurfaceSubsets = 0 (
         doc = "Whether to create USD subsets for each unique surface ID in the STEP file. This can be handy for material binding."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:enableUVs = 1 (
+    bool step:meshEnableUVs = 1 (
         doc = "Whether to export UVs when available. Disabling this can speed up exports when UVs are not needed."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:enableSurfaceID = 0 (
+    bool step:meshEnableSurfaceID = 0 (
         doc = "Whether to export the TopoDS_Face surface ID as a primvar."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:enableIsBoundaryVertex = 0 (
+    bool step:meshEnableIsBoundaryVertex = 0 (
         doc = "Whether to export marked vertices that are on the boundary of TopoDS_Faces (i.e. the wireframe) as a primvar."
         customData = { string variability = "SdfVariabilityUniform" }
     )  
@@ -186,28 +228,35 @@ class "StepTessellationOptions" (
     }
 ) {
     # Meshing 
-    float step:meshLinearDeflection = 1.0
-    float step:meshAngularDeflection = 0.5
+    double step:meshLinearDeflection = 1.0
+    double step:meshAngularDeflection = 0.5
     double step:meshMinSize = 0.0
-    double step:selfIntersectionThreshold = 1e-3
-    int step:maxNumberRemeshPasses = 1
-    uint64 step:fixTimeout = 3000
-    uint64 step:meshTimeout = 3000
-    uint64 step:remeshTimeout = 3000
+    double step:meshSelfIntersectionThreshold = 1e-3
+    int step:meshMaxNumberRemeshPasses = 1
+    uint64 step:meshFixTimeout = 3000
+    uint64 step:meshMeshTimeout = 3000
+    uint64 step:meshRemeshTimeout = 3000
     # Wireframe
     token step:wireframeType = "linear"
     token step:wireframeSampling = "underlying"
-    float step:wireframeDeflection = 10
+    double step:wireframeDeflection = 10
     bool step:wireframeCombineCurves = 1
     # Sketch
     token step:sketchType = "linear"
     token step:sketchSampling = "underlying"
-    float step:sketchDeflection = 10
+    double step:sketchDeflection = 10
     bool step:sketchCombineCurves = 1
+    # Sketch Planes
+    double step:sketchPlaneLinearDeflection = 1.0
+    double step:sketchPlaneAngularDeflection = 0.5
+    double step:sketchPlaneMinSize = 0.0
+    double step:sketchPlaneCombineTolerance = 1e-5
+    uint64 step:sketchPlaneFixTimeout = 3000
+    uint64 step:sketchPlaneMeshTimeout = 3000
     # Other
-    float step:renderPurposeThreshold = 0.0
-    bool step:enableSurfaceSubsets = 0
-    bool step:enableUVs = 1
-    bool step:enableSurfaceID = 0
-    bool step:enableIsBoundaryVertex = 0
+    double step:renderPurposeThreshold = 0.0
+    bool step:meshEnableSurfaceSubsets = 0
+    bool step:meshEnableUVs = 1
+    bool step:meshEnableSurfaceID = 0
+    bool step:meshEnableIsBoundaryVertex = 0
 }

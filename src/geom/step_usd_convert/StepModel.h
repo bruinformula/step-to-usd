@@ -67,6 +67,7 @@ struct StepModel {
     struct PartNode {
         PartNodeType type;
         TDF_Label definitionLabel; // this is the key into definitionShapes
+        TDF_Label instanceLabel;
         TopAbs_ShapeEnum shapeType;
         gp_Trsf localTransform;  // this node's transform relative to its parent only
         int parentIdx;       // index into partNodes[], -1 if container
@@ -120,7 +121,8 @@ private:
 
     
     void fillNode(
-        const TDF_Label& label,
+        const TDF_Label& instLabel,
+        const TDF_Label& defLabel,
         const std::string& parentName,
         const gp_Trsf& parentWorld,
         int parentIdx,
@@ -129,6 +131,7 @@ private:
     );
     
     void fillLeaf(
+        const TDF_Label& instLabel, 
         const TDF_Label& defLabel,
         const std::string& parentName,
         const gp_Trsf& localTrsf,
@@ -138,6 +141,7 @@ private:
     );
     
     void fillAssembly(
+        const TDF_Label& instLabel, 
         const TDF_Label& defLabel,
         const std::string& parentName,
         const gp_Trsf& localTrsf,

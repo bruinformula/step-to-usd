@@ -24,9 +24,10 @@ std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     const UsdPrim& prim
 );
 
+std::string stableLabelSuffix(const TDF_Label& label);
+
 std::string sanitizeUsdName(
-    const std::string_view& name, 
-    int idx
+    const std::string_view& name
 );
 
 template <typename T>

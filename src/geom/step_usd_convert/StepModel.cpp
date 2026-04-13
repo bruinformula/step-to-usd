@@ -132,7 +132,8 @@ void StepModel::buildInstanceTree() {
     int cursor = 0;
     gp_Trsf identity;
     for (int i = 1; i <= freeShapes.Length(); i++) {
-        fillNode(freeShapes.Value(i), "", identity, -1, 0, cursor);
+        const TDF_Label& freeLabel = freeShapes.Value(i);
+        fillNode(freeLabel, freeLabel, "", identity, -1, 0, cursor);
     }
 
     assert(cursor == numNodes); // should hit all the nodes we counted in pass 1
@@ -193,46 +194,48 @@ int StepModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
 
 // Filling
 void StepModel::fillNode(
-    const TDF_Label& label,
+    const TDF_Label& instLabel,
+    const TDF_Label& defLabel,
     const std::string& parentName,
     const gp_Trsf& parentWorld,
     int parentIdx,
     int depth,
     int& cursor
 ) {
-    if (!shapeTool->IsShape(label)) return;
+    if (!shapeTool->IsShape(instLabel)) return;
 
     // Extract just this label's own location
     // world is computed here purely so children can extract their own localTrsf
     // correctly relative to their parent; it is never stored.
-    TopLoc_Location loc = shapeTool->GetLocation(label);
+    TopLoc_Location loc = shapeTool->GetLocation(instLabel);
     gp_Trsf localTrsf = loc.Transformation();
     gp_Trsf world = parentWorld * localTrsf;
 
-    if (shapeTool->IsComponent(label)) {
+    if (shapeTool->IsComponent(instLabel)) {
         TDF_Label defLabel;
-        if (!shapeTool->GetReferredShape(label, defLabel)) return;
+        if (!shapeTool->GetReferredShape(instLabel, defLabel)) return;
 
-        std::string instanceName = getLabelName(label);
+        std::string instanceName = getLabelName(instLabel);
         if (instanceName.empty()) instanceName = parentName;
 
         if (shapeTool->IsSimpleShape(defLabel)) {
-            fillLeaf(defLabel, instanceName, localTrsf, parentIdx, depth, cursor);
+            fillLeaf(instLabel, defLabel, instanceName, localTrsf, parentIdx, depth, cursor);
         } else if (shapeTool->IsAssembly(defLabel)) {
-            fillAssembly(defLabel, instanceName, localTrsf, world, parentIdx, depth, cursor);
+            fillAssembly(instLabel, defLabel, instanceName, localTrsf, world, parentIdx, depth, cursor);
         } else {
-            fillLeaf(defLabel, instanceName, localTrsf, parentIdx, depth, cursor);
+            fillLeaf(instLabel, defLabel, instanceName, localTrsf, parentIdx, depth, cursor);
         }
 
-    } else if (shapeTool->IsAssembly(label)) {
-        fillAssembly(label, "", localTrsf, world, parentIdx, depth, cursor);
+    } else if (shapeTool->IsAssembly(instLabel)) {
+        fillAssembly(instLabel, defLabel, "", localTrsf, world, parentIdx, depth, cursor);
 
-    } else if (shapeTool->IsSimpleShape(label)) {
-        fillLeaf(label, "", localTrsf, parentIdx, depth, cursor);
+    } else if (shapeTool->IsSimpleShape(instLabel)) {
+        fillLeaf(instLabel, defLabel, "", localTrsf, parentIdx, depth, cursor);
     }
 }
 
 void StepModel::fillLeaf(
+    const TDF_Label& instLabel,
     const TDF_Label& defLabel,
     const std::string& parentName,
     const gp_Trsf& localTrsf,
@@ -288,6 +291,7 @@ void StepModel::fillLeaf(
 
     partNodes[myIdx].type             = PartNodeType::Leaf;
     partNodes[myIdx].definitionLabel  = defLabel;
+    partNodes[myIdx].instanceLabel    = instLabel;
     partNodes[myIdx].localTransform   = localTrsf;
     partNodes[myIdx].parentIdx        = parentIdx;
     partNodes[myIdx].firstChildIdx    = -1;
@@ -306,6 +310,7 @@ void StepModel::fillLeaf(
 }
 
 void StepModel::fillAssembly(
+    const TDF_Label& instLabel,
     const TDF_Label& defLabel,
     const std::string& parentName,
     const gp_Trsf& localTrsf,
@@ -345,6 +350,7 @@ void StepModel::fillAssembly(
 
     partNodes[myIdx].type             = PartNodeType::Assembly;
     partNodes[myIdx].definitionLabel  = defLabel;
+    partNodes[myIdx].instanceLabel    = instLabel;
     partNodes[myIdx].localTransform   = localTrsf;
     partNodes[myIdx].parentIdx        = parentIdx;
     partNodes[myIdx].firstChildIdx    = firstChild;
@@ -354,7 +360,7 @@ void StepModel::fillAssembly(
     for (int i = 1; i <= components.Length(); i++) {
         TDF_Label child = components.Value(i);
         // pass resolved assembly name as fallback for nameless children
-        fillNode(child, partNodes[myIdx].name, world, myIdx, depth + 1, cursor);
+        fillNode(child, child, partNodes[myIdx].name, world, myIdx, depth + 1, cursor);
     }
 }
 
