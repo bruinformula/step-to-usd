@@ -71,6 +71,9 @@ struct TessParams {
     double sketchPlaneAngularDeflection = 0.5f;
     double sketchPlaneMinSize = 0.0;
     double sketchPlaneCombineTolerance = 1e-5;
+    double sketchPlaneFixPrecision = 1e-7;
+    double sketchPlaneFixTolerance = 1e-7;
+
     uint64_t sketchPlaneFixTimeout = 3000;            
     uint64_t sketchPlaneMeshTimeout = 3000;     
 

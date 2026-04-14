@@ -48,10 +48,9 @@ class "StepTessellationAPI" (
     }
 ) {
     int step:defIndex = 0 ( 
-        doc = "Unique index of the prototype. Used for debugging" 
+        doc = "Unique index of the prototype. Used for debugging." 
         customData = { string variability = "SdfVariabilityUniform" } 
     )
-
     # Meshing
     double step:meshFixPrecision = 1e-7 (
         doc = "Tolerance for shape fixing operations. Expressed as a fraction of the bounding-box diagonal."
@@ -155,15 +154,23 @@ class "StepTessellationAPI" (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlaneCombineTolerance = 1e-5 (
+    double step:sketchPlaneCombineTolerance = 1 (
         doc = "Tolerance for combining coplanar faces into a single plane during meshing. Expressed as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:sketchPlaneFixPrecision = 1e-4 (
+        doc = "Tolerance for shape fixing operations on sketch planes. Expressed as a fraction of the bounding-box diagonal."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    double step:sketchPlaneFixTolerance = 1e-4 (
+        doc = "Tolerance for meshing operations on sketch planes. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
     uint64 step:sketchPlaneFixTimeout = 3000 (
         doc = "Timeout in milliseconds for the shape fixing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:sketchPlaneTimeout = 3000 (
+    uint64 step:sketchPlaneMeshTimeout = 3000 (
         doc = "Timeout in milliseconds for the initial meshing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -227,32 +234,42 @@ class "StepTessellationOptions" (
         token schemaKind = "concreteTyped"
     }
 ) {
-    # Meshing 
+    # Meshing
+    double step:meshFixPrecision = 1e-7
+    double step:meshFixTolerance = 1e-7
     double step:meshLinearDeflection = 1.0
     double step:meshAngularDeflection = 0.5
-    double step:meshMinSize = 0.01
+    double step:meshMinSize = 0.0
     double step:meshSelfIntersectionThreshold = 1e-3
     int step:meshMaxNumberRemeshPasses = 1
-    uint64 step:meshFixTimeout = 3000
-    uint64 step:meshMeshTimeout = 3000
-    uint64 step:meshRemeshTimeout = 3000
+    uint64 step:meshFixTimeout = 7000
+    uint64 step:meshMeshTimeout = 7000
+    uint64 step:meshRemeshTimeout = 7000
+
     # Wireframe
     token step:wireframeType = "linear"
     token step:wireframeSampling = "underlying"
     double step:wireframeDeflection = 10
     bool step:wireframeCombineCurves = 1
+    bool step:wireframeEmbedSurfaceNormals = 1
+
     # Sketch
     token step:sketchType = "linear"
     token step:sketchSampling = "underlying"
     double step:sketchDeflection = 10
     bool step:sketchCombineCurves = 1
+    bool step:sketchEmbedSurfaceNormals = 1
+
     # Sketch Planes
     double step:sketchPlaneLinearDeflection = 1.0
     double step:sketchPlaneAngularDeflection = 0.5
     double step:sketchPlaneMinSize = 0.01
-    double step:sketchPlaneCombineTolerance = 1e-5
-    uint64 step:sketchPlaneFixTimeout = 3000
-    uint64 step:sketchPlaneMeshTimeout = 3000
+    double step:sketchPlaneCombineTolerance = 1
+    double step:sketchPlaneFixPrecision = 1e-4
+    double step:sketchPlaneFixTolerance = 1e-4
+    uint64 step:sketchPlaneFixTimeout = 7000
+    uint64 step:sketchPlaneMeshTimeout = 7000
+
     # Other
     double step:renderPurposeThreshold = 0.0
     bool step:meshEnableSurfaceSubsets = 0

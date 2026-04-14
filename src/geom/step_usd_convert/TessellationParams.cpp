@@ -45,6 +45,8 @@ TessParams UsdStepExporter::getTessParams(
     updateIfAuthored(api.GetStepMeshMinSizeAttr(), &params.meshMinSize);
     updateIfAuthored(api.GetStepMeshSelfIntersectionThresholdAttr(), &params.meshSelfIntersectionThreshold);
     updateIfAuthored(api.GetStepMeshMaxNumberRemeshPassesAttr(), &params.meshMaxNumberRemeshPasses);
+    updateIfAuthored(api.GetStepMeshFixPrecisionAttr(), &params.meshFixPrecision);
+    updateIfAuthored(api.GetStepMeshFixToleranceAttr(), &params.meshFixTolerance);
 
     updateIfAuthored(api.GetStepMeshFixTimeoutAttr(), &params.meshFixTimeout);
     updateIfAuthored(api.GetStepMeshMeshTimeoutAttr(), &params.meshMeshTimeout);
@@ -63,6 +65,16 @@ TessParams UsdStepExporter::getTessParams(
     updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
     updateIfAuthored(api.GetStepSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
     updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
+
+    // Sketch Plane
+    updateIfAuthored(api.GetStepSketchPlaneLinearDeflectionAttr(), &params.sketchPlaneLinearDeflection);
+    updateIfAuthored(api.GetStepSketchPlaneAngularDeflectionAttr(), &params.sketchPlaneAngularDeflection);
+    updateIfAuthored(api.GetStepSketchPlaneMinSizeAttr(), &params.sketchPlaneMinSize);
+    updateIfAuthored(api.GetStepSketchPlaneCombineToleranceAttr(), &params.sketchPlaneCombineTolerance);
+    updateIfAuthored(api.GetStepSketchPlaneFixPrecisionAttr(), &params.sketchPlaneFixPrecision);
+    updateIfAuthored(api.GetStepSketchPlaneFixToleranceAttr(), &params.sketchPlaneFixTolerance);
+    updateIfAuthored(api.GetStepSketchPlaneFixTimeoutAttr(), &params.sketchPlaneFixTimeout);
+    updateIfAuthored(api.GetStepSketchPlaneMeshTimeoutAttr(), &params.sketchPlaneMeshTimeout);
 
     // Other
     updateIfAuthored(api.GetStepRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
@@ -120,13 +132,13 @@ std::map<SdfPath, TessParams> UsdStepExporter::resolveParams(
         }
     }
     
-    LOG_DEBUG("Params for prim" + prim.GetPath().GetString() + ":");
-    for (const auto& [path, params] : results) {
-        LOG_DEBUG("  " + path.GetString() + ": "
-                + "meshLinearDeflection=" + std::to_string(params.meshLinearDeflection) + ", "
-                + "meshAngularDeflection=" + std::to_string(params.meshAngularDeflection) + ", "
-                + "sketchDefl=" + std::to_string(params.sketchDeflection));
-    }
+    //LOG_DEBUG("Params for prim" + prim.GetPath().GetString() + ":");
+    //for (const auto& [path, params] : results) {
+    //    LOG_DEBUG("  " + path.GetString() + ": "
+    //            + "meshLinearDeflection=" + std::to_string(params.meshLinearDeflection) + ", "
+    //            + "meshAngularDeflection=" + std::to_string(params.meshAngularDeflection) + ", "
+    //            + "sketchDefl=" + std::to_string(params.sketchDeflection));
+    //}
     
 
     if (prim.HasAuthoredActive()) {

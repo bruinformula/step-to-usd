@@ -36,6 +36,7 @@
 #include <opencascade/BOPAlgo_Splitter.hxx>
 #include <opencascade/BRepBuilderAPI_MakeFace.hxx>
 #include <opencascade/BRep_Builder.hxx>
+#include <opencascade/BRepAlgoAPI_Fuse.hxx>
 #include <opencascade/GeomAbs_Shape.hxx>
 #include <opencascade/GeomAdaptor_Surface.hxx>
 #include <opencascade/NCollection_IndexedDataMap.hxx>
@@ -111,6 +112,7 @@ private:
     bool _timedOut;
 };
 
+// UVs
 struct UVPatch {
     std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
     float uMin, uMax, vMin, vMax;
@@ -567,8 +569,10 @@ bool UsdStepExporter::tessellatePart(
     // Build sketch planes from free edges using OCCT topology:
     // split all free edges at intersections, connect split edges into wires,
     // convert closed wires into planar faces, then triangulate those faces.
+    
     if (!freeEdges.empty()) {
         try {
+            // Assemble free edges into a compound and connect them into wires
             TopoDS_Compound freeEdgeCompound;
             BRep_Builder builder;
             builder.MakeCompound(freeEdgeCompound);
@@ -577,142 +581,168 @@ bool UsdStepExporter::tessellatePart(
             }
 
             TopoDS_Shape splitShape = freeEdgeCompound;
-            BOPAlgo_Splitter splitter;
-            splitter.AddArgument(freeEdgeCompound);
-            splitter.Perform();
-            if (splitter.HasErrors()) {
-                LOG_DEBUG("  -> Sketch plane splitter reported errors; using unsplit free edges");
-            } else {
-                splitShape = splitter.Shape();
-                LOG_DEBUG("  -> Sketch plane splitter completed without errors");
+            {
+                BOPAlgo_Splitter splitter;
+                for (const TopoDS_Edge& edge : freeEdges) {
+                    splitter.AddArgument(edge);
+                }
+                
+                splitter.Perform();
+                if (!splitter.HasErrors()) { 
+                    splitShape = splitter.Shape();
+                } else {
+                    std::ostringstream e;
+                    splitter.DumpErrors(e);
+                    LOG_DEBUG("  -> Sketch plane splitter reported error:" + e.str() + ". using unsplit free edges");
+                }
             }
 
-            TopTools_IndexedMapOfShape splitEdgeMap;
-            TopExp::MapShapes(splitShape, TopAbs_EDGE, splitEdgeMap);
-            LOG_DEBUG("  -> Sketch plane split edge count=" + std::to_string(splitEdgeMap.Extent()));
-
             opencascade::handle<TopTools_HSequenceOfShape> edgeSeq = new TopTools_HSequenceOfShape();
-            for (int ei = 1; ei <= splitEdgeMap.Extent(); ++ei) {
-                const TopoDS_Edge& edge = TopoDS::Edge(splitEdgeMap.FindKey(ei));
-                if (!BRep_Tool::Degenerated(edge)) {
-                    edgeSeq->Append(edge);
+            {
+                TopTools_IndexedMapOfShape splitEdgeMap;
+                TopExp::MapShapes(splitShape, TopAbs_EDGE, splitEdgeMap);
+                LOG_DEBUG("  -> Sketch plane split edge count=" + std::to_string(splitEdgeMap.Extent()));
+                for (int ei = 1; ei <= splitEdgeMap.Extent(); ++ei) {
+                    const TopoDS_Edge& e = TopoDS::Edge(splitEdgeMap.FindKey(ei));
+                    if (!BRep_Tool::Degenerated(e))
+                        edgeSeq->Append(e);
                 }
             }
             LOG_DEBUG("  -> Sketch plane usable split edges=" + std::to_string(edgeSeq->Length()));
 
-            opencascade::handle<TopTools_HSequenceOfShape> wireSeq = new TopTools_HSequenceOfShape();
-            double edgeTolerance = std::max(params.sketchPlaneCombineTolerance, diagonal * params.sketchPlaneCombineTolerance);
-            ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, Standard_True, wireSeq);
+            opencascade::handle<TopTools_HSequenceOfShape> wireSeq =  new TopTools_HSequenceOfShape();
+            double edgeTolerance = std::max(
+                params.sketchPlaneCombineTolerance,
+                diagonal * params.sketchPlaneCombineTolerance
+            );
+            ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, true, wireSeq);
+
             if (wireSeq->Length() >= edgeSeq->Length()) {
-                // Fallback: connect by geometric proximity when topology sharing is absent.
                 opencascade::handle<TopTools_HSequenceOfShape> fallbackWireSeq = new TopTools_HSequenceOfShape();
-                const double fallbackTolerance = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
-                ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTolerance, Standard_False, fallbackWireSeq);
+                const double fallbackTol = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
+                ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTol, false, fallbackWireSeq);
                 if (fallbackWireSeq->Length() < wireSeq->Length()) {
                     wireSeq = fallbackWireSeq;
-                    edgeTolerance = fallbackTolerance;
+                    edgeTolerance = fallbackTol;
                     LOG_DEBUG("  -> Sketch plane wire connect fallback used (shared=false)");
                 }
             }
-            LOG_DEBUG(
-                "  -> Sketch plane wire candidates=" +
-                std::to_string(wireSeq->Length()) +
-                " (tol=" + std::to_string(edgeTolerance) + ")"
-            );
+            LOG_DEBUG("  -> Sketch plane wire candidates=" + std::to_string(wireSeq->Length()) + " (tol=" + std::to_string(edgeTolerance) + ")");
+
+            // Build a planar face from every closed wire.
+            auto isWireGeometricallyClosed = [&](const TopoDS_Wire& wire, double tol) -> bool {
+                TopoDS_Vertex vFirst, vLast;
+                TopExp::Vertices(wire, vFirst, vLast);
+                if (vFirst.IsNull() || vLast.IsNull()) return false;
+                if (vFirst.IsSame(vLast))               return true;
+                return BRep_Tool::Pnt(vFirst).Distance(BRep_Tool::Pnt(vLast)) <= tol;
+            };
 
             int closedWireCount = 0;
-            int makeFaceFailedCount = 0;
-            int emptyTriangulationCount = 0;
-            int emittedPlaneCount = 0;
-            int emittedPlaneTriangles = 0;
             int geomClosedWireCount = 0;
+            int makeFaceFailedCount = 0;
+            int builtFaceCount = 0;
 
-            auto isWireGeometricallyClosed = [&](const TopoDS_Wire& wire, double tol) {
-                TopoDS_Vertex vFirst;
-                TopoDS_Vertex vLast;
-                TopExp::Vertices(wire, vFirst, vLast);
-                if (vFirst.IsNull() || vLast.IsNull()) {
-                    return false;
-                }
-                if (vFirst.IsSame(vLast)) {
-                    return true;
-                }
-                const gp_Pnt pFirst = BRep_Tool::Pnt(vFirst);
-                const gp_Pnt pLast = BRep_Tool::Pnt(vLast);
-                return pFirst.Distance(pLast) <= tol;
-            };
+            // Collect all successfully built faces for the union step.
+            TopoDS_Compound faceCompound;
+            builder.MakeCompound(faceCompound);
 
             for (int wi = 1; wi <= wireSeq->Length(); ++wi) {
                 const TopoDS_Wire wire = TopoDS::Wire(wireSeq->Value(wi));
-                const bool topologicallyClosed = BRep_Tool::IsClosed(wire);
-                const bool geometricallyClosed = isWireGeometricallyClosed(wire, edgeTolerance * 10.0);
-                if (geometricallyClosed) {
-                    geomClosedWireCount++;
-                }
 
-                if (!(topologicallyClosed || geometricallyClosed)) {
-                    if (wi <= 10) {
-                        int edgeCount = 0;
-                        for (TopExp_Explorer edgeExp(wire, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
-                            edgeCount++;
-                        }
-                        LOG_DEBUG(
-                            "  -> Sketch plane open wire[" + std::to_string(wi) +
-                            "] edges=" + std::to_string(edgeCount)
-                        );
-                    }
-                    continue;
-                }
-                closedWireCount++;
+                const bool topoClosed = BRep_Tool::IsClosed(wire);
+                const bool geomClosed = isWireGeometricallyClosed(wire, edgeTolerance * 10.0);
+                if (geomClosed) ++geomClosedWireCount;
+                if (!(topoClosed || geomClosed)) continue;
+                ++closedWireCount;
 
-                BRepBuilderAPI_MakeFace makeFace(wire, Standard_True);
+                BRepBuilderAPI_MakeFace makeFace(wire, true);
                 if (!makeFace.IsDone()) {
-                    std::string message;
-                    switch (makeFace.Error()) {
-                        case BRepBuilderAPI_FaceDone:
-                            message = "FaceDone";
-                            break;
-                        case BRepBuilderAPI_NoFace:
-                            message = "NoFace";
-                            break;
-                        case BRepBuilderAPI_NotPlanar:
-                            message = "NotPlanar";
-                            break;
-                        case BRepBuilderAPI_CurveProjectionFailed:
-                            message = "CurveProjectionFailed";
-                            break;
-                        case BRepBuilderAPI_ParametersOutOfRange:
-                            message = "ParametersOutOfRange";
-                            break;
+                    ++makeFaceFailedCount;
+                    continue;
+                }
+                const TopoDS_Face f = makeFace.Face();
+                if (f.IsNull()) { ++makeFaceFailedCount; continue; }
+
+                builder.Add(faceCompound, f);
+                ++builtFaceCount;
+            }
+
+            LOG_DEBUG("  -> Sketch plane closed wires=" + std::to_string(closedWireCount) +
+                    ", geomClosed=" + std::to_string(geomClosedWireCount) +
+                    ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
+                    ", builtFaces=" + std::to_string(builtFaceCount));
+
+            // Union all faces so overlapping / nested regions
+            // collapse into one non-overlapping shell.
+            // We iterate over the compound and fuse each face into
+            // a running accumulator. 
+
+            TopoDS_Shape unifiedShape = faceCompound; // safe fallback
+
+            if (builtFaceCount > 1) {
+                try {
+                    TopExp_Explorer faceIt(faceCompound, TopAbs_FACE);
+
+                    TopoDS_Shape running = faceIt.Current(); // seed with first face
+                    faceIt.Next();
+
+                    for (; faceIt.More(); faceIt.Next()) {
+                        BRepAlgoAPI_Fuse fuse(running, faceIt.Current());
+                        fuse.Build();
+                        
+                        if (fuse.IsDone() && !fuse.HasErrors()) {
+                            running = fuse.Shape();
+                        } else {
+                            std::ostringstream e;
+                            fuse.DumpErrors(e);
+                            LOG_DEBUG("  -> Sketch plane: one fuse step failed with error " + e.str() +", face skipped");
+                        }
                     }
-                    LOG_DEBUG("  -> Sketch plane makeFace failed, error: " + message);
-                    makeFaceFailedCount++;
-                    continue;
+
+                    unifiedShape = running;
+                    LOG_DEBUG("  -> Sketch plane union complete");
+                } catch (const Standard_Failure& e) {
+                    LOG_DEBUG(std::string("  -> Sketch plane fuse failed, using raw compound: ") + e.GetMessageString());
+                    unifiedShape = faceCompound;
                 }
+            }
 
-                const TopoDS_Face sketchFace = makeFace.Face();
-                if (sketchFace.IsNull()) {
-                    LOG_DEBUG("  -> Sketch plane sketchFace is null");
-                    makeFaceFailedCount++;
-                    continue;
-                }
+            ShapeFix_Shape fixer(defShape);
+            fixer.SetPrecision(params.sketchPlaneFixPrecision);
+            fixer.SetMaxTolerance(params.sketchPlaneFixTolerance);
+            
+            opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneFixTimeout));
+            Message_ProgressRange fixRange = fixProgress->Start();
+            fixer.Perform(fixRange);
 
-                IMeshTools_Parameters sketchPlaneMeshParams;
-                sketchPlaneMeshParams.Deflection = diagonal * params.sketchPlaneLinearDeflection;
-                sketchPlaneMeshParams.Angle = params.sketchPlaneAngularDeflection;
-                sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
+            // Mesh the unified shape and emit SketchPlaneBounds
+            IMeshTools_Parameters sketchPlaneMeshParams;
+            sketchPlaneMeshParams.Deflection = diagonal * params.sketchPlaneLinearDeflection;
+            sketchPlaneMeshParams.Angle = params.sketchPlaneAngularDeflection;
+            sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
+            
+            BRepMesh_IncrementalMesh planeMesher(unifiedShape, sketchPlaneMeshParams);
+            opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneMeshTimeout));
+            Message_ProgressRange meshRange = meshProgress->Start();
+            planeMesher.Perform(meshRange);
 
-                BRepMesh_IncrementalMesh planeMesher(sketchFace, sketchPlaneMeshParams);
-                planeMesher.Perform();
+            int emittedPlaneCount = 0;
+            int emittedPlaneTriangles = 0;
+            int emptyTriangulationCount = 0;
+
+            for (TopExp_Explorer faceExp(unifiedShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+                const TopoDS_Face& sketchFace = TopoDS::Face(faceExp.Current());
 
                 TopLoc_Location sketchLoc;
                 occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(sketchFace, sketchLoc);
+
                 if (tri.IsNull() || tri->NbTriangles() == 0 || tri->NbNodes() == 0) {
-                    emptyTriangulationCount++;
+                    ++emptyTriangulationCount;
                     continue;
                 }
 
-                emittedPlaneCount++;
+                ++emittedPlaneCount;
                 emittedPlaneTriangles += tri->NbTriangles();
 
                 const gp_Trsf sketchTrsf = sketchLoc.Transformation();
@@ -754,27 +784,23 @@ bool UsdStepExporter::tessellatePart(
                     } else {
                         normal = GfVec3f(0.0f, 0.0f, 1.0f);
                     }
-
                     result.sketchPlaneNormals.push_back(normal);
                     result.sketchPlaneNormals.push_back(normal);
                     result.sketchPlaneNormals.push_back(normal);
                 }
 
                 const int pointCount = static_cast<int>(result.sketchPlanePoints.size()) - basePoint;
-                const int faceCountCount = static_cast<int>(result.sketchPlaneFaceVertexCounts.size()) - faceCountStart;
+                const int faceCountCount = static_cast<int>(result.sketchPlaneFaceVertexCounts.size())  - faceCountStart;
                 const int faceIndexCount = static_cast<int>(result.sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
                 const int normalCount = static_cast<int>(result.sketchPlaneNormals.size()) - normalStart;
 
-                if (pointCount > 0 && faceCountCount > 0 && faceIndexCount > 0 && normalCount == faceIndexCount) { 
+                if (pointCount > 0 && faceCountCount > 0 &&
+                    faceIndexCount > 0 && normalCount == faceIndexCount) {
                     result.sketchPlaneBounds.push_back({
-                        basePoint,
-                        pointCount,
-                        faceCountStart,
-                        faceCountCount,
-                        faceIndexStart,
-                        faceIndexCount,
-                        normalStart,
-                        normalCount
+                        basePoint,      pointCount,
+                        faceCountStart, faceCountCount,
+                        faceIndexStart, faceIndexCount,
+                        normalStart,    normalCount
                     });
                 }
             }
@@ -788,19 +814,24 @@ bool UsdStepExporter::tessellatePart(
                 ", emittedTriangles=" + std::to_string(emittedPlaneTriangles)
             );
             LOG_DEBUG(
-                "  -> Sketch plane output buffers: points=" + std::to_string(result.sketchPlanePoints.size()) +
-                ", faceCounts=" + std::to_string(result.sketchPlaneFaceVertexCounts.size()) +
-                ", faceIndices=" + std::to_string(result.sketchPlaneFaceVertexIndices.size())
+                "  -> Sketch plane output buffers: points=" +
+                std::to_string(result.sketchPlanePoints.size()) +
+                ", faceCounts=" +
+                std::to_string(result.sketchPlaneFaceVertexCounts.size()) +
+                ", faceIndices=" +
+                std::to_string(result.sketchPlaneFaceVertexIndices.size())
             );
+
         } catch (const Standard_Failure& e) {
-            LOG_DEBUG(std::string("  -> Sketch plane reconstruction OCCT failure: ") + e.GetMessageString());
+            LOG_DEBUG(std::string("  -> Sketch plane reconstruction OCCT failure: ") +
+                    e.GetMessageString());
         } catch (const std::exception& e) {
             LOG_DEBUG(std::string("  -> Sketch plane reconstruction std failure: ") + e.what());
         } catch (...) {
             LOG_DEBUG("  -> Sketch plane reconstruction unknown failure");
         }
     }
-
+    
     int totalTris = 0, totalNodes = 0;
     for (TopExp_Explorer faceExp(workingShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
@@ -1060,7 +1091,7 @@ void UsdStepExporter::tessellateGeometry(
         const int totalJobs = static_cast<int>(tessJobs.size());
         
         WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](int idx) {
-            LOG_DEBUG("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            //LOG_DEBUG("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
 
@@ -1093,12 +1124,12 @@ void UsdStepExporter::tessellateGeometry(
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     }
                 } else {
-                    LOG_DEBUG("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
+                    //LOG_DEBUG("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
                     int currentCount = ++completedJobs;
                     LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                 }
             }
-            LOG_DEBUG("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
+            //LOG_DEBUG("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
         });
         
         LOG_PROGRESS_DONE();

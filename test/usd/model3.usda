@@ -9,11 +9,16 @@ def StepTessellationOptions "DefaultOptions"
 {
     double step:meshAngularDeflection = 0.075
     double step:meshLinearDeflection = 0.075
+    
+    bool step:sketchCombineCurves = 0
+    token step:sketchType = "cubic"
+    token step:sketchSampling = "resampled"
+    double step:sketchDeflection = 0.01
 
     double step:sketchPlaneLinearDeflection = 1.0
     double step:sketchPlaneAngularDeflection = 0.5
     double step:sketchPlaneMinSize = 0.01
-    double step:sketchPlaneCombineTolerance = 1e-7
+    double step:sketchPlaneCombineTolerance = 1
 }
 
 def StepFileContainer "Wonderful" (

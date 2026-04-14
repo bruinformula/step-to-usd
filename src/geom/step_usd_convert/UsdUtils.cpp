@@ -114,6 +114,9 @@ std::string sanitizeUsdName(const std::string_view& name) {
         else result += '_'; // replace hyphens, spaces, dots
     }
 
+    if (!result.empty() && std::isdigit(result[0]))
+        result = "_" + result;
+
     return result;
 }
 

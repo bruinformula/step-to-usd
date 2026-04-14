@@ -167,7 +167,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
+                //LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
             } else {
                 LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
             }
@@ -186,7 +186,6 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName); 
-
             protoPrim.GetInherits().AddInherit(cadPartPath);
 
             AutolibStepTessellationAPI api(protoPrim);
@@ -544,6 +543,7 @@ static void writeSketchPlaneGeometry(
         VtArray<int> indices;
         indices.reserve(b.faceIndexCount);
 
+        bool corruptPlane = false;
         for (int fi = b.faceIndexStart; fi < b.faceIndexStart + b.faceIndexCount; ++fi) {
             int globalIdx = r.sketchPlaneFaceVertexIndices[fi];
 
@@ -551,12 +551,15 @@ static void writeSketchPlaneGeometry(
             if (inserted) {
                 if (static_cast<size_t>(globalIdx) >= r.sketchPlanePoints.size()) {
                     // Corrupt index — skip entire plane
-                    goto nextPlane;
+                    corruptPlane = true;
+                    continue;
                 }
                 points.push_back(r.sketchPlanePoints[globalIdx]);
             }
             indices.push_back(it->second);
         }
+
+        if (corruptPlane) continue; 
 
         // Normals are faceVarying (one per face-vertex), slice directly
         normals = VtArray<GfVec3f>(
@@ -576,8 +579,6 @@ static void writeSketchPlaneGeometry(
             mesh.GetNormalsAttr().Set(normals);
             mesh.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.55f, 0.8f, 1.0f}});
         }
-
-        nextPlane:;
     }
 }
 
@@ -823,7 +824,7 @@ void UsdStepExporter::writePrototypeGeometries(
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
                     if (Logger::activeLevel == Logger::DEBUG) {
-                        LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
+                        //LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
                     } else {
                         LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
                     }
