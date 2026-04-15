@@ -54,10 +54,10 @@
 #pragma pop_macro("Handle")
 
 #include "stepTessellationAPI.h"
-#include "stepFileContainerAPI.h"
-#include "stepFilePrototypesAPI.h"
-#include "stepFileContainer.h"
-#include "stepFilePrototypes.h"
+#include "stepContainerAPI.h"
+#include "stepPrototypesAPI.h"
+#include "stepContainer.h"
+#include "stepPrototypes.h"
 
 #include "UsdStepExporter.h"
 #include "StepModel.h"
@@ -334,7 +334,7 @@ bool UsdStepExporter::populatePrototypeContainers(
         prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
         prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
 
-        AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
+        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
 
         UsdGeomXform::Define(prototypesStage, assemblyPath);
         prototypesStage->Save();
@@ -372,7 +372,7 @@ bool UsdStepExporter::populatePrototypeContainers(
                 existingPrototypesContainer.SetActive(true);
 
             UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
-            AutolibStepFilePrototypes prototypesScope = AutolibStepFilePrototypes::Define(prototypesStage, prototypesPath);
+            AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
             
             UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
             prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
@@ -607,7 +607,7 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
             return false;
         }
 
-        writeCadPart(proto.stage, prototypesPrim, containerPrimPath, SdfPath("/CADPart"));
+        writePartClass(proto.stage, prototypesPrim, containerPrimPath, SdfPath("/Part"));
 
         LabelMap<SdfPath> variantPrototypePaths; // fresh per variant
         writePrototypeXformsInPrototypesStage(
@@ -753,9 +753,9 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
     // results to avoid redundant parsing of the same STEP file.
     // Helper to extract asset paths from a prim under its current variant context
     auto collectFromPrim = [&](const UsdPrim& prim) {
-        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) return;
+        if (!prim.HasAPI<AutolibStepContainerAPI>()) return;
 
-        AutolibStepFileContainer container(prim);
+        AutolibStepContainer container(prim);
         if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
 
         UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
@@ -849,7 +849,7 @@ void UsdStepExporter::populateUsd(
     LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
     
-    AutolibStepFileContainer container(containerPrim);
+    AutolibStepContainer container(containerPrim);
 
     if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
     UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
@@ -924,7 +924,7 @@ void UsdStepExporter::populateUsd(
     // Create the root layer for the container stage
     std::string baseName = model.stepPath.stem().string();
     fs::path rootPath = containerFilePath / (baseName);
-    fs::path rootStageFilePath = rootPath / (baseName + "-container.usda");
+    fs::path rootStageFilePath = rootPath / (baseName + "-sandwich.usda");
 
     bool rootPathExists = fs::exists(rootPath);
     bool rootFileExists = fs::exists(rootStageFilePath);

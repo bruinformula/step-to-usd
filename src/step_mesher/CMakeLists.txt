@@ -10,10 +10,10 @@ set(AUTOLIB_GEOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/TessellationParams.cpp"
 )
 
-# AutolibGeom
-add_library(AutolibGeom SHARED ${AUTOLIB_GEOM_SOURCES})
+# step-to-usd
+add_library(step-to-usd SHARED ${AUTOLIB_GEOM_SOURCES})
 
-target_link_libraries(AutolibGeom PUBLIC
+target_link_libraries(step-to-usd PUBLIC
     autolibStepTessellation
     usd
     usdGeom
@@ -22,7 +22,7 @@ target_link_libraries(AutolibGeom PUBLIC
     ${OpenCASCADE_LIBRARIES}
 )
 
-install(TARGETS AutolibGeom
+install(TARGETS step-to-usd
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
@@ -30,7 +30,7 @@ install(TARGETS AutolibGeom
 
 # StepConvertUsd
 add_executable(StepConvertUsd "${CMAKE_CURRENT_SOURCE_DIR}/StepConvertUsd.cpp")
-target_link_libraries(StepConvertUsd PRIVATE AutolibGeom)
+target_link_libraries(StepConvertUsd PRIVATE step-to-usd)
 
 install(TARGETS StepConvertUsd
     RUNTIME DESTINATION bin

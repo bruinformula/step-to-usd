@@ -1,10 +1,5 @@
 **/.DS_Store
-**/*.oso
-**/*.tx
-oso/
 build/
 .build/
 .cache/
-autolib/
 **/*.xbf
-**/*.stl

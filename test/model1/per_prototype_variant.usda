@@ -1,6 +1,6 @@
 #usda 1.0
 (
-    defaultPrim = "Wonderful"
+    defaultPrim = "Model1"
     metersPerUnit = 0.001
     upAxis = "Z"
 )
@@ -17,15 +17,10 @@ def StepTessellationOptions "OptionsB"
     double step:meshLinearDeflection = 0.1
 }
 
-def StepFileContainer "Wonderful" (
-    prepend payload = [
-        @model1/model1-prototypes.usdc@
-    ]
-)
-{
-    asset step:sourceAsset = @step/model1.STEP@
+def StepContainer "Model1" {
+    asset step:sourceAsset = @model1.STEP@
 
-    over StepFilePrototypes "Prototypes" (
+    over StepPrototypes "Prototypes" (
         active = false
     )
     {

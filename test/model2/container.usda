@@ -1,0 +1,28 @@
+#usda 1.0
+(
+    defaultPrim = "Model2"
+    doc = "Corner MacPherson strut suspension assembly"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
+}
+
+def StepContainer "Model2" (
+    prepend payload = @model2/model2-prototypes.usdc@
+)
+{
+    asset step:sourceAsset = @model2.STEP@
+
+    def StepPrototypes "Prototypes" (
+        active = false
+    )
+    {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+

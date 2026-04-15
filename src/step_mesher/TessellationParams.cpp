@@ -12,7 +12,7 @@
 #pragma pop_macro("Handle")
 
 #include "stepTessellationAPI.h"
-#include "stepFilePrototypesAPI.h"
+#include "stepPrototypesAPI.h"
 #include "UsdStepExporter.h"
 #include "Logger.h"
 #include "UsdUtils.h"
@@ -25,8 +25,8 @@ TessParams UsdStepExporter::getTessParams(
 ) {
     TessParams params = defaultParams;
 
-    if (prim.HasAPI<AutolibStepFilePrototypesAPI>()) {
-        AutolibStepFilePrototypesAPI protoApi(prim);
+    if (prim.HasAPI<AutolibStepPrototypesAPI>()) {
+        AutolibStepPrototypesAPI protoApi(prim);
         SdfPathVector targets;
         protoApi.GetStepDefaultParamsRel().GetForwardedTargets(&targets);
         if (!targets.empty()) {
@@ -148,7 +148,7 @@ std::map<SdfPath, TessParams> UsdStepExporter::resolveParams(
 }
 
 std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& prototypesPrim) {
-    AutolibStepFilePrototypesAPI api(prototypesPrim);
+    AutolibStepPrototypesAPI api(prototypesPrim);
 
     SdfPathVector targets;
     api.GetStepDefaultParamsRel().GetForwardedTargets(&targets);

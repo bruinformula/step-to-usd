@@ -1,0 +1,25 @@
+#usda 1.0
+(
+    doc = "An enclosure of some kind. Contains sketches."
+    defaultPrim = "Model3"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
+}
+
+def StepContainer "Model3" {
+    asset step:sourceAsset = @model3.STEP@
+
+    def StepPrototypes "Prototypes" (
+        active = false
+    )
+    {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+

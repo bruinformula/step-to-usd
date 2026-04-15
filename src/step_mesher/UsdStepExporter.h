@@ -288,11 +288,11 @@ private:
         LabelMap<SdfPath>& prototypePaths
     );
 
-    static void writeCadPart(
+    static void writePartClass(
         UsdStageRefPtr prototypesStage,
         const UsdPrim& prototypesPrimOnContainerStage,
         const SdfPath& containerPrimPath,
-        const SdfPath& cadPartPath
+        const SdfPath& partClassPath
     );
 
     static void writePrototypeXformsInPrototypesStage(

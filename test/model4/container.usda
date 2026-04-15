@@ -1,0 +1,25 @@
+#usda 1.0
+(
+    doc = "Printed circuit board. Contains sketches."
+    defaultPrim = "Model4"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
+}
+
+def StepContainer "Model4" {
+    asset step:sourceAsset = @model4.STEP@
+
+    def StepPrototypes "Prototypes" (
+        active = false
+    )
+    {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+

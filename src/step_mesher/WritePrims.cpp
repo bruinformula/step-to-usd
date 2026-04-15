@@ -65,11 +65,11 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // Write CAD pat
-void UsdStepExporter::writeCadPart(
+void UsdStepExporter::writePartClass(
     UsdStageRefPtr prototypesStage,
     const UsdPrim& prototypesPrimOnContainerStage,
     const SdfPath& containerPrimPath,
-    const SdfPath& cadPartPath
+    const SdfPath& partClassPath
 ) {
     std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
@@ -82,16 +82,16 @@ void UsdStepExporter::writeCadPart(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    SdfPath realCadPartPath = containerPrimPath.AppendChild(cadPartPath.GetNameToken());
+    SdfPath realPartClassPath = containerPrimPath.AppendChild(partClassPath.GetNameToken());
 
-    UsdPrim cadPart = prototypesStage->CreateClassPrim(realCadPartPath);
+    UsdPrim partClass = prototypesStage->CreateClassPrim(realPartClassPath);
 
     prototypesStage->GetPrimAtPath(containerPrimPath).SetSpecifier(SdfSpecifierOver);
 
-    UsdGeomImageable(cadPart).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+    UsdGeomImageable(partClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = realCadPartPath.AppendChild(TfToken(name));
+        SdfPath childPath = realPartClassPath.AppendChild(TfToken(name));
         UsdPrim child = prototypesStage->DefinePrim(childPath);
         UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
     };
@@ -102,7 +102,7 @@ void UsdStepExporter::writeCadPart(
     makeClassChild("SketchPlanes");
     
     if (defaultParamsRef.has_value()) {
-        cadPart.GetReferences().AddReference(
+        partClass.GetReferences().AddReference(
             relativePath.string(),
             defaultParamsRef->GetPrimPath(),
             defaultParamsRef->GetLayerOffset()
@@ -136,7 +136,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
     UsdGeomXform::Define(prototypesStage, containerPrimPath);
     
-    SdfPath cadPartPath = containerPrimPath.AppendChild(TfToken("CADPart"));
+    SdfPath partClassPath = containerPrimPath.AppendChild(TfToken("Part"));
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         const TDF_Label& defLabel = defs[defIdx].first;
@@ -186,7 +186,7 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
 
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName); 
-            protoPrim.GetInherits().AddInherit(cadPartPath);
+            protoPrim.GetInherits().AddInherit(partClassPath);
 
             AutolibStepTessellationAPI api(protoPrim);
             api.CreateStepDefIndexAttr().Set(defIdx);

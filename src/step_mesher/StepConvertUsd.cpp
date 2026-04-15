@@ -29,8 +29,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "stepFileContainerAPI.h"
-#include "stepFileContainer.h"
+#include "stepContainerAPI.h"
+#include "stepContainer.h"
 
 #include "ArgumentHandler.h"
 #include "UsdStepExporter.h"
@@ -40,7 +40,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
-    " StepConvertUsd -- Converts a Usd file containing StepFileContainers\n"
+    " StepConvertUsd -- Meshes all StepContainer prims in a Usd scene\n"
     " Options: \n"
     "    -i, --inputUsdFile <path>        Path to the input Usd file. \n"
     "    -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.\n"
@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
+        if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
 
         stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
     }
@@ -182,9 +182,9 @@ int main(int argc, char** argv) {
 
 /*
     for (UsdPrim prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepFileContainerAPI>()) continue;
+        if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
 
-        AutolibStepFileContainer container(prim);
+        AutolibStepContainer container(prim);
 
         if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) continue;
         UsdAttribute pathAttr = container.GetStepSourceAssetAttr();

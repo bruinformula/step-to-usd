@@ -14,7 +14,7 @@ over "GLOBAL" (
     }
 ) {}
 
-class "StepFileContainerAPI" (
+class "StepContainerAPI" (
     inherits = </APISchemaBase>
     doc = "Container for STEP file. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
     customData = {
@@ -27,9 +27,9 @@ class "StepFileContainerAPI" (
     )
 }
 
-class "StepFilePrototypesAPI" (
+class "StepPrototypesAPI" (
     inherits = </APISchemaBase>
-    doc = "Container for StepFileContainer Prototypes metadata and tessellation options. "
+    doc = "Container for StepContainer Prototypes metadata and tessellation options. "
     customData = {
         token apiSchemaType = "singleApply"
     }
@@ -42,7 +42,7 @@ class "StepFilePrototypesAPI" (
 
 class "StepTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters. Child prims will take on the opinions of the nearest parent prim"
+    doc = "Step tessellation quality parameters."
     customData = {
         token apiSchemaType = "singleApply"
     }
@@ -200,12 +200,12 @@ class "StepTessellationAPI" (
 
 # Concrete Types
 
-class "StepFileContainer" (
+class "StepContainer" (
     inherits = </Xform>
-    typeName = "StepFileContainer"
+    typeName = "StepContainer"
     doc = """Concrete prim that identifies a STEP file root. Provides 
              the target asset path."""
-    prepend apiSchemas = ["StepFileContainerAPI"]
+    prepend apiSchemas = ["StepContainerAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }
@@ -213,11 +213,11 @@ class "StepFileContainer" (
     asset step:sourceAsset = @@ 
 }
 
-class "StepFilePrototypes" (
+class "StepPrototypes" (
     inherits = </Scope>
-    typeName = "StepFilePrototypes"
-    doc = """Concrete Scope prim that indicates a StepFileContainer's Prototypes"""
-    prepend apiSchemas = ["StepFilePrototypesAPI"]
+    typeName = "StepPrototypes"
+    doc = """Concrete Scope prim that indicates a StepContainer's Prototypes"""
+    prepend apiSchemas = ["StepPrototypesAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }

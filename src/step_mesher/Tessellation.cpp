@@ -24,6 +24,7 @@
 #include <opencascade/Poly_Triangulation.hxx>
 #include <opencascade/BRepAdaptor_Surface.hxx>
 #include <opencascade/GeomLProp_SLProps.hxx>
+#include <opencascade/GeomAPI_ProjectPointOnSurf.hxx>
 #include <opencascade/BRepBndLib.hxx>
 #include <opencascade/TopExp.hxx>
 #include <opencascade/IMeshTools_Parameters.hxx>

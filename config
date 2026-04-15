@@ -1,0 +1,5 @@
+#!/usr/bin/bash 
+
+export PYTHONPATH="$PWD/build/lib/python:$PYTHONPATH"
+export PXR_PLUGINPATH="$PWD/build/plugin/usd:$PXR_PLUGINPATH"
+#export DYLD_LIBRARY_PATH="$PWD/build/lib:$DYLD_LIBRARY_PATH"
