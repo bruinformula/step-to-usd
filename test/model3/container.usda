@@ -1,7 +1,7 @@
 #usda 1.0
 (
-    doc = "An enclosure of some kind. Contains sketches."
     defaultPrim = "Model3"
+    doc = "An enclosure of some kind. Contains sketches."
     metersPerUnit = 0.001
     upAxis = "Z"
 )
@@ -10,9 +10,14 @@ def StepTessellationOptions "DefaultOptions"
 {
     double step:meshAngularDeflection = 0.1
     double step:meshLinearDeflection = 0.1
+    bool step:wireframeEmbedSurfaceNormals = 1 
+    token step:wireframeSampling = "underlying"
 }
 
-def StepContainer "Model3" {
+def StepContainer "Model3" (
+    prepend payload = @model3/model3-prototypes.usdc@
+)
+{
     asset step:sourceAsset = @model3.STEP@
 
     def StepPrototypes "Prototypes" (

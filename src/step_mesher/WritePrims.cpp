@@ -306,8 +306,11 @@ static void defineWireframeGeometry(
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
             stage, wireframePath.AppendChild(TfToken("Curves"))
         );
-        if (!r.curveContinuity.empty()) {
+        if (!r.wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
+        }
+        if (params.wireframeEmbedSurfaceNormals) {
+            UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
         }
     } else {
         int pointOffset = 0;
@@ -318,8 +321,11 @@ static void defineWireframeGeometry(
                 stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
             );
             
-            if (ci < (int)r.curveContinuity.size()) {
+            if (ci < (int)r.wireframeContinuity.size()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
+            }
+            if (params.wireframeEmbedSurfaceNormals) {
+                UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
             }
 
             pointOffset += count;
@@ -345,7 +351,7 @@ static void writeWireframeGeometry(
             curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
         curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        curve.GetPointsAttr().Set(r.curvePoints);
+        curve.GetPointsAttr().Set(r.wireframePoints);
         curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
         
         curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
@@ -353,9 +359,14 @@ static void writeWireframeGeometry(
         
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
-        if (!r.curveContinuity.empty()) {
+        if (!r.wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI api(curve);
-            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(r.curveContinuity);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(r.wireframeContinuity);
+        }
+        if (params.wireframeEmbedSurfaceNormals && !r.wireframeSurfaceNormals.empty()) {
+            UsdGeomPrimvarsAPI api(curve);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
+                p.Set(r.wireframeSurfaceNormals);
         }
     } else {
         int pointOffset = 0;
@@ -363,11 +374,11 @@ static void writeWireframeGeometry(
             int count = r.wireframeCounts[ci];
 
             VtArray<GfVec3f> pts(
-                r.curvePoints.begin() + pointOffset,
-                r.curvePoints.begin() + pointOffset + count
+                r.wireframePoints.begin() + pointOffset,
+                r.wireframePoints.begin() + pointOffset + count
             );
 
-            UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
+            UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
 
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
@@ -381,19 +392,20 @@ static void writeWireframeGeometry(
             curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
-            if (ci < (int)r.curveContinuity.size()) {
-                UsdGeomPrimvarsAPI api(curve);
+            UsdGeomPrimvarsAPI api(curve);
+            if (ci < (int)r.wireframeContinuity.size()) {
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) {
-                    p.Set(VtIntArray{r.curveContinuity[ci]});
+                    p.Set(VtIntArray{r.wireframeContinuity[ci]});
                 }
             }
 
-            if (params.sketchEmbedSurfaceNormals) {
-                UsdGeomPrimvarsAPI api(curve);
-                if (UsdGeomPrimvar p = api.CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex)) {
-                    p.Set(r.sketchSurfaceNormals);
-                }
-            }
+            VtArray<GfVec3f> normals(
+                r.wireframeSurfaceNormals.begin() + pointOffset,
+                r.wireframeSurfaceNormals.begin() + pointOffset + count
+            );
+            
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
+                p.Set(normals);
 
             pointOffset += count;
         }

@@ -109,10 +109,10 @@ struct TessResult {
     std::vector<SurfaceIDBounds> surfaceIDBounds; // start, end index for a particular face id 
 
     // Wireframe curves 
-    VtArray<GfVec3f> curvePoints;
+    VtArray<GfVec3f> wireframePoints;
     VtArray<int> wireframeCounts;
     VtArray<GfVec3f> wireframeSurfaceNormals;
-    VtArray<int> curveContinuity;
+    VtArray<int> wireframeContinuity;
 
     // Sketch curves
     VtArray<GfVec3f> sketchPoints;

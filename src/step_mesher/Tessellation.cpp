@@ -357,12 +357,12 @@ bool UsdStepExporter::tessellatePart(
     TopExp::MapShapesAndAncestors(workingShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
     // Per-edge data deferred for Linear mode. 
-    struct DeferredLinearCurve {
+    struct DeferredCurve {
         std::vector<TriNodeKey> keys;
         int continuity;
     };
-    
-    std::vector<DeferredLinearCurve> deferredLinearCurves;
+
+    std::vector<DeferredCurve> deferredCurves;
 
     for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
@@ -408,8 +408,9 @@ bool UsdStepExporter::tessellatePart(
         }
 
         int continuity = 0;
+        GeomAbs_Shape continuityType;
         if (facePolys.size() >= 2) {
-            GeomAbs_Shape continuityType = BRep_Tool::Continuity(
+            continuityType = BRep_Tool::Continuity(
                 edge,
                 facePolys[0].face,
                 facePolys[1].face
@@ -470,13 +471,79 @@ bool UsdStepExporter::tessellatePart(
             std::cerr << "Unknown exception in face iteration\n";
         }
 
+        auto sampleNearestSurfaceNormal = [&](const TopoDS_Face& face, const gp_Pnt& p) -> GfVec3f {
+            TopLoc_Location loc;
+            occt::handle<Geom_Surface> surf = BRep_Tool::Surface(face, loc);
+
+            if (surf.IsNull()) return {0.0f, 0.0f, 0.0f}; 
+
+            gp_Pnt localP = p.Transformed(loc.Inverted());
+
+            // Project the local point onto the surface to find nearest UV coordinates
+            GeomAPI_ProjectPointOnSurf projector(localP, surf);
+
+            if (projector.NbPoints() > 0) {
+                double u, v;
+                projector.LowerDistanceParameters(u, v);
+
+                // Evaluate surface properties at the projected point uv 
+                GeomLProp_SLProps props(surf, u, v, 1, Precision::Confusion());
+
+                if (props.IsNormalDefined()) {
+                    gp_Dir normal = props.Normal();
+                    gp_Pnt point = props.Value();
+
+                    if (face.Orientation() == TopAbs_REVERSED) normal.Reverse(); 
+
+                    normal.Transform(loc.Transformation());
+
+                    return GfVec3f(
+                        static_cast<float>(normal.X()),
+                        static_cast<float>(normal.Y()),
+                        static_cast<float>(normal.Z())
+                    );
+                }
+            }
+
+            return {0.0f, 0.0f, 0.0f}; 
+        };
+
         if (isSurfaceBoundary && params.wireframeMode.type != TessParams::CurveType::None) {
             if (params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
                 if (edgeCanonicalKeys.size() >= 2)
-                    deferredLinearCurves.push_back({std::move(edgeCanonicalKeys), continuity});
+                    deferredCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
                 BRepAdaptor_Curve adaptor(edge);
                 GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframeDeflection, adaptor.FirstParameter(), adaptor.LastParameter());
+
+                VtArray<GfVec3f> wireframeSurfaceNormals;
+
+                if (params.wireframeEmbedSurfaceNormals) {
+                    int n = sampler.NbPoints();
+                    // initialize to zero
+                    wireframeSurfaceNormals.assign(n, GfVec3f(0.f, 0.f, 0.f));
+
+                    for (NCollection_List<TopoDS_Shape>::Iterator iter(adjFaces); iter.More(); iter.Next()) {
+                        const TopoDS_Face& face = TopoDS::Face(iter.Value());
+                        for (int si = 1; si <= n; ++si) {
+                            gp_Pnt p = sampler.Value(si);
+                            wireframeSurfaceNormals[si - 1] += sampleNearestSurfaceNormal(face, p);
+                        }
+                    }
+
+                    // normalize each accumulated sum
+                    for (GfVec3f& n : wireframeSurfaceNormals) {
+                        float len = n.GetLength();
+                        if (len > 1e-6f) n /= len;
+                        else n = GfVec3f(0.f, 0.f, 1.f);
+                    }
+                }
+
+                LOG_DEBUG("  -> Wireframe sampling: " + std::to_string(sampler.NbPoints()) + " points");
+
+                if (params.wireframeEmbedSurfaceNormals) {
+                    LOG_DEBUG("  -> Wireframe surface normals sampled: " + std::to_string(wireframeSurfaceNormals.size()));
+                }
 
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
@@ -484,28 +551,33 @@ bool UsdStepExporter::tessellatePart(
                     if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
-                        result.curvePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+                        
+                        result.wireframePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+                        if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[0]);
 
                         for (int i = 1; i <= n; ++i) {
                             gp_Pnt p = sampler.Value(i);
-                            result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
                         }
 
                         // Add phantom end
                         gp_Pnt pN = sampler.Value(n);
-                        result.curvePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+                        result.wireframePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+                        if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[n - 1]);
 
                         result.wireframeCounts.push_back(n + 2);
                     } else {
                         // ResampledLinear
                         for (int i = 1; i <= n; ++i) {
                             gp_Pnt p = sampler.Value(i);
-                            result.curvePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
                         }
                         result.wireframeCounts.push_back(n);
                     }
 
-                    result.curveContinuity.push_back(continuity);
+                    result.wireframeContinuity.push_back(continuity);
                 }
             }
         }
@@ -833,6 +905,8 @@ bool UsdStepExporter::tessellatePart(
         }
     }
     
+    // Get a total of the number of triangles and nodes 
+    // across all faces to reserve output buffer sizes up front.
     int totalTris = 0, totalNodes = 0;
     for (TopExp_Explorer faceExp(workingShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
@@ -852,6 +926,11 @@ bool UsdStepExporter::tessellatePart(
     result.surfaceIDBounds.reserve(faceMap.Extent());
 
     int surfaceBoundIdx = 0; // used to track 'global' idx for geom subsets 
+
+    // Accumulated per-vertex normals for wireframe use.
+    // Sized and zeroed after the face loop once result.points.size() is known.
+    std::vector<GfVec3f> pointNormalAccum;
+    std::vector<int> pointNormalCount;
 
     // weld positions, emit faceVarying normals.
     for (TopExp_Explorer faceExp(workingShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
@@ -958,6 +1037,14 @@ bool UsdStepExporter::tessellatePart(
 
                 result.normals.push_back(normal);
                 patch.uvs.push_back(GfVec2f(u, v)); // raw param coords, packed later
+                                
+                int canonIdx = nodeToCanonical[resolveAlias({tri.get(), localIdx})];
+                if (canonIdx >= (int)pointNormalAccum.size()) {
+                    pointNormalAccum.resize(canonIdx + 1, GfVec3f(0.f, 0.f, 0.f));
+                    pointNormalCount.resize(canonIdx + 1, 0);
+                }
+                pointNormalAccum[canonIdx] += normal;
+                pointNormalCount[canonIdx]++;
             }
         }
         uvPatches.push_back(std::move(patch));
@@ -968,7 +1055,18 @@ bool UsdStepExporter::tessellatePart(
     for (int idx : boundaryNodes)
         result.isBoundaryVertex[idx] = true;
 
-    for (const DeferredLinearCurve& deferred : deferredLinearCurves) {
+    VtArray<GfVec3f> pointNormals(pointNormalAccum.size(), GfVec3f(0.0f, 0.0f, 1.0f));
+    if (params.wireframeEmbedSurfaceNormals && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
+        for (int i = 0; i < (int)pointNormalAccum.size(); ++i) {
+            if (pointNormalCount[i] > 0) {
+                GfVec3f avg = pointNormalAccum[i]; // sum, not yet divided
+                float len = avg.GetLength();
+                pointNormals[i] = (len > 1e-6f) ? avg / len : GfVec3f(0.f, 0.f, 1.f);
+            }
+        }
+    }
+
+    for (const DeferredCurve& deferred : deferredCurves) {
         std::vector<int> resolved;
         resolved.reserve(deferred.keys.size());
         for (const TriNodeKey& key : deferred.keys) {
@@ -979,18 +1077,22 @@ bool UsdStepExporter::tessellatePart(
         if (resolved.size() >= 2) {
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom start — duplicate first point
-                result.curvePoints.push_back(result.points[resolved.front()]);
+                result.wireframePoints.push_back(result.points[resolved.front()]);
+                if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
             }
-            for (int idx : resolved)
-                result.curvePoints.push_back(result.points[idx]);
+            for (int idx : resolved) {
+                result.wireframePoints.push_back(result.points[idx]);
+                if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[idx]); 
+            }
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom end — duplicate last point
-                result.curvePoints.push_back(result.points[resolved.back()]);
+                result.wireframePoints.push_back(result.points[resolved.back()]);
+                 if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
             } else {
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()));
             }
-            result.curveContinuity.push_back(deferred.continuity);
+            result.wireframeContinuity.push_back(deferred.continuity);
         }
     }
 
@@ -1042,7 +1144,7 @@ bool UsdStepExporter::tessellatePart(
             }
         };
         scalePoints(result.points);
-        scalePoints(result.curvePoints);
+        scalePoints(result.wireframePoints);
         scalePoints(result.sketchPoints);
         scalePoints(result.sketchPlanePoints);
     }
