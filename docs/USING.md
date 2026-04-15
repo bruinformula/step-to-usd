@@ -1,7 +1,6 @@
 # Table of Contents
 - [A Lay Engineer's Introduction](#a-lay-engineers-introduction)
 - [Usage](#usage)
-- [Future Directions](#future-directions)
 
 # A Lay Engineer's Introduction
 
@@ -11,7 +10,7 @@ The catch is that CAD models and meshes are fundamentally different, so they liv
 
 For rendering, that's not enough. **USD (Universal Scene Description)** acts like a "STEP file for movies," bundling mesh geometry with materials, lighting, cameras, and more.
 
-The short version: start with BRep (STEP), turn it into a mesh, then package it in USD for rendering.
+The short version: start with BRep (STEP), turn it into a mesh, then package it in USD for rendering. View (EXPORTING.md)[EXPORTING.md] on extracting a `.STEP` model from a `.SLDASM`
 
 ---
 # Usage
@@ -91,7 +90,7 @@ Working from the bottom up:
 
 **`model1-sandwich.usda`** is am intermediate that sublayers the assembly. This is  a place to insert overrides and opinions that apply before the prototypes are added. Useful things to author here include suppressing parts that shouldn't be rendered, mirror overrides, or material assignments that need to land below the prototype geometry in the composition stack.
 
-**`model1-LOD-*-prototypes.usdc`** (or `model2-prototypes.usdc` in the no-variant case) is brought in as a payload from your input file. It contains the tessellated mesh, wireframe, and sketch geometry for every prototype in that variant.
+**`model1-*-*-prototypes.usdc`** (or `model2-prototypes.usdc` in the no-variant case) is brought in as a payload from your input file. It contains the tessellated mesh, wireframe, and sketch geometry for every prototype in that variant.
 
 **Your input file** sits at the top of the stack. Variant selections, per-prototype overrides, and `step:defaultParams` relationships all live here and win over everything below.
 
@@ -102,7 +101,7 @@ By default, `StepConvertUsd` processes every `StepContainer` in the input file. 
 ```bash
 StepConvertUsd -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
 
-StepConvertUsd -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, default
+StepConvertUsd -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
 
 StepConvertUsd -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
 
@@ -159,11 +158,3 @@ def StepContainer "Wonderful" (
 }
 ```
 Variants can also be applied at the prototype level independently of any container-level LOD, giving you per-part quality control without affecting the rest of the assembly.
-
----
-# Future Directions
-
-- Proper test coverage
-- By default the generated meshes have poor topology so an alternate meshing scheme could go a long way in reducing potential rendering artifacts and reducing triangle counts.
-- Some diff tooling for handling assembly changes
-- Adding python bindings would open doors for faster iteration. One could open usdview and the python interpreter and just go to town. The opencacade assembly document could be kept in memory and stage update are handled by the application.

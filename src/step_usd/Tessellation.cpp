@@ -90,27 +90,44 @@ public:
     using Clock = std::chrono::steady_clock;
     using Duration = std::chrono::milliseconds;
 
-    explicit DeadlineProgressIndicator(Duration timeout)
-        : _deadline(Clock::now() + timeout)
-        , _timedOut(false)
-    {}
+    explicit DeadlineProgressIndicator(Duration timeout, std::string partLabel) : 
+        _deadline(Clock::now() + timeout),
+        _timedOut(false),
+        label(partLabel) 
+    {
+    }
+
+    ~DeadlineProgressIndicator() {
+        if (_timedOut) {
+            LOG_WARN(label + "DeadlineProgressIndicator destroyed after timeout");
+        } else {
+            LOG_DEBUG(label + "DeadlineProgressIndicator destroyed (completed within deadline)");
+        }
+    }
 
     // OCCT polls this at internal checkpoints
     Standard_Boolean UserBreak() override {
         if (Clock::now() >= _deadline) {
+            if (!_timedOut) {  // Only log once on first timeout detection
+                LOG_WARN(label + "operation timed out");
+            }
             _timedOut = true;
             return true;
         }
+        LOG_DEBUG(label + "UserBreak polled, still within deadline");
         return false;
     }
 
-    void Show(const Message_ProgressScope&, const Standard_Boolean) override {/*do nothing*/}
+    void Show(const Message_ProgressScope& scope, const bool isForced) override {
+        LOG_DEBUG(label + "Show called (forced=" + std::string(isForced ? "true" : "false") + ")");
+    }
 
     bool timedOut() const { return _timedOut; }
 
 private:
     std::chrono::time_point<Clock> _deadline;
     bool _timedOut;
+    std::string label;
 };
 
 // UVs
@@ -197,6 +214,7 @@ bool UsdStepExporter::tessellatePart(
     TessResult& result, 
     const TopoDS_Shape& defShape, 
     const TessParams& params,
+    const SdfPath& protoPath,
     bool mesherInParallel
 ) {
     
@@ -205,12 +223,18 @@ bool UsdStepExporter::tessellatePart(
 
     auto tessellateStart = Clock::now();
 
+    std::string protoName = protoPath.GetAsString();
+
     LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
     ShapeFix_Shape fixer(defShape);
     fixer.SetPrecision(params.meshFixPrecision);
     fixer.SetMaxTolerance(params.meshFixTolerance);
     
-    opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshFixTimeout));
+    opencascade::handle<DeadlineProgressIndicator> fixProgress;
+    {
+        std::string label = "ShapeFix_Shape for part " + protoName + ": ";
+        fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshFixTimeout), label);
+    } 
     Message_ProgressRange fixRange = fixProgress->Start();
     fixer.Perform(fixRange);
 
@@ -248,7 +272,11 @@ bool UsdStepExporter::tessellatePart(
     BRepMesh_IncrementalMesh mesher(workingShape, meshParams);
 
     LOG_DEBUG("  -> tessellatePart: mesher.Perform()");
-    opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshMeshTimeout));
+    opencascade::handle<DeadlineProgressIndicator> meshProgress;
+    {
+        std::string label = "BRepMesh_IncrementalMesh for part " + protoName + ": ";
+        meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshMeshTimeout), label);
+    }
     Message_ProgressRange meshRange = meshProgress->Start();
     mesher.Perform(meshRange);
 
@@ -297,7 +325,11 @@ bool UsdStepExporter::tessellatePart(
         LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair)");
         BRepMesh_IncrementalMesh remesher(workingShape, repairParams);
         
-        opencascade::handle<DeadlineProgressIndicator> remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshRemeshTimeout));
+        opencascade::handle<DeadlineProgressIndicator> remeshProgress;
+        {
+            std::string label = "BRepMesh_IncrementalMesh for part " + protoName + ": ";
+            remeshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.meshRemeshTimeout), label);
+        }
         Message_ProgressRange remeshRange = remeshProgress->Start();
         remesher.Perform(remeshRange);
         if (remeshProgress->timedOut()) {
@@ -785,7 +817,11 @@ bool UsdStepExporter::tessellatePart(
             fixer.SetPrecision(params.sketchPlaneFixPrecision);
             fixer.SetMaxTolerance(params.sketchPlaneFixTolerance);
             
-            opencascade::handle<DeadlineProgressIndicator> fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneFixTimeout));
+            opencascade::handle<DeadlineProgressIndicator> fixProgress;
+            {
+                std::string label = "ShapeFix_Shape for part " + protoName + ": ";
+                fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneFixTimeout), label);
+            }
             Message_ProgressRange fixRange = fixProgress->Start();
             fixer.Perform(fixRange);
 
@@ -796,7 +832,11 @@ bool UsdStepExporter::tessellatePart(
             sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
             
             BRepMesh_IncrementalMesh planeMesher(unifiedShape, sketchPlaneMeshParams);
-            opencascade::handle<DeadlineProgressIndicator> meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneMeshTimeout));
+            opencascade::handle<DeadlineProgressIndicator> meshProgress;
+            {
+                std::string label = "BRepMesh_IncrementalMesh for part " + protoName + ": ";
+                meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneMeshTimeout), label);
+            }
             Message_ProgressRange meshRange = meshProgress->Start();
             planeMesher.Perform(meshRange);
 
@@ -1163,6 +1203,38 @@ bool UsdStepExporter::tessellatePart(
     return true;
 }
 
+void UsdStepExporter::tessellateWithWatchdog(
+    TessellationJob& job,
+    const TopoDS_Shape& shape,
+    std::chrono::seconds warnAfter
+) {
+    std::atomic<bool> done{false};
+
+    std::thread watchdog([&]() {
+        auto start = std::chrono::steady_clock::now();
+        while (!done.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (done.load()) break;
+            auto elapsed = std::chrono::steady_clock::now() - start;
+            auto secs = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+            if (secs >= warnAfter.count()) {
+                LOG_WARN("Tessellation of " + job.prototypePath.GetString() + " has been running for " + std::to_string(secs) + "s");
+            }
+        }
+    });
+
+    try {
+        tessellatePart(job.result, shape, job.params, job.prototypePath, job.runMesherInParallel);
+    } catch (...) {
+        done = true;
+        watchdog.join();
+        throw;
+    }
+
+    done = true;
+    watchdog.join();
+}
+
 void UsdStepExporter::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
@@ -1206,7 +1278,7 @@ void UsdStepExporter::tessellateGeometry(
                     }
                     LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
                     try {
-                        tessellatePart(job.result, defs[idx].second, job.params, job.runMesherInParallel);
+                        tessellateWithWatchdog(job, defs[idx].second);
                         int currentCount = ++completedJobs;
                         LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");

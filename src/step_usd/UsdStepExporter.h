@@ -210,7 +210,14 @@ private:
         TessResult& result, 
         const TopoDS_Shape& defShape, 
         const TessParams& params,
+        const SdfPath& protoPath,
         bool parallel = false
+    );
+
+    static void tessellateWithWatchdog(
+        TessellationJob& job,
+        const TopoDS_Shape& shape,
+        std::chrono::seconds warnAfter = std::chrono::seconds(10)
     );
 
     static void tessellateGeometry(

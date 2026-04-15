@@ -9,14 +9,34 @@ class Logger {
 public:
     enum Level { INFO, DEBUG, ERR, NONE, WARN };
     inline static Level activeLevel = INFO;
-    
+
+private:
+    // Track current progress state so we can redraw after interruptions
+    inline static std::string progressLabel;
+    inline static int progressCurrent = 0;
+    inline static int progressTotal = 0;
+    inline static bool progressActive = false;
+    inline static std::mutex mtx; // Single shared mutex for output
+
+    static void clearProgress() {
+        if (progressActive)
+            std::cerr << "\r\033[K" << std::flush; // \033[K = erase to end of line
+    }
+
+    static void redrawProgress() {
+        if (progressActive)
+            std::cerr << "\r[" << progressCurrent << "/" << progressTotal << "] " 
+                      << progressLabel << "..." << std::flush;
+    }
+
+public:
     static void log(Level lvl, const std::string& msg) {
         if (activeLevel == NONE) return;
         if (lvl == DEBUG && activeLevel != DEBUG) return;
-        
-        static std::mutex mtx; // Thread safe outputs
+
         std::lock_guard<std::mutex> lock(mtx);
-        
+        clearProgress();
+
         if (lvl == WARN) {
             std::cerr << "[WARNING] " << msg << std::endl;
         } else if (lvl == ERR) {
@@ -24,25 +44,31 @@ public:
         } else if (lvl == DEBUG) {
             std::cout << "[DEBUG] " << msg << std::endl;
         } else {
-            if (activeLevel == DEBUG) {
+            if (activeLevel == DEBUG)
                 std::cout << "[INFO] " << msg << std::endl;
-            } else {
+            else
                 std::cout << msg << std::endl;
-            }
         }
+
+        redrawProgress();
     }
 
     static void progress(int current, int total, const std::string& label) {
         if (activeLevel == NONE || activeLevel == DEBUG) return;
-        static std::mutex mtx; // Thread safe outputs
+
         std::lock_guard<std::mutex> lock(mtx);
-        std::cerr << "\r[" << current << "/" << total << "] " << label << "..." << std::flush;
+        progressCurrent = current;
+        progressTotal = total;
+        progressLabel = label;
+        progressActive = true;
+        redrawProgress();
     }
 
     static void progressDone() {
         if (activeLevel == NONE || activeLevel == DEBUG) return;
-        static std::mutex mtx; // Thread safe outputs
+
         std::lock_guard<std::mutex> lock(mtx);
+        progressActive = false;
         std::cerr << std::endl;
     }
 };

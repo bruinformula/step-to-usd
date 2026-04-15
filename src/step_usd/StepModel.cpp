@@ -144,7 +144,7 @@ void StepModel::buildInstanceTree() {
         if (n.type == PartNodeType::Assembly) assemblies++;
     }
 
-    LOG_INFO("Instance tree built: " + std::to_string(partNodes.size()) + " nodes");
+    LOG_INFO("Assembly tree built: " + std::to_string(partNodes.size()) + " nodes");
     LOG_INFO("  Assemblies:          " + std::to_string(assemblies));
     LOG_INFO("  Leaves:              " + std::to_string(leaves));
     LOG_INFO("  Unique definitions:  " + std::to_string(definitionShapes.size()));
