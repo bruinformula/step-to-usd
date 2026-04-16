@@ -1,27 +1,35 @@
 #usda 1.0
 (
     defaultPrim = "Model1"
+    doc = "Auto generated file that contains the assembly hierarchy with empty overs for prototypes that are authored in a parent layer"
+    metersPerUnit = 0.001
+    upAxis = "Z"
 )
 
-def "Model1" {
-    over "Assembly" {
-        over "l_bracket_assembly_1__g12642da" {
-            over "nut_bolt_assembly_1__gcaec373" {
-                over "bolt_1__1b016772" {
-
-                }
-            }
-        }
-    }
-    over "Prototypes" {
-        over "rod_1__78316egd" {
-            double step:meshAngularDeflection = 0.01
-            double step:meshLinearDeflection = 0.01
+def "Model1"
+{
+    over "Prototypes"
+    {
+        over "plate_1__6b315a26"
+        {
+        
         }
 
-        over "nut_1__713163g8" {
-            double step:meshAngularDeflection = 0.01
-            double step:meshLinearDeflection = 0.01
+        over "l_bracket_1__6c315bb9"
+        {
+        }
+
+        over "nut_1__71316398"
+        {
+        }
+
+        over "bolt_1__753169e4"
+        {
+        }
+
+        over "rod_1__78316e9d"
+        {
         }
     }
 }
+

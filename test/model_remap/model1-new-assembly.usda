@@ -1,0 +1,373 @@
+#usda 1.0
+(
+    defaultPrim = "Model1"
+    doc = "Auto generated file that contains the assembly hierarchy with empty overs for prototypes that are authored in a parent layer"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def "Model1"
+{
+    over "Prototypes"
+    {
+        over "plate_1__6b315a69"
+        {
+            token step:label = "0:1:1:9"
+        }
+
+        over "l_bracket_1__6c315ba8"
+        {
+            token step:label = "0:1:1:8"
+        }
+
+        over "nut_1__71316399"
+        {
+            token step:label = "0:1:1:3"
+        }
+
+        over "bolt_1__753169e5"
+        {
+            token step:label = "0:1:1:7"
+        }
+
+        over "rod_1__78316e9c"
+        {
+            token step:label = "0:1:1:4"
+        }
+    }
+
+    def Xform "Assembly" (
+        displayName = "as1"
+        kind = "assembly"
+    )
+    {
+        token step:label = "0:1:1:1"
+        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )
+        uniform token[] xformOpOrder = ["xformOp:transform"]
+
+        def Xform "rod_assembly_1__60264147" (
+            displayName = "rod-assembly_1"
+            kind = "assembly"
+        )
+        {
+            token step:label = "0:1:1:1:1"
+            matrix4d xformOp:transform = ( (0, 0, -1, 0), (0, 1, 0, 0), (1, 0, 0, 0), (-10, 75, 60, 1) )
+            uniform token[] xformOpOrder = ["xformOp:transform"]
+
+            def Xform "nut_1__df8ed7f6" (
+                displayName = "nut_1"
+                instanceable = true
+                kind = "component"
+                prepend references = </Model1/Prototypes/nut_1__71316399>
+            )
+            {
+                color3f[] primvars:displayColor = [(1, 0, 0)]
+                token step:label = "0:1:1:2:1"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (-10, -7.5, 185, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+            }
+
+            def Xform "nut_2__de8ed663" (
+                displayName = "nut_2"
+                instanceable = true
+                kind = "component"
+                prepend references = </Model1/Prototypes/nut_1__71316399>
+            )
+            {
+                color3f[] primvars:displayColor = [(1, 0, 0)]
+                token step:label = "0:1:1:2:2"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (-10, -7.5, 12, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+            }
+
+            def Xform "rod_1__dd8ed4d0" (
+                displayName = "rod_1"
+                instanceable = true
+                kind = "component"
+                prepend references = </Model1/Prototypes/rod_1__78316e9c>
+            )
+            {
+                color3f[] primvars:displayColor = [(1, 0.21404114, 0)]
+                token step:label = "0:1:1:2:3"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+            }
+        }
+
+        def Xform "l_bracket_assembly_1__612642da" (
+            displayName = "l-bracket-assembly_1"
+            kind = "assembly"
+        )
+        {
+            token step:label = "0:1:1:1:2"
+            matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (5, 125, 20, 1) )
+            uniform token[] xformOpOrder = ["xformOp:transform"]
+
+            def Xform "nut_bolt_assembly_1__7caec373" (
+                displayName = "nut-bolt-assembly_1"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:1"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (27.5, -40, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "nut_bolt_assembly_2__7daec506" (
+                displayName = "nut-bolt-assembly_2"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:2"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (50, -52.99038106, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "nut_bolt_assembly_3__7eaec699" (
+                displayName = "nut-bolt-assembly_3"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:3"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (50, -27.00961894, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "l_bracket_1__7faec82c" (
+                displayName = "l-bracket_1"
+                instanceable = true
+                kind = "component"
+                prepend references = </Model1/Prototypes/l_bracket_1__6c315ba8>
+            )
+            {
+                color3f[] primvars:displayColor = [(0, 1, 0)]
+                token step:label = "0:1:1:5:4"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+            }
+        }
+
+        def Xform "plate_1__6226446d" (
+            displayName = "plate_1"
+            instanceable = true
+            kind = "component"
+            prepend references = </Model1/Prototypes/plate_1__6b315a69>
+        )
+        {
+            color3f[] primvars:displayColor = [(0.60382736, 1, 0)]
+            token step:label = "0:1:1:1:3"
+            matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )
+            uniform token[] xformOpOrder = ["xformOp:transform"]
+        }
+
+        def Xform "l_bracket_assembly_2__5b263968" (
+            displayName = "l-bracket-assembly_2"
+            kind = "assembly"
+        )
+        {
+            token step:label = "0:1:1:1:4"
+            matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, -1, 0, 0), (0, 0, 1, 0), (175, 25, 20, 1) )
+            uniform token[] xformOpOrder = ["xformOp:transform"]
+
+            def Xform "nut_bolt_assembly_1__7caec373" (
+                displayName = "nut-bolt-assembly_1"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:1"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (27.5, -40, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "nut_bolt_assembly_2__7daec506" (
+                displayName = "nut-bolt-assembly_2"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:2"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (50, -52.99038106, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "nut_bolt_assembly_3__7eaec699" (
+                displayName = "nut-bolt-assembly_3"
+                kind = "assembly"
+            )
+            {
+                token step:label = "0:1:1:5:3"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (50, -27.00961894, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                def Xform "bolt_1__1b016772" (
+                    displayName = "bolt_1"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/bolt_1__753169e5>
+                )
+                {
+                    color3f[] primvars:displayColor = [(0, 0, 1)]
+                    token step:label = "0:1:1:6:1"
+                    matrix4d xformOp:transform = ( (0, -1, 0, 0), (-1, 0, 0, 0), (0, 0, -1, 0), (-7.5, -10, 13, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+
+                def Xform "nut_3__1a0165df" (
+                    displayName = "nut_3"
+                    instanceable = true
+                    kind = "component"
+                    prepend references = </Model1/Prototypes/nut_1__71316399>
+                )
+                {
+                    color3f[] primvars:displayColor = [(1, 0, 0)]
+                    token step:label = "0:1:1:6:2"
+                    matrix4d xformOp:transform = ( (-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (2.5, -17.5, -20, 1) )
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+                }
+            }
+
+            def Xform "l_bracket_1__7faec82c" (
+                displayName = "l-bracket_1"
+                instanceable = true
+                kind = "component"
+                prepend references = </Model1/Prototypes/l_bracket_1__6c315ba8>
+            )
+            {
+                color3f[] primvars:displayColor = [(0, 1, 0)]
+                token step:label = "0:1:1:5:4"
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1) )
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+            }
+        }
+    }
+}
+
