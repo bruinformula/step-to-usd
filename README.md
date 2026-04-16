@@ -17,7 +17,7 @@ step-to-usd is a system for meshing STEP files into renderable USD assets. The j
 
 ### Basic Example
 
-Create a scene like the one below and run `StepConvertUsd -i your_scene.usd`. Example models can be found in `test/`. See [USING.md](docs/USING.md) for more.
+Create a scene like the one below and run `StepUsdTesselate -i your_scene.usd`. Example models can be found in `test/`. See [USING.md](docs/USING.md) for more.
 
 ```usda
 #usda 1.0

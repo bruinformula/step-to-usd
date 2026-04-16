@@ -15,11 +15,11 @@ The short version: start with BRep (STEP), turn it into a mesh, then package it 
 ---
 # Usage
 
-`StepConvertUsd` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
+`StepUsdTesselate` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
 
 ```bash
-$ StepConvertUsd -h
-    StepConvertUsd -- Meshes all StepContainer prims in a Usd scene
+$ StepUsdTesselate -h
+    StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene
     Options: 
         -i, --inputUsdFile <path>        Path to the input Usd file. 
         -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.
@@ -27,12 +27,12 @@ $ StepConvertUsd -h
         -v, --verbose                    Prints like everything.
         -h, --help                       Prints this message.
 
-        usage: StepConvertUsd -i <path> [options] 
+        usage: StepUsdTesselate -i <path> [options] 
 ```
 
 #### STEP Parsing
 
-The first thing `StepConvertUsd` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
+The first thing `StepUsdTesselate` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
 
 Once parsed, step-to-usd writes an XBF file alongside the STEP file:
 
@@ -96,16 +96,16 @@ Working from the bottom up:
 
 ### Selective Remeshing
 
-By default, `StepConvertUsd` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which is useful when iterating on a single part without paying the cost of a full rerun.
+By default, `StepUsdTesselate` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which is useful when iterating on a single part without paying the cost of a full rerun.
 
 ```bash
-StepConvertUsd -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
+StepUsdTesselate -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
 
-StepConvertUsd -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
+StepUsdTesselate -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
 
-StepConvertUsd -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
+StepUsdTesselate -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
 
-StepConvertUsd -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
+StepUsdTesselate -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
 
 ```
 Multiple `-p` flags can be combined to target a set of prims simultaneously.

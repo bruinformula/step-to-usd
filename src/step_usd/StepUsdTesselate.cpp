@@ -40,16 +40,16 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
-    " StepConvertUsd -- Meshes all StepContainer prims in a Usd scene\n"
+    " StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene\n"
     " Options: \n"
     "    -i, --inputUsdFile <path>        Path to the input Usd file. \n"
     "    -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.\n"
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
-    "    usage: StepConvertUsd -i <path> [options] \n";
+    "    usage: StepUsdTesselate -i <path> [options] \n";
 
-struct StepConvertUsdArgumentHandler : public ArgumentHandler {
+struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    StepConvertUsdArgumentHandler inputArgs;
+    StepUsdTesselateArgumentHandler inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
@@ -174,37 +174,8 @@ int main(int argc, char** argv) {
 
     if (Logger::activeLevel == Logger::Level::INFO) {
         auto end = std::chrono::high_resolution_clock::now();
-        std::cout << "Total Time Taken: " << std::chrono::duration<double>(end - start).count() << " seconds" << std::endl;
+        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
     }
 
     return 0;
 }
-
-/*
-    for (UsdPrim prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
-
-        AutolibStepContainer container(prim);
-
-        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) continue;
-        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
-        
-        SdfAssetPath sdfAssetPath;
-        if (!pathAttr.Get(&sdfAssetPath)) {
-            LOG_ERR("Failed to get asset path from UsdAttribute");
-            continue;
-        }
-
-        fs::path assetPath = sdfAssetPath.GetResolvedPath();
-        LOG_INFO("Processing STEP file: " + assetPath.string());
-
-        // Load the model, using the cache to avoid re-parsing the same STEP file.
-        auto iter = modelCache.find(sdfAssetPath);
-        if (iter == modelCache.end()) {
-            LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
-            continue;
-        }
-
-        UsdStepExporter::populateUsd(iter->second, stage, prim, inputArgs.selectedPaths);
-    }
-*/
