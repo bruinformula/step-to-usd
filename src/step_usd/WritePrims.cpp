@@ -12,6 +12,7 @@
 #include <opencascade/Quantity_Color.hxx>
 #include <opencascade/TopoDS_Shape.hxx>
 #include <opencascade/gp_XYZ.hxx>
+#include <opencascade/TDF_Tool.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -55,23 +56,23 @@
 
 #pragma pop_macro("Handle")
 
-#include "stepTessellationAPI.h"
+#include "stepAPI.h"
 
-#include "UsdStepExporter.h"
-#include "StepModel.h"
+#include "StepUsdPipeline.h"
+#include "OpenCascadeAssembly.h"
 #include "Logger.h"
 #include "UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // Write CAD pat
-void UsdStepExporter::writePartClass(
+void StepUsdPipeline::writePartClass(
     UsdStageRefPtr prototypesStage,
     const UsdPrim& prototypesPrimOnContainerStage,
     const SdfPath& containerPrimPath,
     const SdfPath& partClassPath
 ) {
-    std::optional<SdfReference> defaultParamsRef = UsdStepExporter::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
+    std::optional<SdfReference> defaultParamsRef = StepUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
     fs::path containerStagePath = fs::canonical(
         prototypesPrimOnContainerStage.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
@@ -111,7 +112,7 @@ void UsdStepExporter::writePartClass(
 }
 
 // MARK: - Write Prototype Xforms
-void UsdStepExporter::writePrototypeXformsInPrototypesStage(
+void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
     UsdStageRefPtr prototypesStage,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const SdfPath& prototypesPath,
@@ -185,11 +186,9 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
             }
 
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
-            protoPrim.SetDisplayName(displayName); 
+            protoPrim.SetDisplayName(displayName);
             protoPrim.GetInherits().AddInherit(partClassPath);
 
-            AutolibStepTessellationAPI api(protoPrim);
-            api.CreateStepDefIndexAttr().Set(defIdx);
         }
 
         completed++;
@@ -202,13 +201,14 @@ void UsdStepExporter::writePrototypeXformsInPrototypesStage(
     LOG_PROGRESS_DONE();
 }
 
-void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
+void StepUsdPipeline::writePrototypeOverridesInAssemblyStage(
     UsdStageRefPtr assemblyStage,
     LabelMap<SdfPath>& prototypePaths
 ) {
     LOG_SCOPED_TIMER("writePrototypeOverridesInAssemblyStage");
     const int total = (int)prototypePaths.size();
     int completed = 0;
+    
     { // SdfChangeBlock
         SdfChangeBlock changeBlock;
 
@@ -223,7 +223,29 @@ void UsdStepExporter::writePrototypeOverridesInAssemblyStage(
                 LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
             }
         }
+        completed = 0;
     }
+    { // SdfChangeBlock
+        SdfChangeBlock changeBlock;
+        for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
+            const TDF_Label& label = protoIter->first;
+            const SdfPath& protoPath = protoIter->second;
+            const UsdPrim& protoPrim = assemblyStage->GetPrimAtPath(protoPath);
+
+            TCollection_AsciiString entry;
+            TDF_Tool::Entry(label, entry);
+            
+            AutolibStepAPI api(protoPrim);
+            api.CreateStepLabelAttr().Set(TfToken(entry.ToCString()));
+
+            completed++;
+            if (Logger::activeLevel == Logger::DEBUG) {
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + protoPath.GetString());
+            } else {
+                LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
+            }
+        }
+    } // SdfChangeBlock
 
     LOG_PROGRESS_DONE();
 }
@@ -611,10 +633,10 @@ static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
 }
 
 // Assembly Xforms
-void UsdStepExporter::writeAssemblyXforms(
+void StepUsdPipeline::writeAssemblyXforms(
     UsdStageRefPtr stage, 
     const SdfPath& containerPrimPath,
-    const std::vector<StepModel::PartNode>& partNodes,
+    const std::vector<OpenCascadeAssembly::PartNode>& partNodes,
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths,
     double linearScale
@@ -631,7 +653,7 @@ void UsdStepExporter::writeAssemblyXforms(
     const int total = (int)partNodes.size();
     int completed = 0;
     for (size_t i = 0; i < partNodes.size(); i++) {
-        const StepModel::PartNode& node = partNodes[i];
+        const OpenCascadeAssembly::PartNode& node = partNodes[i];
         UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
         if (!xform) {
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
@@ -646,6 +668,12 @@ void UsdStepExporter::writeAssemblyXforms(
         {
             SdfChangeBlock changeBlock;
 
+            TCollection_AsciiString entry;
+            TDF_Tool::Entry(node.instanceLabel, entry);
+            
+            AutolibStepAPI api(xform.GetPrim());
+            api.CreateStepLabelAttr().Set(TfToken(entry.ToCString()));
+
             if (!node.name.empty() && !isAutoGeneratedName(node.name)) {
                 xform.GetPrim().SetDisplayName(node.name);
             } else {
@@ -658,7 +686,7 @@ void UsdStepExporter::writeAssemblyXforms(
             
             // Usd composes the full world transform later
             xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
-            if (node.type == StepModel::PartNodeType::Leaf) {
+            if (node.type == OpenCascadeAssembly::PartNodeType::Leaf) {
                 auto protoIter = prototypePaths.find(node.definitionLabel);
                 if (protoIter == prototypePaths.end()) {
                     completed++;
@@ -709,7 +737,7 @@ void UsdStepExporter::writeAssemblyXforms(
     LOG_PROGRESS_DONE();
 }
 
-void UsdStepExporter::writePrototypeGeometries(
+void StepUsdPipeline::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& inJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,

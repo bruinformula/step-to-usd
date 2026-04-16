@@ -138,7 +138,7 @@ def StepContainer "Wonderful" (
     variants = { string LOD = "low" }
     prepend variantSets = "LOD"
 ) {
-    asset step:sourceAsset = @model.STEP@
+    asset step:sourceAsset = @../step/model.STEP@
     variantSet "LOD" = {
         "high" (
             prepend payload = @model/LOD/model-LOD-high-prototypes.usdc@

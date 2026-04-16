@@ -6,7 +6,7 @@
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
 
-#include "UsdStepExporter.h"
+#include "StepUsdPipeline.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -28,6 +28,11 @@ std::string stableLabelSuffix(const TDF_Label& label);
 
 std::string sanitizeUsdName(
     const std::string_view& name
+);
+
+std::unordered_set<SdfPath, SdfPath::Hash> reparentPaths(
+    const SdfPath& newRoot,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& paths
 );
 
 template <typename T>

@@ -12,7 +12,7 @@ step-to-usd is a system for meshing STEP files into renderable USD assets. The j
 
 ### Dependencies
 
-**OpenCascade** — ships with most package managers, including `brew` and `dnf`.
+**OpenCascade** — ships with `brew`.
 **OpenUSD** — as of this writing, USD isn't available via any package manager and must be [built from source](https://github.com/PixarAnimationStudios/OpenUSD/blob/dev/BUILDING.md).
 
 ### Basic Example
@@ -32,7 +32,7 @@ def StepTessellationOptions "DefaultOptions" {
     # other options...
 }
 def StepContainer "WonderfulModel" {
-    asset step:sourceAsset = @model.STEP@
+    asset step:sourceAsset = @../step/model.STEP@
     def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>
     }

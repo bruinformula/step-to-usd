@@ -3,7 +3,7 @@ find_package(OpenCASCADE REQUIRED)
 
 set(AUTOLIB_GEOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Tessellation.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/StepModel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/OpenCascadeAssembly.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/WritePrims.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/UsdUtils.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/PopulateUsd.cpp"

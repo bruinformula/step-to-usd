@@ -13,7 +13,7 @@ def StepTessellationOptions "DefaultOptions"
 }
 
 def StepContainer "Model6" {
-    asset step:sourceAsset = @model6.STEP@
+    asset step:sourceAsset = @../step/model6.STEP@
 
     def StepPrototypes "Prototypes" (
         active = false

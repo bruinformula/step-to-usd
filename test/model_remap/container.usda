@@ -1,7 +1,7 @@
 #usda 1.0
 (
-    doc = "Printed circuit board. Contains sketches."
-    defaultPrim = "Model4"
+    defaultPrim = "Model1"
+    doc = "Test the diff and remapping tools"
     metersPerUnit = 0.001
     upAxis = "Z"
 )
@@ -12,8 +12,11 @@ def StepTessellationOptions "DefaultOptions"
     double step:meshLinearDeflection = 0.1
 }
 
-def StepContainer "Model4" {
-    asset step:sourceAsset = @../step/model4.STEP@
+def StepContainer "Model1" (
+    prepend payload = @model1/model1-prototypes.usdc@
+)
+{
+    asset step:sourceAsset = @../step/model1.STEP@
 
     def StepPrototypes "Prototypes" (
         active = false

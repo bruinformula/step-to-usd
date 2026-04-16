@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <filesystem>
@@ -59,8 +60,8 @@
 #include "stepContainer.h"
 #include "stepPrototypes.h"
 
-#include "UsdStepExporter.h"
-#include "StepModel.h"
+#include "StepUsdPipeline.h"
+#include "OpenCascadeAssembly.h"
 #include "Logger.h"
 #include "UsdUtils.h"
 
@@ -88,7 +89,7 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
     return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
 }
 
-bool UsdStepExporter::isPrototypeActiveInFilter(
+bool StepUsdPipeline::isPrototypeActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& containerPrimPath,
     const SdfPath& prototypePath,
@@ -161,7 +162,7 @@ bool UsdStepExporter::isPrototypeActiveInFilter(
     return false;
 }
 
-bool UsdStepExporter::isAssemblyActiveInFilter(
+bool StepUsdPipeline::isAssemblyActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& containerPrimPath,
     const SdfPath& prototypePath
@@ -275,11 +276,13 @@ bool getStageMakeFresh(
     return false;
 };
 
-bool UsdStepExporter::populatePrototypeContainers(
-    const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
+bool StepUsdPipeline::populatePrototypeContainers(
+    const UsdPrim& containerPrim,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     fs::path rootPath,
     std::string baseName,
+    const std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash>& modelCache,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
     const SdfPath& prototypesPath,
     const SdfPath& prototypesInContainerPath,
     const SdfPath& containerPrimPath,
@@ -314,6 +317,30 @@ bool UsdStepExporter::populatePrototypeContainers(
         return false;
     };
 
+    auto getOpenCascadeAssembly = [&](const UsdPrim&) -> std::shared_ptr<OpenCascadeAssembly> {
+        AutolibStepContainer container(containerPrim);
+
+        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return nullptr;
+        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+        
+        SdfAssetPath sdfAssetPath;
+        if (!pathAttr.Get(&sdfAssetPath)) {
+            LOG_ERR("Failed to get asset path from UsdAttribute");
+            return nullptr;
+        }
+
+        fs::path assetPath = sdfAssetPath.GetResolvedPath();
+        LOG_INFO("Processing STEP file: " + assetPath.string());
+
+        // Load the model, using the cache to avoid re-parsing the same STEP file.
+        auto iter = modelCache.find(sdfAssetPath);
+        if (iter == modelCache.end()) {
+            LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
+            return nullptr;
+        }
+        return std::make_shared<OpenCascadeAssembly>(iter->second);
+    };
+
     if (containerVariantPaths.empty()) {
         fs::path prototypesStageFilePath = rootPath / (baseName + "-prototypes.usdc");
         bool makeFreshStage = getStageMakeFresh(selectedPaths, containerPrimPath, prototypesPath, "", "", stageFilterMap);
@@ -337,9 +364,15 @@ bool UsdStepExporter::populatePrototypeContainers(
         AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
 
         UsdGeomXform::Define(prototypesStage, assemblyPath);
+
+        std::shared_ptr<OpenCascadeAssembly> modelPtr = getOpenCascadeAssembly(containerPrim);
+        if (!modelPtr) {
+            LOG_ERR("Failed to load OpenCascadeAssembly for container prim at path: " + containerPrim.GetPath().GetAsString());
+            return false;
+        }
+
         prototypesStage->Save();
-        
-        prototypes.push_back({"", "", prototypesStageFilePath, prototypesStage, makeFreshStage});
+        prototypes.push_back({modelPtr, "", "", prototypesStageFilePath, prototypesStage, makeFreshStage});
         
     } else {
         baseName += "-";
@@ -379,14 +412,28 @@ bool UsdStepExporter::populatePrototypeContainers(
             prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
             UsdGeomXform::Define(prototypesStage, assemblyPath);
 
+            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
+
+            if (!vset.IsValid()) {
+                LOG_ERR("Variant set [" + variantSetName + "] not found on container prim for variant [" + variantName + "]");
+                continue;
+            }
+            vset.SetVariantSelection(variantName);
+
+            std::shared_ptr<OpenCascadeAssembly> modelPtr = getOpenCascadeAssembly(containerPrim);
+            if (!modelPtr) {
+                LOG_ERR("Failed to load OpenCascadeAssembly for container prim at path: " + containerPrim.GetPath().GetAsString());
+                return false;
+            }
+
             prototypesStage->Save();
-            prototypes.push_back({variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
+            prototypes.push_back({modelPtr, variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
         }
     }
     return true;
 }
 
-bool UsdStepExporter::populateParamsBank(
+bool StepUsdPipeline::populateParamsBank(
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
     const PrototypeContainer& proto,
@@ -427,8 +474,7 @@ bool UsdStepExporter::populateParamsBank(
     UsdPrim prototypesOnThrowaway =
         throwawayStage->GetPrimAtPath(throwawayPrototypesPath);
 
-    LOG_DEBUG("prototypesOnThrowaway valid: " +
-              std::string(prototypesOnThrowaway.IsValid() ? "yes" : "no"));
+    LOG_DEBUG("prototypesOnThrowaway valid: " + std::string(prototypesOnThrowaway.IsValid() ? "yes" : "no"));
 
     if (!prototypesOnThrowaway.IsValid()) {
         return false;
@@ -458,7 +504,7 @@ bool UsdStepExporter::populateParamsBank(
     return true;
 }
 
-bool UsdStepExporter::populateTessellationJobs(
+bool StepUsdPipeline::populateTessellationJobs(
     const std::vector<PrototypeContainer>& prototypes,
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
@@ -497,6 +543,7 @@ bool UsdStepExporter::populateTessellationJobs(
         }
 
         bool runMesherInParallel = !proto.makeFreshStage;
+        std::shared_ptr<PrototypeContainer> protoPtr = std::make_shared<PrototypeContainer>(proto);
 
         for (size_t i = 0; i < defs.size(); ++i) {
             SdfPath protoPath = prototypePaths.at(defs[i].first); // /Prototypes/rod_1
@@ -525,21 +572,21 @@ bool UsdStepExporter::populateTessellationJobs(
                     }
                     
                     //std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
-                    tessJobs.push_back({&proto, (int)i, jobProtoPath, params, TessResult(), runMesherInParallel});
+                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessResult(), runMesherInParallel});
                 }
             }
             
             if (!foundVariantForProto) {
                 params.unitScale = sourceToOutputScale;
-                tessJobs.push_back({&proto, (int)i, protoPath, params, TessResult(), runMesherInParallel});
+                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessResult(), runMesherInParallel});
             }
         }
     }
     return true;
 }
 
-bool UsdStepExporter::buildPrototypeAndAssemblyStages(
-    const StepModel& model,
+bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
+    const OpenCascadeAssembly& model,
     const std::vector<PrototypeContainer>& prototypes,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& assemblyPath,
@@ -565,11 +612,14 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
 
         for (size_t i = 1; i < model.partNodes.size(); i++) {
             TfErrorMark mark;
-            const StepModel::PartNode& node = model.partNodes[i];
+            const OpenCascadeAssembly::PartNode& node = model.partNodes[i];
 
-            SdfPath parentPath = (node.parentIdx == 0)
-                ? assemblyPath
-                : nodePaths[node.parentIdx];
+            SdfPath parentPath;
+            if (node.parentIdx == 0) {
+                parentPath = assemblyPath;
+            } else {
+                parentPath = nodePaths[node.parentIdx];
+            }
 
             if (parentPath.IsEmpty()) continue;
 
@@ -577,9 +627,12 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
             // so two rods under the same parent get different suffixes
             std::string suffix = stableLabelSuffix(node.instanceLabel);
             bool hasRealName = !node.name.empty() && !isAutoGeneratedName(node.name);
-            std::string finalName = hasRealName
-                ? sanitizeUsdName(node.name) + "__" + suffix
-                : "__" + suffix;
+            std::string finalName;
+            if (hasRealName) {
+                finalName = sanitizeUsdName(node.name) + "__" + suffix;
+            } else {
+                finalName = "__" + suffix;
+            }
 
             nodePaths[i] = parentPath.AppendChild(TfToken(finalName));
 
@@ -649,8 +702,7 @@ bool UsdStepExporter::buildPrototypeAndAssemblyStages(
     UsdStageRefPtr assemblyStage = initUsdStage(assemblyStageFilePath, shouldCreateAssembly);
 
     if (!assemblyStage) {
-        LOG_WARN("Failed to initialize assembly stage: " +
-                 assemblyStageFilePath.string());
+        LOG_WARN("Failed to initialize assembly stage: " + assemblyStageFilePath.string());
         return false;
     }
 
@@ -737,7 +789,7 @@ static bool validateVariants(
     return true;
 }
 
-std::optional<UsdStepExporter> UsdStepExporter::create(
+std::optional<StepUsdPipeline> StepUsdPipeline::create(
     const fs::path& inputUsdFile
 ) {
     UsdStageRefPtr stage = UsdStage::Open(inputUsdFile, UsdStage::LoadNone);
@@ -815,7 +867,7 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
         }
     }
 
-    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
+    std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
 
     {
         LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedStepAssetPaths.size()) + " files)");
@@ -827,7 +879,7 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
                 return;
             }
 
-            std::optional<StepModel> optModel = StepModel::loadFromFile(resolvedPath);
+            std::optional<OpenCascadeAssembly> optModel = OpenCascadeAssembly::loadFromFile(resolvedPath);
 
             if (!optModel.has_value()) {
                 LOG_ERR("Failed to load STEP model from " + resolvedPath);
@@ -838,16 +890,15 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
         });
     }
 
-    return UsdStepExporter(stage, modelCache);
+    return StepUsdPipeline(stage, modelCache);
 }
 
-void UsdStepExporter::populateUsd(
+void StepUsdPipeline::populateUsd(
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths,
-    bool dryRun
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
 ) {
-    LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
+    LOG_SCOPED_TIMER("StepUsdPipeline::populateUsd");
     TfErrorMark mark;
     
     AutolibStepContainer container(containerPrim);
@@ -871,7 +922,7 @@ void UsdStepExporter::populateUsd(
         return;
     }
 
-    const StepModel& model = iter->second;
+    const OpenCascadeAssembly& model = iter->second;
 
     //model.debugPrintInstances();
 
@@ -901,28 +952,14 @@ void UsdStepExporter::populateUsd(
     SdfPath prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrimPath);
 
     // Normalize paths from container-space to raw-space
-    auto reparentPaths = [&](const std::unordered_set<SdfPath, SdfPath::Hash>& paths) -> std::unordered_set<SdfPath, SdfPath::Hash> {
-        std::unordered_set<SdfPath, SdfPath::Hash> reparented;
-        if (containerParentPath == SdfPath::AbsoluteRootPath()) {
-            return paths;
-        }
-        for (const SdfPath& p : paths) {
-            if (p.HasPrefix(containerParentPath)) {
-                reparented.insert(p.ReplacePrefix(containerParentPath, SdfPath::AbsoluteRootPath()));
-            } else {
-                reparented.insert(p);
-            }
-        }
-        return reparented;
-    };
-
-    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = reparentPaths(getVariantsOnPrim(containerPrim));
-    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = reparentPaths(selectedInContainerPaths);
+    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = reparentPaths(containerParentPath, selectedInContainerPaths);
+    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = reparentPaths(containerParentPath, getVariantsOnPrim(containerPrim));
 
     std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
     resolveStageFilterInfo(selectedPaths, containerPrimPath, prototypesPath, stageFilterMap);
 
     // Create the root layer for the container stage
+
     std::string baseName = model.stepPath.stem().string();
     fs::path rootPath = containerFilePath / (baseName);
     fs::path rootStageFilePath = rootPath / (baseName + "-sandwich.usda");
@@ -943,10 +980,12 @@ void UsdStepExporter::populateUsd(
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
     populatePrototypeContainers(
-        containerVariantPaths,
+        containerPrim,
         selectedPaths,
         rootPath,
         baseName,
+        modelCache,
+        containerVariantPaths,
         prototypesPath,
         prototypesInContainerPath,
         containerPrimPath,
@@ -961,6 +1000,14 @@ void UsdStepExporter::populateUsd(
     std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs(
         model.definitionShapes.begin(),
         model.definitionShapes.end()
+    );
+
+    std::sort(
+        defs.begin(), 
+        defs.end(), 
+        [this](const std::pair<TDF_Label, TopoDS_Shape>& a, const std::pair<TDF_Label, TopoDS_Shape>& b) {
+            return stableLabelSuffix(a.first) < stableLabelSuffix(b.first);
+        }
     );
 
     LabelMap<SdfPath> prototypePaths;
@@ -997,11 +1044,6 @@ void UsdStepExporter::populateUsd(
         }
     }
 
-    if (dryRun) {
-        return;
-        LOG_INFO("Skipping Tesselation");
-    }
-
     // Tessellation Jobs
     std::vector<TessellationJob> tessJobs;
     populateTessellationJobs(
@@ -1026,7 +1068,7 @@ void UsdStepExporter::populateUsd(
         LOG_DEBUG("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
-            if (job.proto == &proto) {
+            if (job.proto->filePath == proto.filePath) {
                 geomJobs.push_back({job.prototypePath, job.result, job.params});
             }
         }

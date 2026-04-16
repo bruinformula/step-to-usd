@@ -1,0 +1,35 @@
+#usda 1.0
+(
+    doc = "A manifold with holes."
+    defaultPrim = "Model6"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+def StepTessellationOptions "DefaultOptions"
+{
+    double step:meshAngularDeflection = 0.1
+    double step:meshLinearDeflection = 0.1
+}
+
+def StepContainer "Model6" (
+    variants = {
+        string version = "model4"
+    }
+    prepend variantSets = "version"
+) {
+    
+    variantSet "version" = {
+        "model4" {
+            asset step:sourceAsset = @../model4/model4.STEP@
+        }
+        "model6" {
+            asset step:sourceAsset = @../model6/model6.STEP@
+        }
+    }
+
+    def StepPrototypes "Prototypes" {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+

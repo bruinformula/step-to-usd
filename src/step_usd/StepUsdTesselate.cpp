@@ -33,8 +33,8 @@
 #include "stepContainer.h"
 
 #include "ArgumentHandler.h"
-#include "UsdStepExporter.h"
-#include "StepModel.h"
+#include "StepUsdPipeline.h"
+#include "OpenCascadeAssembly.h"
 #include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -47,14 +47,12 @@ const std::string argOptions =
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
-    "    -d, --dryRun                     Initialize the files without tesselating the prototypes.\n"
     "    usage: StepUsdTesselate -i <path> [options] \n";
 
 struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
-    bool dryRun = false;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
         switch (hashString(token)) {
@@ -86,11 +84,6 @@ struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
             case hashString("--help"): {
                 std::cout << argOptions << std::endl;
                 return EXIT;
-            }
-            case hashString("-d"):
-            case hashString("--dryRun"): {
-                dryRun = true;
-                return SUCCESS;
             }
             default: {
                 std::cout << "Unrecognized command-line option: " << token << std::endl;
@@ -158,23 +151,23 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    std::optional<UsdStepExporter> optionalStepExporter = UsdStepExporter::create(inputArgs.inputUsdFile);
+    std::optional<StepUsdPipeline> optionalStepExporter = StepUsdPipeline::create(inputArgs.inputUsdFile);
 
     if (!optionalStepExporter.has_value()) {
-        std::cerr << "Failed to initialize UsdStepExporter." << std::endl;
+        std::cerr << "Failed to initialize StepUsdPipeline." << std::endl;
         return 1;
     }
 
-    UsdStepExporter stepExporter = std::move(*optionalStepExporter);
+    StepUsdPipeline stepExporter = std::move(*optionalStepExporter);
 
     const UsdStageRefPtr& stage = stepExporter.containerStage;
-    const std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash>& modelCache = stepExporter.modelCache;
+    const std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash>& modelCache = stepExporter.modelCache;
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
         if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
 
-        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths, inputArgs.dryRun);
+        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
     }
 
     stage->GetRootLayer()->Save();

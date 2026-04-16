@@ -27,6 +27,19 @@ class "StepContainerAPI" (
     )
 }
 
+class "StepAPI" (
+    inherits = </APISchemaBase>
+    doc = "Step file part generically defined"
+    customData = {
+        token apiSchemaType = "singleApply"
+    }
+) {
+    token step:label (
+        doc = "The original STEP label of this entity, if available. This is for informational purposes only and is not guaranteed to be unique."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+}
+
 class "StepPrototypesAPI" (
     inherits = </APISchemaBase>
     doc = "Container for StepContainer Prototypes metadata and tessellation options. "
@@ -47,10 +60,6 @@ class "StepTessellationAPI" (
         token apiSchemaType = "singleApply"
     }
 ) {
-    int step:defIndex = 0 ( 
-        doc = "Unique index of the prototype. Used for debugging." 
-        customData = { string variability = "SdfVariabilityUniform" } 
-    )
     # Meshing
     double step:meshFixPrecision = 1e-7 (
         doc = "Tolerance for shape fixing operations. Expressed as a fraction of the bounding-box diagonal."
@@ -251,7 +260,7 @@ class "StepTessellationOptions" (
     token step:wireframeSampling = "underlying"
     double step:wireframeDeflection = 10
     bool step:wireframeCombineCurves = 1
-    bool step:wireframeEmbedSurfaceNormals = 1
+    bool step:wireframeEmbedSurfaceNormals = 0
 
     # Sketch
     token step:sketchType = "linear"

@@ -19,7 +19,7 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepModel.h"
+#include "OpenCascadeAssembly.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -147,30 +147,44 @@ struct StageFilterInfo {
     bool hasSpecificPrototypes = false; // individual prototypes targeted
 };
 
-struct UsdStepExporter {
+struct StepUsdPipeline {
 
-    static std::optional<UsdStepExporter> create(
+    static std::optional<StepUsdPipeline> create(
         const fs::path& inputUsdFile
     );
 
     void populateUsd(
         UsdStageRefPtr containerStage,
         UsdPrim& containerPrim,
-        const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths,
-        bool dryRun
+        const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
     );
 
-    UsdStepExporter(
+    StepUsdPipeline(
         UsdStageRefPtr cs, 
-        std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> mc
+        std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> mc
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
     UsdStageRefPtr containerStage;
-    std::unordered_map<SdfAssetPath, StepModel, SdfAssetPath::Hash> modelCache;
+    std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
 
 private:
 
+    struct OpenCascadeAssemblyContainer {
+        std::shared_ptr<OpenCascadeAssembly> model;
+        std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs;
+        
+        std::string variantSetName;
+        std::string variantName;
+        std::string baseName;
+        fs::path rootPath;
+        fs::path rootStageFilePath;
+        fs::path filePath;
+        UsdStageRefPtr stage;
+        double sourceToOutputScale;
+    };
+
     struct PrototypeContainer {
+        std::shared_ptr<OpenCascadeAssembly> model;
         std::string variantSetName;
         std::string variantName;
         fs::path filePath;
@@ -179,7 +193,7 @@ private:
     };
 
     struct TessellationJob {
-        const PrototypeContainer* proto;
+        std::shared_ptr<PrototypeContainer>  proto;
         int defIndex;
         SdfPath prototypePath;
         TessParams params;
@@ -192,6 +206,8 @@ private:
         TessResult result;
         TessParams params;
     };
+
+    const OpenCascadeAssembly& getModelForProto(const PrototypeContainer& proto) const;
 
     static bool isAssemblyActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -212,13 +228,7 @@ private:
         const TopoDS_Shape& defShape, 
         const TessParams& params,
         const SdfPath& protoPath,
-        bool parallel = false
-    );
-
-    static void tessellateWithWatchdog(
-        TessellationJob& job,
-        const TopoDS_Shape& shape,
-        std::chrono::seconds warnAfter = std::chrono::seconds(10)
+        bool mesherInParallel
     );
 
     static void tessellateGeometry(
@@ -229,10 +239,12 @@ private:
     );
 
     static bool populatePrototypeContainers(
-        const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
+        const UsdPrim& containerPrim,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         fs::path rootPath,
         std::string baseName,
+        const std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash>& modelCache,
+        const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
         const SdfPath& prototypesPath,
         const SdfPath& prototypesInContainerPath,
         const SdfPath& containerPrimPath,
@@ -243,7 +255,7 @@ private:
     );
 
     static bool buildPrototypeAndAssemblyStages(
-        const StepModel& model,
+        const OpenCascadeAssembly& model,
         const std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const SdfPath& assemblyPath,
@@ -285,7 +297,7 @@ private:
     static void writeAssemblyXforms(
         UsdStageRefPtr stage, 
         const SdfPath& containerPrimPath,
-        const std::vector<StepModel::PartNode>& instances,
+        const std::vector<OpenCascadeAssembly::PartNode>& instances,
         const std::vector<SdfPath>& paths, 
         const LabelMap<SdfPath>& prototypePaths,
         double linearScale

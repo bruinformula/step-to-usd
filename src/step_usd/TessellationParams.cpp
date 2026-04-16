@@ -13,13 +13,13 @@
 
 #include "stepTessellationAPI.h"
 #include "stepPrototypesAPI.h"
-#include "UsdStepExporter.h"
+#include "StepUsdPipeline.h"
 #include "Logger.h"
 #include "UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-TessParams UsdStepExporter::getTessParams(
+TessParams StepUsdPipeline::getTessParams(
     UsdPrim prim,
     const TessParams& defaultParams
 ) {
@@ -86,7 +86,7 @@ TessParams UsdStepExporter::getTessParams(
     return params;
 }
 
-std::map<SdfPath, TessParams> UsdStepExporter::resolveParams(
+std::map<SdfPath, TessParams> StepUsdPipeline::resolveParams(
     const UsdPrim& prim, 
     const TessParams& defaultParams
 ) {
@@ -147,7 +147,7 @@ std::map<SdfPath, TessParams> UsdStepExporter::resolveParams(
     return results;
 }
 
-std::optional<SdfReference> UsdStepExporter::getPrototypesDefaultParams(const UsdPrim& prototypesPrim) {
+std::optional<SdfReference> StepUsdPipeline::getPrototypesDefaultParams(const UsdPrim& prototypesPrim) {
     AutolibStepPrototypesAPI api(prototypesPrim);
 
     SdfPathVector targets;

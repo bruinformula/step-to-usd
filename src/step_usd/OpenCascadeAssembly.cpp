@@ -33,7 +33,7 @@
 #include <opencascade/Standard_Handle.hxx>
 #include <opencascade/TDataStd_Name.hxx>
 
-#include "StepModel.h"
+#include "OpenCascadeAssembly.h"
 #include "Logger.h"
 
 std::string getLabelName(const TDF_Label& label) {
@@ -55,7 +55,7 @@ std::string getLabelName(const TDF_Label& label) {
     return result;
 }
 
-std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
+std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(const fs::path& stepPath) {
     try {
         constexpr double kOcctWorkingMetersPerUnit = 0.001;
         OSD_Parallel::SetUseOcctThreads(true);
@@ -97,7 +97,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
         auto layerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
 
-        StepModel model(stepPath, app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
+        OpenCascadeAssembly model(stepPath, app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
         model.buildInstanceTree();
         return model;
     } catch (const Standard_Failure& e) {
@@ -109,7 +109,7 @@ std::optional<StepModel> StepModel::loadFromFile(const fs::path& stepPath) {
     }
 }
 
-void StepModel::buildInstanceTree() {
+void OpenCascadeAssembly::buildInstanceTree() {
     LOG_SCOPED_TIMER("buildInstanceTree");
     partNodes.clear();
     definitionShapes.clear();
@@ -150,7 +150,7 @@ void StepModel::buildInstanceTree() {
     LOG_INFO("  Unique definitions:  " + std::to_string(definitionShapes.size()));
 }
 
-bool StepModel::isLabelVisible(const TDF_Label& label) const {
+bool OpenCascadeAssembly::isLabelVisible(const TDF_Label& label) const {
     if (!colorTool->IsVisible(label))
         return false;
 
@@ -167,7 +167,7 @@ bool StepModel::isLabelVisible(const TDF_Label& label) const {
 }
 
 // Counting
-int StepModel::countNodes(const TDF_Label& label) {
+int OpenCascadeAssembly::countNodes(const TDF_Label& label) {
     if (!shapeTool->IsShape(label)) return 0;
 
     if (shapeTool->IsComponent(label)) {
@@ -183,7 +183,7 @@ int StepModel::countNodes(const TDF_Label& label) {
     return 0;
 }
 
-int StepModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
+int OpenCascadeAssembly::countAssemblyChildren(const TDF_Label& assemblyDef) {
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(assemblyDef, components);
     int total = 0;
@@ -193,7 +193,7 @@ int StepModel::countAssemblyChildren(const TDF_Label& assemblyDef) {
 }
 
 // Filling
-void StepModel::fillNode(
+void OpenCascadeAssembly::fillNode(
     const TDF_Label& instLabel,
     const TDF_Label& defLabel,
     const std::string& parentName,
@@ -234,7 +234,7 @@ void StepModel::fillNode(
     }
 }
 
-void StepModel::fillLeaf(
+void OpenCascadeAssembly::fillLeaf(
     const TDF_Label& instLabel,
     const TDF_Label& defLabel,
     const std::string& parentName,
@@ -309,7 +309,7 @@ void StepModel::fillLeaf(
     }
 }
 
-void StepModel::fillAssembly(
+void OpenCascadeAssembly::fillAssembly(
     const TDF_Label& instLabel,
     const TDF_Label& defLabel,
     const std::string& parentName,
@@ -365,7 +365,7 @@ void StepModel::fillAssembly(
 }
 
 // Debug 
-void StepModel::debugPrintInstances() const {
+void OpenCascadeAssembly::debugPrintInstances() const {
     for (size_t i = 0; i < partNodes.size(); i++) {
         const PartNode& inst = partNodes[i];
         std::string type = (inst.type == PartNodeType::Assembly) ? "ASM" : "LEAF";

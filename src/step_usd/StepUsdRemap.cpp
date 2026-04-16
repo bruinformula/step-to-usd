@@ -1,5 +1,6 @@
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -14,6 +15,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primRange.h>
+#include <pxr/usd/usd/inherits.h>
 
 #include <pxr/usd/sdf/declareHandles.h>
 #include <pxr/usd/sdf/path.h>
@@ -23,8 +25,6 @@
 #include <pxr/usd/sdf/namespaceEdit.h>
  
 #pragma pop_macro("Handle")
-
-#include "stepContainerAPI.h"
  
 #include "ArgumentHandler.h"
 #include "Logger.h"
@@ -63,6 +63,16 @@ static std::string canonicalPath(const SdfPath& path) {
     return result;
 }
 
+static bool inheritsFromPart(const UsdPrim& prim) {
+    UsdInherits inherits = prim.GetInherits();
+    SdfPathVector targets = inherits.GetAllDirectInherits();
+    if (targets.empty()) return false;
+    for (const SdfPath& t : targets) {
+        if (t.GetName() == "Part") return true;
+    }
+    return false;
+}
+
 /// Maps every canonical (hash-stripped) path from the reference stage to
 /// the concrete SdfPath that exists there, and separately records the
 /// concrete SdfPath from the *target* stage that shares the same canonical
@@ -76,7 +86,6 @@ struct PathMapping {
 static std::unordered_map<std::string, SdfPath> buildCanonicalIndex(const UsdStageRefPtr& stage) {
     std::unordered_map<std::string, SdfPath> index;
     for (const UsdPrim& prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
         
         const SdfPath path = prim.GetPath();
         index[canonicalPath(path)] = path;
@@ -84,7 +93,12 @@ static std::unordered_map<std::string, SdfPath> buildCanonicalIndex(const UsdSta
     return index;
 }
 
-static PathMapping buildPathMapping(const UsdStageRefPtr& targetStage, const UsdStageRefPtr& referenceStage) {
+static PathMapping buildPathMapping(
+    const UsdStageRefPtr& targetStage, 
+    const UsdStageRefPtr& referenceStage,
+    const SdfPath& prefixPath,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& skipPaths
+) {
     PathMapping result;
 
     // Pre-build a canonical -> concrete-path index for the reference stage.
@@ -93,31 +107,77 @@ static PathMapping buildPathMapping(const UsdStageRefPtr& targetStage, const Usd
     for (const UsdPrim& targetPrim : targetStage->TraverseAll()) {
         if (!targetPrim.IsValid()) continue;
 
-        const SdfPath targetPath = targetPrim.GetPath();
-        if (targetPath == SdfPath::AbsoluteRootPath()) continue;
+        SdfPath localPath = targetPrim.GetPath();
+        if (localPath == SdfPath::AbsoluteRootPath()) continue;
 
-        const std::string canonical = canonicalPath(targetPath);
+        SdfPath lookupPath = localPath;
+        if (prefixPath != SdfPath::AbsoluteRootPath()) {
+            lookupPath = prefixPath.AppendPath(localPath.MakeRelativePath(SdfPath::AbsoluteRootPath()));
+            LOG_DEBUG("Prefixed path to: " + lookupPath.GetString());
+        }
+
+        const std::string canonical = canonicalPath(lookupPath);
 
         //Fast path: same canonical path exists in reference index
         auto it = refIndex.find(canonical);
         if (it != refIndex.end()) {
             const SdfPath& refPath = it->second;
-            if (refPath != targetPath) {
-                // Only record if the concrete paths actually differ.
-                result.oldToNew[targetPath] = refPath;
+            UsdPrim parent = targetPrim.GetParent();
+            if (parent && parent.IsValid() && inheritsFromPart(parent)) {
+                LOG_DEBUG("Skipping Part child (fast path): " + localPath.GetString());
+                continue;
+            }
+
+            if (!skipPaths.empty()) {
+                bool shouldSkip = false;
+                for (const SdfPath& p : refPath.GetPrefixes()) {
+                    if (skipPaths.find(p) != skipPaths.end()) { 
+                        shouldSkip = true;
+                        break; 
+                    }
+                }
+                if (shouldSkip) {
+                    LOG_DEBUG("Skipping fast-path match in reference stage: " + refPath.GetString());
+                    continue;
+                }
+            }
+
+            if (refPath != lookupPath) {
+                result.oldToNew[localPath] = refPath;
             }
             continue;
         }
 
         // Slow path: canonical paths don't align
-        const std::string targetLeafCanonical = stripHashSuffix(targetPath.GetName());
-        const std::string targetParentCanonical = canonicalPath(targetPath.GetParentPath());
+        UsdPrim parent = targetPrim.GetParent();
+        if (parent && parent.IsValid() && inheritsFromPart(parent)) {
+            LOG_DEBUG("Skipping child of Part prim: " + localPath.GetString());
+            continue;
+        }
+
+        const std::string targetLeafCanonical = stripHashSuffix(lookupPath.GetName());
+        const std::string targetParentCanonical = canonicalPath(lookupPath.GetParentPath());
 
         bool found = false;
         for (const UsdPrim& refPrim : referenceStage->TraverseAll()) {
             if (!refPrim.IsValid()) continue;
             const SdfPath refPath = refPrim.GetPath();
             if (refPath == SdfPath::AbsoluteRootPath()) continue;
+
+            if (!skipPaths.empty()) {
+                // March to root. if any parent is in the skip path skip
+                bool shouldSkip = false;
+                for (const SdfPath& p : refPath.GetPrefixes()) {
+                    if (skipPaths.find(p) != skipPaths.end()) {
+                        shouldSkip = true;
+                        break;
+                    }
+                }
+                if (shouldSkip) {
+                    LOG_DEBUG("Skipping path in reference stage: " + refPath.GetString());
+                    continue;
+                }
+            }
 
             // Parent canonical must match.
             if (canonicalPath(refPath.GetParentPath()) != targetParentCanonical)
@@ -128,15 +188,15 @@ static PathMapping buildPathMapping(const UsdStageRefPtr& targetStage, const Usd
                 continue;
 
             // Found a candidate.
-            if (refPath != targetPath)
-                result.oldToNew[targetPath] = refPath;
+            if (refPath != lookupPath)
+                result.oldToNew[localPath] = refPath;
 
             found = true;
             break;
         }
 
         if (!found) {
-            result.unmatched.push_back(targetPath);
+            result.unmatched.push_back(localPath);
         }
     }
 
@@ -302,7 +362,7 @@ static void applyPathMapping(const SdfLayerRefPtr& targetLayer, const PathMappin
         }
 
         LOG_DEBUG("Queuing rename:\n  " + oldPrimPath.GetString() + "\n  " + newPrimPath.GetString());
-        LOG_PROGRESS(++currentCount, totalJobs, "Tessellating Geometry");
+        LOG_PROGRESS(++currentCount, totalJobs, "Editing Names");
 
         const TfToken newName = newPrimPath.GetNameToken(); // we are only updating the leaves first
         batch.Add(SdfNamespaceEdit::Rename(oldPrimPath, newName));
@@ -337,7 +397,9 @@ const std::string kArgOptions =
     " Options:\n"
     "    -r, --reference <path>   Path to the reference USD stage (new names).\n"
     "    -t, --target    <path>   Path to the target USD stage  (old names).\n"
-    "    -d, --dryRun            Print the mapping but do not write to disk.\n"
+    "    -p, --prefix    <path>   Prefix path for the target stage.\n"
+    "    -s, --skip      <path>   Skip any paths in the reference stage that have this path as a prefix. Can be multiple.\n"
+    "    -d, --dryRun             Print the mapping but do not write to disk.\n"
     "    -q, --quiet              Suppress all output.\n"
     "    -v, --verbose            Verbose output.\n"
     "    -h, --help               Print this message.\n\n"
@@ -346,6 +408,8 @@ const std::string kArgOptions =
 struct RemapperArgs : public ArgumentHandler {
     std::filesystem::path referenceFile;
     std::filesystem::path targetFile;
+    SdfPath prefixPath = SdfPath::AbsoluteRootPath();
+    std::unordered_set<SdfPath, SdfPath::Hash> skipPaths;
     bool dryRun = false;
 
     ParseResult parse(const std::string& token, const std::string& next) override {
@@ -362,6 +426,18 @@ struct RemapperArgs : public ArgumentHandler {
                 if (next.empty()) goto expectOption;
                 if (!targetFile.empty()) goto alreadySet;
                 targetFile = next;
+                return SUCCESS_CONSUME_NEXT;
+
+            case hashString("-p"):
+            case hashString("--prefix"):
+                if (next.empty()) goto expectOption;
+                prefixPath = SdfPath(next);
+                return SUCCESS_CONSUME_NEXT;
+
+            case hashString("-s"):
+            case hashString("--skip"):
+                if (next.empty()) goto expectOption;
+                skipPaths.insert(SdfPath(next));
                 return SUCCESS_CONSUME_NEXT;
 
             case hashString("-d"):
@@ -442,12 +518,12 @@ int main(int argc, char** argv) {
         SdfLayerRefPtr targetLayer = SdfLayer::FindOrOpen(args.targetFile.string());
         UsdStageRefPtr targetStage = UsdStage::Open(targetLayer, UsdStage::LoadNone);
 
-        mapping = buildPathMapping(targetStage, referenceStage);
+        mapping = buildPathMapping(targetStage, referenceStage, args.prefixPath, args.skipPaths);
         LOG_INFO("Found " + std::to_string(mapping.oldToNew.size()) + " paths to rename.");
         if (!mapping.unmatched.empty()) {
             LOG_WARN("Additionally, " + std::to_string(mapping.unmatched.size()) + " paths in the target stage had no match in the reference stage and will be left unchanged.");
             for (const auto& p : mapping.unmatched) {
-                LOG_WARN("  Unmatched: " + p.GetString());
+                LOG_DEBUG("  Unmatched: " + p.GetString());
             }
         }
     }

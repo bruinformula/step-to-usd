@@ -78,7 +78,7 @@
 
 #pragma pop_macro("Handle")
 
-#include "UsdStepExporter.h"
+#include "StepUsdPipeline.h"
 #include "Logger.h"
 
 class Geom_Surface;
@@ -210,7 +210,7 @@ static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
     return result;
 }
 
-bool UsdStepExporter::tessellatePart(
+bool StepUsdPipeline::tessellatePart(
     TessResult& result, 
     const TopoDS_Shape& defShape, 
     const TessParams& params,
@@ -1203,39 +1203,7 @@ bool UsdStepExporter::tessellatePart(
     return true;
 }
 
-void UsdStepExporter::tessellateWithWatchdog(
-    TessellationJob& job,
-    const TopoDS_Shape& shape,
-    std::chrono::seconds warnAfter
-) {
-    std::atomic<bool> done{false};
-
-    std::thread watchdog([&]() {
-        auto start = std::chrono::steady_clock::now();
-        while (!done.load()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            if (done.load()) break;
-            auto elapsed = std::chrono::steady_clock::now() - start;
-            auto secs = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
-            if (secs >= warnAfter.count()) {
-                LOG_WARN("Tessellation of " + job.prototypePath.GetString() + " has been running for " + std::to_string(secs) + "s");
-            }
-        }
-    });
-
-    try {
-        tessellatePart(job.result, shape, job.params, job.prototypePath, job.runMesherInParallel);
-    } catch (...) {
-        done = true;
-        watchdog.join();
-        throw;
-    }
-
-    done = true;
-    watchdog.join();
-}
-
-void UsdStepExporter::tessellateGeometry(
+void StepUsdPipeline::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -1278,7 +1246,8 @@ void UsdStepExporter::tessellateGeometry(
                     }
                     LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
                     try {
-                        tessellateWithWatchdog(job, defs[idx].second);
+                        tessellatePart(job.result, defs[idx].second, job.params, job.prototypePath, job.runMesherInParallel);
+                        //tessellateWithWatchdog(job, defs[idx].second);
                         int currentCount = ++completedJobs;
                         LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");

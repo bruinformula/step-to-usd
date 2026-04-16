@@ -19,7 +19,7 @@
 
 #include "tokens.h"
 
-#include "UsdStepExporter.h"
+#include "StepUsdPipeline.h"
 #include "Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -119,6 +119,24 @@ std::string sanitizeUsdName(const std::string_view& name) {
 
     return result;
 }
+
+std::unordered_set<SdfPath, SdfPath::Hash> reparentPaths(
+    const SdfPath& newRoot,
+    const std::unordered_set<SdfPath, SdfPath::Hash>& paths
+) {
+    std::unordered_set<SdfPath, SdfPath::Hash> reparented;
+    if (newRoot == SdfPath::AbsoluteRootPath()) {
+        return paths;
+    }
+    for (const SdfPath& p : paths) {
+        if (p.HasPrefix(newRoot)) {
+            reparented.insert(p.ReplacePrefix(newRoot, SdfPath::AbsoluteRootPath()));
+        } else {
+            reparented.insert(p);
+        }
+    }
+    return reparented;
+};
 
 template <typename T>
 void updateIfAuthored(const UsdAttribute& attr, T* value) {

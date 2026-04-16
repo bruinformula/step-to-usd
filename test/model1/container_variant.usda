@@ -24,7 +24,7 @@ def StepContainer "Wonderful" (
     prepend variantSets = "LOD"
 )
 {
-    asset step:sourceAsset = @model1.STEP@
+    asset step:sourceAsset = @../step/model1.STEP@
 
     over "Prototypes" (
         active = false

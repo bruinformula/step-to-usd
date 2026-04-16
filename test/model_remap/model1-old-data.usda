@@ -1,0 +1,27 @@
+#usda 1.0
+(
+    defaultPrim = "Model1"
+)
+
+def "Model1" {
+    over "Assembly" {
+        over "l_bracket_assembly_1__g12642da" {
+            over "nut_bolt_assembly_1__gcaec373" {
+                over "bolt_1__1b016772" {
+
+                }
+            }
+        }
+    }
+    over "Prototypes" {
+        over "rod_1__78316egd" {
+            double step:meshAngularDeflection = 0.01
+            double step:meshLinearDeflection = 0.01
+        }
+
+        over "nut_1__713163g8" {
+            double step:meshAngularDeflection = 0.01
+            double step:meshLinearDeflection = 0.01
+        }
+    }
+}
