@@ -337,7 +337,7 @@ const std::string kArgOptions =
     " Options:\n"
     "    -r, --reference <path>   Path to the reference USD stage (new names).\n"
     "    -t, --target    <path>   Path to the target USD stage  (old names).\n"
-    "    -d, --dry-run            Print the mapping but do not write to disk.\n"
+    "    -d, --dryRun            Print the mapping but do not write to disk.\n"
     "    -q, --quiet              Suppress all output.\n"
     "    -v, --verbose            Verbose output.\n"
     "    -h, --help               Print this message.\n\n"
@@ -365,7 +365,7 @@ struct RemapperArgs : public ArgumentHandler {
                 return SUCCESS_CONSUME_NEXT;
 
             case hashString("-d"):
-            case hashString("--dry-run"):
+            case hashString("--dryRun"):
                 dryRun = true;
                 return SUCCESS;
 

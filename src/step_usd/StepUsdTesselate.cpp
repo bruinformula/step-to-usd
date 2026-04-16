@@ -42,17 +42,19 @@ PXR_NAMESPACE_USING_DIRECTIVE
 const std::string argOptions =
     " StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene\n"
     " Options: \n"
-    "    -i, --inputUsdFile <path>        Path to the input Usd file. \n"
-    "    -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.\n"
+    "    -i, --input <path>               Path to the input Usd file. \n"
+    "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
+    "    -d, --dryRun                     Initialize the files without tesselating the prototypes.\n"
     "    usage: StepUsdTesselate -i <path> [options] \n";
 
 struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
 
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
+    bool dryRun = false;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) override {
         switch (hashString(token)) {
@@ -84,6 +86,11 @@ struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
             case hashString("--help"): {
                 std::cout << argOptions << std::endl;
                 return EXIT;
+            }
+            case hashString("-d"):
+            case hashString("--dryRun"): {
+                dryRun = true;
+                return SUCCESS;
             }
             default: {
                 std::cout << "Unrecognized command-line option: " << token << std::endl;
@@ -167,7 +174,7 @@ int main(int argc, char** argv) {
     for (UsdPrim prim : stage->TraverseAll()) {
         if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
 
-        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
+        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths, inputArgs.dryRun);
     }
 
     stage->GetRootLayer()->Save();

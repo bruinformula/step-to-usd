@@ -156,7 +156,8 @@ struct UsdStepExporter {
     void populateUsd(
         UsdStageRefPtr containerStage,
         UsdPrim& containerPrim,
-        const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
+        const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths,
+        bool dryRun
     );
 
     UsdStepExporter(

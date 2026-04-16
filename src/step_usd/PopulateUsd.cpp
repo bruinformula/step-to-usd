@@ -844,7 +844,8 @@ std::optional<UsdStepExporter> UsdStepExporter::create(
 void UsdStepExporter::populateUsd(
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths,
+    bool dryRun
 ) {
     LOG_SCOPED_TIMER("UsdStepExporter::populateUsd");
     TfErrorMark mark;
@@ -994,6 +995,11 @@ void UsdStepExporter::populateUsd(
         } else {
             containerPrim.GetPayloads().AddPayload(SdfPayload(payloadPath));
         }
+    }
+
+    if (dryRun) {
+        return;
+        LOG_INFO("Skipping Tesselation");
     }
 
     // Tessellation Jobs
