@@ -29,7 +29,7 @@ class "StepContainerAPI" (
 
 class "StepAPI" (
     inherits = </APISchemaBase>
-    doc = "Step file part generically defined"
+    doc = "Step file part generically defined. Contains the TDF_Label"
     customData = {
         token apiSchemaType = "singleApply"
     }
@@ -132,11 +132,6 @@ class "StepTessellationAPI" (
         allowedTokens = ["none", "linear", "cubic"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token step:sketchSampling = "underlying" (
-        doc = "Sampling strategy for sketch and free-edge curves."
-        allowedTokens = ["underlying", "resampled"]
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
     double step:sketchDeflection = 10 (
         doc = "Deflection tolerance for sketch/free-edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
@@ -150,7 +145,7 @@ class "StepTessellationAPI" (
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
-    # Meshing
+    # Sketch Plane
     double step:sketchPlaneLinearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
@@ -258,14 +253,13 @@ class "StepTessellationOptions" (
     # Wireframe
     token step:wireframeType = "linear"
     token step:wireframeSampling = "underlying"
-    double step:wireframeDeflection = 10
+    double step:wireframeDeflection = 1
     bool step:wireframeCombineCurves = 1
     bool step:wireframeEmbedSurfaceNormals = 0
 
     # Sketch
     token step:sketchType = "linear"
-    token step:sketchSampling = "underlying"
-    double step:sketchDeflection = 10
+    double step:sketchDeflection = 1
     bool step:sketchCombineCurves = 1
     bool step:sketchEmbedSurfaceNormals = 1
 

@@ -276,6 +276,31 @@ bool getStageMakeFresh(
     return false;
 };
 
+static UsdStageRefPtr makeSandwichStage(
+    const fs::path& rootStageFilePath,
+    double metersPerUnit
+) {
+
+    fs::path rootPath = rootStageFilePath.parent_path();
+
+    bool rootPathExists = fs::exists(rootPath);
+    bool rootFileExists = fs::exists(rootStageFilePath);
+
+    if (!fs::exists(rootPath)) {
+        LOG_INFO("Creating output directory: " + rootPath.string());
+        fs::create_directory(rootPath);
+    }
+
+    bool shouldMakeNewRootStage = !rootFileExists;
+    UsdStageRefPtr stage = initUsdStage(rootStageFilePath, shouldMakeNewRootStage);
+
+    UsdGeomSetStageMetersPerUnit(stage, metersPerUnit);
+    stage->SetMetadata(TfToken("metersPerUnit"), metersPerUnit);
+
+    stage->Save();
+    return stage;
+}
+
 bool StepUsdPipeline::populatePrototypeContainers(
     const UsdPrim& containerPrim,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -342,7 +367,19 @@ bool StepUsdPipeline::populatePrototypeContainers(
     };
 
     if (containerVariantPaths.empty()) {
+
         fs::path prototypesStageFilePath = rootPath / (baseName + "-prototypes.usdc");
+        fs::path prototypesSandwichStageFilePath = rootPath / (baseName + "-sandwich.usda");
+
+        UsdStageRefPtr prototypesSandwichStage = makeSandwichStage(prototypesSandwichStageFilePath, outputMetersPerUnit);
+        if (!prototypesSandwichStage) {
+            LOG_ERR("Failed to create prototypes sandwich stage at path: " + prototypesSandwichStageFilePath.string());
+            return false;
+        }
+        prototypesSandwichStage->GetRootLayer()->SetDocumentation("This is a sandwich layer that can contain overrides on prototypes before it is loaded in the container stage");
+        UsdPrim containerPrimInPrototypesSandwich = prototypesSandwichStage->DefinePrim(containerPrimPath);
+        prototypesSandwichStage->SetDefaultPrim(containerPrimInPrototypesSandwich);
+
         bool makeFreshStage = getStageMakeFresh(selectedPaths, containerPrimPath, prototypesPath, "", "", stageFilterMap);
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
             LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -357,7 +394,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
         UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
-        UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
+        UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(containerPrimPath);
         prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
         prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
 
@@ -365,17 +402,34 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
         UsdGeomXform::Define(prototypesStage, assemblyPath);
 
+        fs::path prototypesRelativeFilePath = fs::relative(prototypesStageFilePath, prototypesSandwichStageFilePath.parent_path());
+        addStageSubLayer(prototypesSandwichStage, prototypesRelativeFilePath);
+        
         std::shared_ptr<OpenCascadeAssembly> modelPtr = getOpenCascadeAssembly(containerPrim);
         if (!modelPtr) {
             LOG_ERR("Failed to load OpenCascadeAssembly for container prim at path: " + containerPrim.GetPath().GetAsString());
             return false;
         }
-
+        
         prototypesStage->Save();
-        prototypes.push_back({modelPtr, "", "", prototypesStageFilePath, prototypesStage, makeFreshStage});
+        prototypesSandwichStage->Save();
+        prototypes.push_back({modelPtr, "", "",  makeFreshStage, nullptr, prototypesStage, prototypesSandwichStage});
         
     } else {
         baseName += "-";
+
+        fs::path assemblySandwichStageFilePath = rootPath / (baseName + "assembly-sandwich.usdc");
+
+        UsdStageRefPtr assemblySandwichStage = makeSandwichStage(assemblySandwichStageFilePath, outputMetersPerUnit);
+        if (!assemblySandwichStage) {
+            LOG_ERR("Failed to create prototypes sandwich stage at path: " + assemblySandwichStageFilePath.string());
+            return false;
+        }
+        assemblySandwichStage->GetRootLayer()->SetDocumentation("This is a sandwich layer that can contain overrides on the assembly before it is loaded in the in the prototypes");
+        UsdPrim containerPrimInAssemblySandwich = assemblySandwichStage->DefinePrim(containerPrimPath);
+        assemblySandwichStage->SetDefaultPrim(containerPrimInAssemblySandwich);
+        assemblySandwichStage->Save();
+        
         for (const SdfPath& variantPath : containerVariantPaths) {
             if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
                 continue; // skip variants not in selectedPaths when selectedPaths is non-empty
@@ -392,6 +446,17 @@ bool StepUsdPipeline::populatePrototypeContainers(
             }
 
             fs::path prototypesStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes.usdc");
+            fs::path prototypesSandwichStageFilePath = variantSubPath / (baseName + variantSetName + "-" + variantName + "-prototypes-sandwich.usda");
+
+            UsdStageRefPtr prototypesSandwichStage = makeSandwichStage(prototypesSandwichStageFilePath, outputMetersPerUnit);
+            if (!prototypesSandwichStage) {
+                LOG_ERR("Failed to create prototypes sandwich stage at path: " + prototypesSandwichStageFilePath.string());
+                return false;
+            }
+            prototypesSandwichStage->GetRootLayer()->SetDocumentation("This is a sandwich layer that can contain overrides on prototypes before it is loaded in the container stage");
+            UsdPrim containerPrimInPrototypesSandwich = prototypesSandwichStage->DefinePrim(containerPrimPath);
+            prototypesSandwichStage->SetDefaultPrim(containerPrimInPrototypesSandwich);
+
             bool makeFreshStage = getStageMakeFresh(selectedPaths, containerPrimPath, prototypesPath, variantSetName, variantName, stageFilterMap);
             if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
                 LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
@@ -407,10 +472,16 @@ bool StepUsdPipeline::populatePrototypeContainers(
             UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
             AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
             
-            UsdPrim containerPrimInPrototypes = prototypesStage->DefinePrim(containerPrimPath);
-            prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
+            UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(containerPrimPath);
+            prototypesStage->SetDefaultPrim(containerPrimInPrototypes);
             prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
             UsdGeomXform::Define(prototypesStage, assemblyPath);
+
+            fs::path prototypesRelativeFilePath = fs::relative(prototypesStageFilePath, prototypesSandwichStageFilePath.parent_path());
+            addStageSubLayer(prototypesSandwichStage, prototypesRelativeFilePath);
+
+            fs::path assemblySandwichRelativeFilePath = fs::relative(assemblySandwichStageFilePath, prototypesStageFilePath.parent_path());
+            addStageSubLayer(prototypesStage, assemblySandwichRelativeFilePath);
 
             UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
 
@@ -427,7 +498,8 @@ bool StepUsdPipeline::populatePrototypeContainers(
             }
 
             prototypesStage->Save();
-            prototypes.push_back({modelPtr, variantSetName, variantName, prototypesStageFilePath, prototypesStage, makeFreshStage});
+            prototypesSandwichStage->Save();
+            prototypes.push_back({modelPtr, variantSetName, variantName, makeFreshStage, assemblySandwichStage, prototypesStage, prototypesSandwichStage});
         }
     }
     return true;
@@ -539,7 +611,7 @@ bool StepUsdPipeline::populateTessellationJobs(
         );
         
         if (!sucess) {
-            LOG_WARN("Failed to populate params bank for prototypes [" + proto.filePath.filename().string() + "].");
+            LOG_WARN("Failed to populate params bank for prototypes [" + proto.stage->GetRootLayer()->GetRealPath() + "].");
         }
 
         bool runMesherInParallel = !proto.makeFreshStage;
@@ -589,15 +661,13 @@ bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
     const OpenCascadeAssembly& model,
     const std::vector<PrototypeContainer>& prototypes,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+    fs::path rootPath,
     const SdfPath& assemblyPath,
     const SdfPath& containerPrimPath,
     const SdfPath& prototypesPath,
     const SdfPath& prototypesInContainerPath,
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
-    const UsdStageRefPtr& rootStage,
-    const fs::path& rootStageFilePath,
-    const fs::path& rootPath,
     double outputMetersPerUnit,
     double sourceToOutputScale,
 
@@ -677,10 +747,6 @@ bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
         );
         prototypePaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
 
-        fs::path rootRelativeFilePath = fs::relative(rootStageFilePath, proto.filePath.parent_path());
-
-        addStageSubLayer(proto.stage, rootRelativeFilePath);
-
         proto.stage->Save();
     }
 
@@ -734,13 +800,37 @@ bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
         );
     }
     // Add the assembly as a sublayer of the root layer, so it composes under the prototypes stage.
+    assemblyStage->Save();
 
-    fs::path assemblyRelativeFilePath = fs::relative(
-        assemblyStageFilePath,
-        rootStageFilePath.parent_path()
-    );
+    for (const auto& proto : prototypes) {
+        fs::path assemblyStageFilePath = fs::canonical(
+            assemblyStage->GetRootLayer()->GetResolvedPath().GetPathString()
+        );
 
-    addStageSubLayer(rootStage, assemblyRelativeFilePath);
+        if (!proto.assemblySandwichStage) {
+            fs::path prototypeFilePath = fs::canonical(
+                proto.stage->GetRootLayer()->GetResolvedPath().GetPathString()
+            );
+            fs::path assemblyRelativeFilePath = fs::relative(
+                assemblyStageFilePath,
+                prototypeFilePath.parent_path()
+            );
+
+            addStageSubLayer(proto.stage, assemblyRelativeFilePath);
+            proto.stage->Save();
+        } else {
+            fs::path assemblySandwichFilePath = fs::canonical(
+                proto.assemblySandwichStage->GetRootLayer()->GetResolvedPath().GetPathString()
+            );
+            fs::path assemblyRelativeFilePath = fs::relative(
+                assemblyStageFilePath,
+                assemblySandwichFilePath.parent_path()
+            );
+
+            addStageSubLayer(proto.assemblySandwichStage, assemblyRelativeFilePath);
+            proto.assemblySandwichStage->Save();
+        }
+    }
 
     return true;
 }
@@ -962,20 +1052,6 @@ void StepUsdPipeline::populateUsd(
 
     std::string baseName = model.stepPath.stem().string();
     fs::path rootPath = containerFilePath / (baseName);
-    fs::path rootStageFilePath = rootPath / (baseName + "-sandwich.usda");
-
-    bool rootPathExists = fs::exists(rootPath);
-    bool rootFileExists = fs::exists(rootStageFilePath);
-
-    if (!fs::exists(rootPath)) {
-        LOG_INFO("Creating output directory: " + rootPath.string());
-        fs::create_directory(rootPath);
-    }
-
-    bool shouldMakeNewRootStage = !rootFileExists;
-    UsdStageRefPtr rootStage = initUsdStage(rootStageFilePath, shouldMakeNewRootStage);
-    UsdGeomSetStageMetersPerUnit(rootStage, outputMetersPerUnit);
-    rootStage->GetRootLayer()->SetDocumentation("This is a sandwich layer that can contain overrides on prototypes before it is loaded in the container stage");
 
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
@@ -1015,15 +1091,13 @@ void StepUsdPipeline::populateUsd(
         model,
         prototypes,
         selectedPaths,
+        rootPath,
         assemblyPath,
         containerPrimPath,
         prototypesPath,
         prototypesInContainerPath,
         containerStage,
         containerPrim,
-        rootStage,
-        rootStageFilePath,
-        rootPath,
         outputMetersPerUnit,
         sourceToOutputScale,
         prototypePaths,
@@ -1032,8 +1106,10 @@ void StepUsdPipeline::populateUsd(
     
     // Payload logic on container stage
     for (const auto& proto : prototypes) {
-        std::string payloadPath = fs::relative(proto.filePath, containerFilePath).string();
-        
+        fs::path sandwichPath = proto.prototypeSandwichStage->GetRootLayer()->GetRealPath();
+        fs::path containerDir = fs::path(containerFilePath).parent_path();
+        std::string payloadPath = fs::relative(sandwichPath, containerDir).string();
+
         if (!proto.variantSetName.empty()) {
             UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
             varSet.SetVariantSelection(proto.variantName);
@@ -1068,7 +1144,7 @@ void StepUsdPipeline::populateUsd(
         LOG_DEBUG("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
-            if (job.proto->filePath == proto.filePath) {
+            if (job.proto->stage->GetRootLayer()->GetRealPath() == proto.stage->GetRootLayer()->GetRealPath()) {
                 geomJobs.push_back({job.prototypePath, job.result, job.params});
             }
         }

@@ -54,8 +54,8 @@ model2/
 ├── model2.xbf
 └── model2/
     ├── model2-assembly.usdc    <- generated: the flat assembly prim
-    ├── model2-sandwich.usda   <- generated: sandwich layer
-    └── model2-prototypes.usdc  <- generated: tessellated prototype geometry
+    ├── model2-prototypes.usdc  <- generated: tessellated prototype geometry
+    └── model2-sandwich.usda    <- generated: sandwich layer
 ```
 
 For models with variants, the prototypes are written per-variant.
@@ -67,10 +67,12 @@ model1/
 ├── model1.xbf
 └── model1/
     ├── model1-assembly.usdc
-    ├── model1-sandwich.usda
+    ├── model1-assembly-sandwich.usda
     └── LOD/
         ├── model1-LOD-high-prototypes.usdc 
-        └── model1-LOD-low-prototypes.usdc
+        ├── model1-LOD-high-prototypes-sandwich.usda 
+        ├── model1-LOD-low-prototypes.usdc
+        └── model1-LOD-high-prototypes-sandwich.usda 
 ```
 
 #### Composition Arc Walkthrough
@@ -88,9 +90,9 @@ Working from the bottom up:
 
 **`model1-assembly.usdc`** contains the assembly prim — the flat list of prototype prims as they exist in the original STEP file, without any tessellation opinions applied yet.
 
-**`model1-sandwich.usda`** is am intermediate that sublayers the assembly. This is  a place to insert overrides and opinions that apply before the prototypes are added. Useful things to author here include suppressing parts that shouldn't be rendered, mirror overrides, or material assignments that need to land below the prototype geometry in the composition stack.
+**`model1-sandwich.usda`** (or `model2-*-*-*-sandwich.usda` in the variant case) is am intermediate that sublayers the assembly. This is  a place to insert overrides and opinions that apply before the prototypes are added. Useful things to author here include suppressing parts that shouldn't be rendered, mirror overrides, or material assignments that need to land below the prototype geometry in the composition stack. In the variant case, this is split into the assembly and the prototypes.
 
-**`model1-*-*-prototypes.usdc`** (or `model2-prototypes.usdc` in the no-variant case) is brought in as a payload from your input file. It contains the tessellated mesh, wireframe, and sketch geometry for every prototype in that variant.
+**`model1-prototypes.usdc`** (or `model1-*-*-prototypes.usdc` in the variant case) is brought in as a payload from your input file. It contains the tessellated mesh, wireframe, and sketch geometry for every prototype in that variant.
 
 **Your input file** sits at the top of the stack. Variant selections, per-prototype overrides, and `step:defaultParams` relationships all live here and win over everything below.
 

@@ -64,7 +64,6 @@ TessParams StepUsdPipeline::getTessParams(
     updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
     updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
     updateIfAuthored(api.GetStepSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
-    updateIfAuthored(api.GetStepSketchSamplingAttr(), &params.sketchMode.sampling);
 
     // Sketch Plane
     updateIfAuthored(api.GetStepSketchPlaneLinearDeflectionAttr(), &params.sketchPlaneLinearDeflection);

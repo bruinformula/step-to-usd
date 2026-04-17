@@ -15,7 +15,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primRange.h>
-#include <pxr/usd/usd/inherits.h>
+#include <pxr/usd/usd/attribute.h>
 
 #include <pxr/usd/sdf/declareHandles.h>
 #include <pxr/usd/sdf/path.h>
@@ -25,11 +25,21 @@
 #include <pxr/usd/sdf/namespaceEdit.h>
  
 #pragma pop_macro("Handle")
+
+#include "stepAPI.h"
  
 #include "ArgumentHandler.h"
 #include "Logger.h"
  
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace fs = std::filesystem;
+
+static std::string getStepLabel(const UsdPrim& prim) {
+    TfToken value;
+    AutolibStepAPI(prim).CreateStepLabelAttr().Get(&value);
+    return value.GetString();
+}
 
 static const std::regex kHashSuffixRe(R"(__[0-9a-fA-F]{8}$)");
 
@@ -38,15 +48,12 @@ static std::string stripHashSuffix(const std::string& name) {
 }
 
 static std::string canonicalPath(const SdfPath& path) {
-    // Work token-by-token on the string representation.
-    // SdfPath elements are separated by '/'; we rebuild the path manually.
     const std::string pathStr = path.GetString();
     std::string result;
     result.reserve(pathStr.size());
 
     std::string::size_type start = 0;
     while (start < pathStr.size()) {
-        // Emit the leading '/' (or the initial empty segment for absolute paths)
         std::string::size_type slash = pathStr.find('/', start);
         std::string::size_type end   = (slash == std::string::npos) ? pathStr.size() : slash;
 
@@ -63,141 +70,131 @@ static std::string canonicalPath(const SdfPath& path) {
     return result;
 }
 
-static bool inheritsFromPart(const UsdPrim& prim) {
-    UsdInherits inherits = prim.GetInherits();
-    SdfPathVector targets = inherits.GetAllDirectInherits();
-    if (targets.empty()) return false;
-    for (const SdfPath& t : targets) {
-        if (t.GetName() == "Part") return true;
-    }
-    return false;
-}
+struct OldPrimInfo {
+    SdfPath path;
+    std::string stepLabel;
+};
 
-/// Maps every canonical (hash-stripped) path from the reference stage to
-/// the concrete SdfPath that exists there, and separately records the
-/// concrete SdfPath from the *target* stage that shares the same canonical
-/// path.  After matching, OldPath -> NewPath gives you the rename pairs.
+/// Index all prims in a stage by their canonical (hash-stripped) path.
+/// Maps to a vector because multiple prims might share the same base name.
+static std::unordered_map<std::string, std::vector<OldPrimInfo>> buildCanonicalIndex(const UsdStageRefPtr& stage) {
+    std::unordered_map<std::string, std::vector<OldPrimInfo>> index;
+    for (const UsdPrim& prim : stage->TraverseAll()) {
+        const SdfPath path = prim.GetPath();
+        if (path == SdfPath::AbsoluteRootPath()) continue;
+
+        std::string cPath = canonicalPath(path);
+        std::string label = getStepLabel(prim); // Cache the label for fallback
+        
+        index[cPath].push_back({path, label});
+    }
+    return index;
+}
+/// Pairs a target prim's local SdfPath with the new SdfPath it should be
+/// renamed to.  After matching, oldToNew[targetPath] = newAssemblyPath.
 struct PathMapping {
     std::unordered_map<SdfPath, SdfPath, SdfPath::Hash> oldToNew;
     std::vector<SdfPath> unmatched;
 };
 
-/// Index all prims in a stage by their canonical path.
-static std::unordered_map<std::string, SdfPath> buildCanonicalIndex(const UsdStageRefPtr& stage) {
-    std::unordered_map<std::string, SdfPath> index;
-    for (const UsdPrim& prim : stage->TraverseAll()) {
-        
-        const SdfPath path = prim.GetPath();
-        index[canonicalPath(path)] = path;
-    }
-    return index;
-}
-
 static PathMapping buildPathMapping(
-    const UsdStageRefPtr& targetStage, 
-    const UsdStageRefPtr& referenceStage,
+    const UsdStageRefPtr& targetStage,
+    const UsdStageRefPtr& oldAssemblyStage,
+    const UsdStageRefPtr& newAssemblyStage,
     const SdfPath& prefixPath,
     const std::unordered_set<SdfPath, SdfPath::Hash>& skipPaths
 ) {
     PathMapping result;
 
-    // Pre-build a canonical -> concrete-path index for the reference stage.
-    const auto refIndex = buildCanonicalIndex(referenceStage);
+    // index the old assembly by canonical path -> vector of OldPrimInfo
+    const auto oldIndex = buildCanonicalIndex(oldAssemblyStage);
 
+    // traverse the new assembly and build oldAssemblyPath -> newAssemblyPath
+    std::unordered_map<SdfPath, SdfPath, SdfPath::Hash> assemblyRemap;
+    for (const UsdPrim& newPrim : newAssemblyStage->TraverseAll()) {
+        if (!newPrim.IsValid()) continue;
+        const SdfPath newPath = newPrim.GetPath();
+        if (newPath == SdfPath::AbsoluteRootPath()) continue;
+
+        std::string cPath = canonicalPath(newPath);
+
+        auto it = oldIndex.find(cPath);
+        if (it == oldIndex.end() || it->second.empty()) {
+            LOG_DEBUG("New assembly prim has no match in old assembly for canonical path '" + cPath + "': " + newPath.GetString());
+            continue;
+        }
+
+        SdfPath matchedOldPath;
+
+        // If there is only one match for the root name, use it.
+        // There are multiple prims with the same root name, disambiguate with step:label
+        if (it->second.size() == 1) {
+            matchedOldPath = it->second.front().path;
+        } else {
+            const std::string newLabel = getStepLabel(newPrim);
+            if (newLabel.empty()) {
+                LOG_DEBUG("Collision for '" + cPath + "', but new prim has no step:label to disambiguate. Skipping.");
+                continue;
+            }
+
+            bool foundMatch = false;
+            for (const auto& oldPrimInfo : it->second) {
+                if (oldPrimInfo.stepLabel == newLabel) {
+                    matchedOldPath = oldPrimInfo.path;
+                    foundMatch = true;
+                    break;
+                }
+            }
+
+            if (!foundMatch) {
+                LOG_DEBUG("Collision for '" + cPath + "', and no matching step:label found for '" + newLabel + "'. Skipping.");
+                continue;
+            }
+        }
+
+        // Skip pairs where the old path lives under an excluded subtree.
+        if (!skipPaths.empty()) {
+            bool shouldSkip = false;
+            for (const SdfPath& p : matchedOldPath.GetPrefixes()) {
+                if (skipPaths.find(p) != skipPaths.end()) {
+                    shouldSkip = true;
+                    break;
+                }
+            }
+            if (shouldSkip) {
+                LOG_DEBUG("Skipping match (excluded prefix): " + matchedOldPath.GetString());
+                continue;
+            }
+        }
+
+        if (matchedOldPath != newPath) {
+            assemblyRemap[matchedOldPath] = newPath;
+            LOG_DEBUG("Assembly remap matched via " + std::string(it->second.size() > 1 ? "step:label fallback" : "canonical path") + ":\n  " + matchedOldPath.GetString() + "\n  -> " + newPath.GetString());
+        }
+    }
+
+    // For each prim in the target stage, check whether its prefixed path
+    // appears as an old-assembly path in the remap table.
     for (const UsdPrim& targetPrim : targetStage->TraverseAll()) {
         if (!targetPrim.IsValid()) continue;
 
-        SdfPath localPath = targetPrim.GetPath();
+        const SdfPath localPath = targetPrim.GetPath();
         if (localPath == SdfPath::AbsoluteRootPath()) continue;
 
         SdfPath lookupPath = localPath;
         if (prefixPath != SdfPath::AbsoluteRootPath()) {
             lookupPath = prefixPath.AppendPath(localPath.MakeRelativePath(SdfPath::AbsoluteRootPath()));
-            LOG_DEBUG("Prefixed path to: " + lookupPath.GetString());
         }
 
-        const std::string canonical = canonicalPath(lookupPath);
-
-        //Fast path: same canonical path exists in reference index
-        auto it = refIndex.find(canonical);
-        if (it != refIndex.end()) {
-            const SdfPath& refPath = it->second;
-            UsdPrim parent = targetPrim.GetParent();
-            if (parent && parent.IsValid() && inheritsFromPart(parent)) {
-                LOG_DEBUG("Skipping Part child (fast path): " + localPath.GetString());
-                continue;
-            }
-
-            if (!skipPaths.empty()) {
-                bool shouldSkip = false;
-                for (const SdfPath& p : refPath.GetPrefixes()) {
-                    if (skipPaths.find(p) != skipPaths.end()) { 
-                        shouldSkip = true;
-                        break; 
-                    }
-                }
-                if (shouldSkip) {
-                    LOG_DEBUG("Skipping fast-path match in reference stage: " + refPath.GetString());
-                    continue;
-                }
-            }
-
-            if (refPath != lookupPath) {
-                result.oldToNew[localPath] = refPath;
-            }
-            continue;
-        }
-
-        // Slow path: canonical paths don't align
-        UsdPrim parent = targetPrim.GetParent();
-        if (parent && parent.IsValid() && inheritsFromPart(parent)) {
-            LOG_DEBUG("Skipping child of Part prim: " + localPath.GetString());
-            continue;
-        }
-
-        const std::string targetLeafCanonical = stripHashSuffix(lookupPath.GetName());
-        const std::string targetParentCanonical = canonicalPath(lookupPath.GetParentPath());
-
-        bool found = false;
-        for (const UsdPrim& refPrim : referenceStage->TraverseAll()) {
-            if (!refPrim.IsValid()) continue;
-            const SdfPath refPath = refPrim.GetPath();
-            if (refPath == SdfPath::AbsoluteRootPath()) continue;
-
-            if (!skipPaths.empty()) {
-                // March to root. if any parent is in the skip path skip
-                bool shouldSkip = false;
-                for (const SdfPath& p : refPath.GetPrefixes()) {
-                    if (skipPaths.find(p) != skipPaths.end()) {
-                        shouldSkip = true;
-                        break;
-                    }
-                }
-                if (shouldSkip) {
-                    LOG_DEBUG("Skipping path in reference stage: " + refPath.GetString());
-                    continue;
-                }
-            }
-
-            // Parent canonical must match.
-            if (canonicalPath(refPath.GetParentPath()) != targetParentCanonical)
-                continue;
-
-            // Stripped leaf name must match.
-            if (stripHashSuffix(refPath.GetName()) != targetLeafCanonical)
-                continue;
-
-            // Found a candidate.
-            if (refPath != lookupPath)
-                result.oldToNew[localPath] = refPath;
-
-            found = true;
-            break;
-        }
-
-        if (!found) {
+        auto it = assemblyRemap.find(lookupPath);
+        if (it == assemblyRemap.end()) {
+            LOG_DEBUG("No assembly remap for target prim: " + localPath.GetString());
             result.unmatched.push_back(localPath);
+            continue;
         }
+
+        result.oldToNew[localPath] = it->second;
+        LOG_DEBUG("Matched target prim:\n  " + localPath.GetString() + "\n  -> " + it->second.GetString());
     }
 
     return result;
@@ -393,21 +390,23 @@ static void applyPathMapping(const SdfLayerRefPtr& targetLayer, const PathMappin
 const std::string kArgOptions =
     " StagePathRemapper -- Renames prims in a target USD stage to match\n"
     "                      the names found in a reference USD stage,\n"
-    "                      matching on hash-stripped canonical paths.\n"
+    "                      matching on the step:label (OCCT TDF label path) primvar.\n"
     " Options:\n"
-    "    -r, --reference <path>   Path to the reference USD stage (new names).\n"
-    "    -t, --target    <path>   Path to the target USD stage  (old names).\n"
-    "    -p, --prefix    <path>   Prefix path for the target stage.\n"
-    "    -s, --skip      <path>   Skip any paths in the reference stage that have this path as a prefix. Can be multiple.\n"
-    "    -d, --dryRun             Print the mapping but do not write to disk.\n"
-    "    -q, --quiet              Suppress all output.\n"
-    "    -v, --verbose            Verbose output.\n"
-    "    -h, --help               Print this message.\n\n"
-    "    usage: StagePathRemapper -r <ref.usd> -t <target.usd> [options]\n";
+    "    -r, --oldAssembly       <path>   Path to the old assembly USD stage (old names).\n"
+    "    -n, --newAssembly       <path>   Path to the new assembly USD stage (new names).\n"
+    "    -t, --target            <path>   Path to the target USD stage to be renamed.\n"
+    "    -p, --prefix            <path>   Prefix path for the target stage.\n"
+    "    -s, --skip              <path>   Skip any paths in the old assembly that have this path as a prefix. Can be multiple.\n"
+    "    -d, --dryRun                     Print the mapping but do not write to disk.\n"
+    "    -q, --quiet                      Suppress all output.\n"
+    "    -v, --verbose                    Verbose output.\n"
+    "    -h, --help                       Print this message.\n\n"
+    "    usage: StagePathRemapper -r <oldAssembly.usd> -n <newAssembly.usd> -t <target.usd> [options]\n";
 
 struct RemapperArgs : public ArgumentHandler {
-    std::filesystem::path referenceFile;
-    std::filesystem::path targetFile;
+    fs::path oldAssembly;
+    fs::path newAssembly;
+    fs::path targetFile;
     SdfPath prefixPath = SdfPath::AbsoluteRootPath();
     std::unordered_set<SdfPath, SdfPath::Hash> skipPaths;
     bool dryRun = false;
@@ -415,10 +414,17 @@ struct RemapperArgs : public ArgumentHandler {
     ParseResult parse(const std::string& token, const std::string& next) override {
         switch (hashString(token)) {
             case hashString("-r"):
-            case hashString("--reference"):
+            case hashString("--oldAssembly"):
                 if (next.empty()) goto expectOption;
-                if (!referenceFile.empty()) goto alreadySet;
-                referenceFile = next;
+                if (!oldAssembly.empty()) goto alreadySet;
+                oldAssembly = next;
+                return SUCCESS_CONSUME_NEXT;
+
+            case hashString("-n"):
+            case hashString("--newAssembly"):
+                if (next.empty()) goto expectOption;
+                if (!newAssembly.empty()) goto alreadySet;
+                newAssembly = next;
                 return SUCCESS_CONSUME_NEXT;
 
             case hashString("-t"):
@@ -476,14 +482,21 @@ struct RemapperArgs : public ArgumentHandler {
 
     bool verify() const override {
         bool ok = true;
-        if (referenceFile.empty()) {
-            std::cerr << "--reference is required.\n"; ok = false;
-        } else if (!std::filesystem::exists(referenceFile)) {
-            std::cerr << "Reference file not found: " << referenceFile << "\n"; ok = false;
+        if (oldAssembly.empty()) {
+            std::cerr << "--oldAssembly is required.\n"; ok = false;
+        } else if (!fs::exists(oldAssembly)) {
+            std::cerr << "Old assembly file not found: " << oldAssembly << "\n"; ok = false;
         }
+
+        if (newAssembly.empty()) {
+            std::cerr << "--newAssembly is required.\n"; ok = false;
+        } else if (!fs::exists(newAssembly)) {
+            std::cerr << "New assembly file not found: " << newAssembly << "\n"; ok = false;
+        }
+
         if (targetFile.empty()) {
             std::cerr << "--target is required.\n"; ok = false;
-        } else if (!std::filesystem::exists(targetFile)) {
+        } else if (!fs::exists(targetFile)) {
             std::cerr << "Target file not found: " << targetFile << "\n"; ok = false;
         }
         return ok;
@@ -513,12 +526,11 @@ int main(int argc, char** argv) {
 
     PathMapping mapping;
     {
-        UsdStageRefPtr referenceStage = UsdStage::Open(args.referenceFile.string(), UsdStage::LoadNone);
-        // Open target via SdfLayer to ensure we have a handle to it later
-        SdfLayerRefPtr targetLayer = SdfLayer::FindOrOpen(args.targetFile.string());
-        UsdStageRefPtr targetStage = UsdStage::Open(targetLayer, UsdStage::LoadNone);
+        UsdStageRefPtr oldAssemblyStage = UsdStage::Open(args.oldAssembly.string(), UsdStage::LoadNone);
+        UsdStageRefPtr newAssemblyStage = UsdStage::Open(args.newAssembly.string(), UsdStage::LoadNone);
+        UsdStageRefPtr targetStage      = UsdStage::Open(args.targetFile.string(),  UsdStage::LoadNone);
 
-        mapping = buildPathMapping(targetStage, referenceStage, args.prefixPath, args.skipPaths);
+        mapping = buildPathMapping(targetStage, oldAssemblyStage, newAssemblyStage, args.prefixPath, args.skipPaths);
         LOG_INFO("Found " + std::to_string(mapping.oldToNew.size()) + " paths to rename.");
         if (!mapping.unmatched.empty()) {
             LOG_WARN("Additionally, " + std::to_string(mapping.unmatched.size()) + " paths in the target stage had no match in the reference stage and will be left unchanged.");

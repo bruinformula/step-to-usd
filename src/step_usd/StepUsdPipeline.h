@@ -187,9 +187,10 @@ private:
         std::shared_ptr<OpenCascadeAssembly> model;
         std::string variantSetName;
         std::string variantName;
-        fs::path filePath;
-        UsdStageRefPtr stage;
         bool makeFreshStage = false;
+        UsdStageRefPtr assemblySandwichStage;
+        UsdStageRefPtr stage;
+        UsdStageRefPtr prototypeSandwichStage;
     };
 
     struct TessellationJob {
@@ -258,17 +259,16 @@ private:
         const OpenCascadeAssembly& model,
         const std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
+        fs::path rootPath,
         const SdfPath& assemblyPath,
         const SdfPath& containerPrimPath,
         const SdfPath& prototypesPath,
         const SdfPath& prototypesInContainerPath,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
-        const UsdStageRefPtr& rootStage,
-        const fs::path& rootStageFilePath,
-        const fs::path& rootPath,
         double outputMetersPerUnit,
         double sourceToOutputScale,
+
         LabelMap<SdfPath>& prototypePaths,
         std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
     );

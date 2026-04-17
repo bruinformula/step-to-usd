@@ -13,7 +13,7 @@ def StepTessellationOptions "DefaultOptions"
 }
 
 def StepContainer "Model2" (
-    prepend payload = @model2/model2-prototypes.usdc@
+    prepend payload = @model2/model2-sandwich.usdc@
 )
 {
     asset step:sourceAsset = @../step/model2.STEP@
