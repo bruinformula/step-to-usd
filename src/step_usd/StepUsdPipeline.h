@@ -111,12 +111,14 @@ struct TessResult {
     // Wireframe curves 
     VtArray<GfVec3f> wireframePoints;
     VtArray<int> wireframeCounts;
+    VtArray<float> wireframeArcValues;
     VtArray<GfVec3f> wireframeSurfaceNormals;
     VtArray<int> wireframeContinuity;
 
     // Sketch curves
     VtArray<GfVec3f> sketchPoints;
     VtArray<int> sketchCounts;
+    VtArray<float> sketchArcValues;
     VtArray<GfVec3f> sketchSurfaceNormals;
 
     // Sketch planes reconstructed from closed free-edge loops

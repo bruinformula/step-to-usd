@@ -101,7 +101,7 @@ public:
         if (_timedOut) {
             LOG_WARN(label + "DeadlineProgressIndicator destroyed after timeout");
         } else {
-            LOG_DEBUG(label + "DeadlineProgressIndicator destroyed (completed within deadline)");
+            // LOG_DEBUG(label + "DeadlineProgressIndicator destroyed (completed within deadline)");
         }
     }
 
@@ -114,12 +114,12 @@ public:
             _timedOut = true;
             return true;
         }
-        LOG_DEBUG(label + "UserBreak polled, still within deadline");
+        // LOG_DEBUG(label + "UserBreak polled, still within deadline");
         return false;
     }
 
     void Show(const Message_ProgressScope& scope, const bool isForced) override {
-        LOG_DEBUG(label + "Show called (forced=" + std::string(isForced ? "true" : "false") + ")");
+        // LOG_DEBUG(label + "Show called (forced=" + std::string(isForced ? "true" : "false") + ")");
     }
 
     bool timedOut() const { return _timedOut; }
@@ -388,6 +388,24 @@ bool StepUsdPipeline::tessellatePart(
     NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeToFaces;
     TopExp::MapShapesAndAncestors(workingShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
 
+    auto computeArcValues = [](const GCPnts_QuasiUniformDeflection& sampler) -> std::vector<float> {
+        int n = sampler.NbPoints();
+        std::vector<float> arc(n, 0.0f);
+        if (n < 2) return arc;
+
+        float total = 0.0f;
+        for (int i = 2; i <= n; ++i)
+            total += static_cast<float>(sampler.Value(i - 1).Distance(sampler.Value(i)));
+
+        float cum = 0.0f;
+        for (int i = 2; i <= n; ++i) {
+            cum += static_cast<float>(sampler.Value(i - 1).Distance(sampler.Value(i)));
+            arc[i - 1] = (total > 1e-10f) ? cum / total : 1.0f;
+        }
+        arc[n - 1] = 1.0f; // guard against float drift
+        return arc;
+    };
+
     // Per-edge data deferred for Linear mode. 
     struct DeferredCurve {
         std::vector<TriNodeKey> keys;
@@ -579,10 +597,12 @@ bool StepUsdPipeline::tessellatePart(
 
                 if (sampler.IsDone() && sampler.NbPoints() >= 2) {
                     int n = sampler.NbPoints();
+                    std::vector<float> arcValues = computeArcValues(sampler);
 
                     if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                         // Add phantom start for Catmull-Rom interpolation
                         gp_Pnt p0 = sampler.Value(1);
+                        result.wireframeArcValues.push_back(0.0f);
                         
                         result.wireframePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
                         if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[0]);
@@ -590,12 +610,14 @@ bool StepUsdPipeline::tessellatePart(
                         for (int i = 1; i <= n; ++i) {
                             gp_Pnt p = sampler.Value(i);
                             result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            result.wireframeArcValues.push_back(arcValues[i - 1]);
                             if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
                         }
 
                         // Add phantom end
                         gp_Pnt pN = sampler.Value(n);
                         result.wireframePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+                        result.wireframeArcValues.push_back(1.0f);
                         if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[n - 1]);
 
                         result.wireframeCounts.push_back(n + 2);
@@ -604,6 +626,7 @@ bool StepUsdPipeline::tessellatePart(
                         for (int i = 1; i <= n; ++i) {
                             gp_Pnt p = sampler.Value(i);
                             result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                            result.wireframeArcValues.push_back(arcValues[i - 1]);
                             if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
                         }
                         result.wireframeCounts.push_back(n);
@@ -648,23 +671,29 @@ bool StepUsdPipeline::tessellatePart(
 
             int n = sampler.NbPoints();
 
+            std::vector<float> arcValues = computeArcValues(sampler);
+
             if (params.sketchMode.type == TessParams::CurveType::Cubic) {
                 // Phantom start — duplicate first point for Catmull-Rom
                 gp_Pnt p0 = sampler.Value(1);
                 result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+                result.sketchArcValues.push_back(0.0f);
                 for (int si = 1; si <= n; ++si) {
                     gp_Pnt p = sampler.Value(si);
                     result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                    result.sketchArcValues.push_back(arcValues[si - 1]);
                 }
                 // Phantom end — duplicate last point
                 gp_Pnt pN = sampler.Value(n);
                 result.sketchPoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+                result.sketchArcValues.push_back(1.0f);
                 result.sketchCounts.push_back(n + 2);
             } else {
                 // Linear and ResampledLinear both produce polylines
                 for (int si = 1; si <= n; ++si) {
                     gp_Pnt p = sampler.Value(si);
                     result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                    result.sketchArcValues.push_back(arcValues[si - 1]);
                 }
                 result.sketchCounts.push_back(n);
             }
@@ -1115,20 +1144,39 @@ bool StepUsdPipeline::tessellatePart(
                 resolved.push_back(it->second);
         }
         if (resolved.size() >= 2) {
+            std::vector<float> arcValues(resolved.size(), 0.0f);
+            {
+                float total = 0.0f;
+                for (size_t i = 1; i < resolved.size(); ++i)
+                    total += (result.points[resolved[i]] - result.points[resolved[i-1]]).GetLength();
+                float cum = 0.0f;
+                for (size_t i = 1; i < resolved.size(); ++i) {
+                    cum += (result.points[resolved[i]] - result.points[resolved[i-1]]).GetLength();
+                    arcValues[i] = (total > 1e-10f) ? cum / total : 1.0f;
+                }
+                arcValues.back() = 1.0f;
+            }
+
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom start — duplicate first point
                 result.wireframePoints.push_back(result.points[resolved.front()]);
-                if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
+                result.wireframeArcValues.push_back(0.0f);
+                if (params.wireframeEmbedSurfaceNormals) 
+                    result.wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
             }
-            for (int idx : resolved) {
-                result.wireframePoints.push_back(result.points[idx]);
-                if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[idx]); 
+            for (size_t i = 0; i < resolved.size(); ++i) {
+                result.wireframePoints.push_back(result.points[resolved[i]]);
+                result.wireframeArcValues.push_back(arcValues[i]);
+                if (params.wireframeEmbedSurfaceNormals)
+                    result.wireframeSurfaceNormals.push_back(pointNormals[resolved[i]]);
             }
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 // Phantom end — duplicate last point
                 result.wireframePoints.push_back(result.points[resolved.back()]);
-                 if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
+                result.wireframeArcValues.push_back(1.0f);
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
+                if (params.wireframeEmbedSurfaceNormals) 
+                    result.wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
             } else {
                 result.wireframeCounts.push_back(static_cast<int>(resolved.size()));
             }

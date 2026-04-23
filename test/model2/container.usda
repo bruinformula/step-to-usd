@@ -8,12 +8,15 @@
 
 def StepTessellationOptions "DefaultOptions"
 {
+    bool step:wireframeCombineCurves = 1
     double step:meshAngularDeflection = 0.1
     double step:meshLinearDeflection = 0.1
 }
 
 def StepContainer "Model2" (
-    prepend payload = @model2/model2-sandwich.usdc@
+    prepend payload = [
+        @model2/model2-sandwich.usda@
+    ]
 )
 {
     asset step:sourceAsset = @../step/model2.STEP@

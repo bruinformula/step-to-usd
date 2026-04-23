@@ -418,7 +418,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
     } else {
         baseName += "-";
 
-        fs::path assemblySandwichStageFilePath = rootPath / (baseName + "assembly-sandwich.usdc");
+        fs::path assemblySandwichStageFilePath = rootPath / (baseName + "assembly-sandwich.usda");
 
         UsdStageRefPtr assemblySandwichStage = makeSandwichStage(assemblySandwichStageFilePath, outputMetersPerUnit);
         if (!assemblySandwichStage) {

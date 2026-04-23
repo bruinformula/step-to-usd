@@ -293,6 +293,12 @@ static void writeMeshGeometry(
             std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
             
             UsdGeomSubset subset(stage->GetPrimAtPath(proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
+
+            if (!subset) {
+                LOG_ERR("writeMeshGeometry: missing subset prim SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID));
+                continue;
+            }
+
             subset.CreateElementTypeAttr().Set(UsdGeomTokens->face);
             subset.CreateIndicesAttr().Set(indices);
             subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
@@ -334,6 +340,13 @@ static void defineWireframeGeometry(
         if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
         }
+
+        if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
+            LOG_DEBUG("defineWireframeGeometry: Created surfaceNormal primvar for wireframe");
+        }
+        if (r.wireframeArcValues.size() == r.wireframePoints.size()) {
+            UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
+        }
     } else {
         int pointOffset = 0;
         for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
@@ -349,7 +362,9 @@ static void defineWireframeGeometry(
             if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
             }
-
+            if (!r.wireframeArcValues.empty()) {
+                UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
+            }
             pointOffset += count;
         }
     }
@@ -366,6 +381,11 @@ static void writeWireframeGeometry(
     if (params.wireframeCombineCurves) {
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
+        if (!curve) {
+            LOG_ERR("writeWireframeGeometry: missing curve prim");
+            return;
+        }
+
         if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
             curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
@@ -376,8 +396,8 @@ static void writeWireframeGeometry(
         curve.GetPointsAttr().Set(r.wireframePoints);
         curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
         
-        curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
-        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
+        //curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
+        //UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
         
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
@@ -385,10 +405,17 @@ static void writeWireframeGeometry(
             UsdGeomPrimvarsAPI api(curve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(r.wireframeContinuity);
         }
+
         if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size() && !r.points.empty()) {
             UsdGeomPrimvarsAPI api(curve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
                 p.Set(r.wireframeSurfaceNormals);
+        }
+
+        if (r.wireframeArcValues.size() == r.wireframePoints.size()) {
+            UsdGeomPrimvarsAPI api(curve);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc"))) 
+                p.Set(r.wireframeArcValues);
         }
     } else {
         int pointOffset = 0;
@@ -400,7 +427,13 @@ static void writeWireframeGeometry(
                 r.wireframePoints.begin() + pointOffset + count
             );
             
-            UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
+            UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
+
+            if (!curve) {
+                LOG_ERR("writeWireframeGeometry: missing curve prim Wireframe_" + std::to_string(ci));
+                pointOffset += count;
+                continue;
+            }
 
             if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
                 curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
@@ -421,12 +454,20 @@ static void writeWireframeGeometry(
                 }
             }
 
-            VtArray<GfVec3f> normals(
-                r.wireframeSurfaceNormals.begin() + pointOffset,
-                r.wireframeSurfaceNormals.begin() + pointOffset + count
-            );
-            
-            if (params.wireframeEmbedSurfaceNormals && !normals.empty()) {
+            if (!r.wireframeArcValues.empty() && pointOffset + count <= (int)r.wireframeArcValues.size()) {
+                VtArray<float> arcUs(
+                    r.wireframeArcValues.begin() + pointOffset,
+                    r.wireframeArcValues.begin() + pointOffset + count
+                );
+                if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
+                    p.Set(arcUs);
+            }
+
+            if (params.wireframeEmbedSurfaceNormals && pointOffset + count <= (int)r.wireframeSurfaceNormals.size()) {
+                VtArray<GfVec3f> normals(
+                    r.wireframeSurfaceNormals.begin() + pointOffset,
+                    r.wireframeSurfaceNormals.begin() + pointOffset + count
+                );
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
                     p.Set(normals);
             }
@@ -446,9 +487,14 @@ static void defineSketchGeometry(
     UsdGeomScope::Define(stage, sketchPath);
 
     if (params.sketchCombineCurves) {
-        UsdGeomBasisCurves::Define(
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(
             stage, sketchPath.AppendChild(TfToken("Curves"))
         );
+        if (!r.sketchArcValues.empty()) {
+            UsdGeomPrimvarsAPI(curves).CreatePrimvar(
+                TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
+            );
+        }
     } else {
         int pointOffset = 0;
         for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
@@ -457,6 +503,12 @@ static void defineSketchGeometry(
             UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
                 stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))
             );
+
+            if (!r.sketchArcValues.empty()) {
+                UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(
+                    TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
+                );
+            }
 
             pointOffset += count;
         }
@@ -474,6 +526,11 @@ static void writeSketchGeometry(
     if (params.sketchCombineCurves) {
         UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curves"))));
 
+        if (!sketchCurve) {
+            LOG_ERR("writeSketchGeometry: missing curve prim");
+            return;
+        }
+
         if (params.sketchMode.type == TessParams::CurveType::Cubic) {
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
@@ -483,9 +540,19 @@ static void writeSketchGeometry(
         sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
         sketchCurve.GetPointsAttr().Set(r.sketchPoints);
         sketchCurve.GetCurveVertexCountsAttr().Set(r.sketchCounts);
+
+        if (r.sketchArcValues.size() == r.sketchPoints.size()) {
+            UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
+        }
         
-        sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
-        UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
+        if (r.sketchArcValues.size() == r.sketchPoints.size()) {
+            UsdGeomPrimvarsAPI api(sketchCurve);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
+                p.Set(r.sketchArcValues);
+        }
+
+        //sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
+        //UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
         
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
@@ -500,6 +567,12 @@ static void writeSketchGeometry(
 
             UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
 
+            if (!sketchCurve) {
+                LOG_ERR("writeSketchGeometry: missing curve prim Curve_" + std::to_string(ci));
+                pointOffset += count;
+                continue;
+            }
+
             if (params.sketchMode.type == TessParams::CurveType::Cubic) {
                 sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
@@ -512,11 +585,17 @@ static void writeSketchGeometry(
             sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
-            if (params.sketchEmbedSurfaceNormals) {
-                UsdGeomPrimvarsAPI api(sketchCurve);
-                if (UsdGeomPrimvar p = api.CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex)) {
-                    p.Set(r.sketchSurfaceNormals);
-                }
+            UsdGeomPrimvarsAPI api(sketchCurve);
+
+            // Guard arcUs slice
+            if (!r.sketchArcValues.empty() &&
+                pointOffset + count <= (int)r.sketchArcValues.size()) {
+                VtArray<float> arcUs(
+                    r.sketchArcValues.begin() + pointOffset,
+                    r.sketchArcValues.begin() + pointOffset + count
+                );
+                if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
+                    p.Set(arcUs);
             }
 
             pointOffset += count;
@@ -794,9 +873,9 @@ void StepUsdPipeline::writePrototypeGeometries(
                 
             auto variantSelection = protoPath.GetVariantSelection();
 
-            bool hasPoints = !r.points.empty();
-            bool hasWireframe = !r.wireframeCounts.empty();
-            bool hasSketch = !r.sketchCounts.empty();
+            bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
+            bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
+            bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
             bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
             
             if (!variantSelection.first.empty()) {
@@ -894,10 +973,10 @@ void StepUsdPipeline::writePrototypeGeometries(
                     LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
                     continue;
                 }
-                
-                bool hasPoints = !r.points.empty();
-                bool hasWireframe = !r.wireframeCounts.empty();
-                bool hasSketch = !r.sketchCounts.empty();
+
+                bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
+                bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
+                bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
                 bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
 
                 if (r.renderOnly) UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render); 
@@ -1041,9 +1120,9 @@ void StepUsdPipeline::writePrototypeGeometries(
                 }
             }
 
-            bool hasPoints = !r.points.empty();
-            bool hasWireframe = !r.wireframeCounts.empty();
-            bool hasSketch = !r.sketchCounts.empty();
+            bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
+            bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
+            bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
             bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
 
             if (hasPoints) defineMeshGeometry(stage, baseProtoPath, r, params);
