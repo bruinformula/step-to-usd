@@ -4,20 +4,20 @@
 
 # A Lay Engineer's Introduction
 
-Boundary representation (BRep) geometry is a staple of CAD. It describes smooth, parametric surfaces that are great for precise measurements and analytical operations. Some workflows, however, prefer alternative geometry representations. If you've done FEA or 3D printing, you've seen this firsthand — the model is chopped into a mesh of triangles, discretizing an otherwise continuous surface. Simulation tools prefer meshes for numerical work, and high-end renderers are no different. Before you get a beautiful final image, the model has to be tessellated.
+Boundary representation (BRep) geometry is a staple of CAD. It describes smooth, parametric surfaces that are great for precise measurements and analytical operations. Some workflows, however, prefer alternative geometry representations. If you've done FEA or 3D printing, you've seen this firsthand — the model is chopped into a mesh of triangles, discretizing an otherwise continuous surface. Simulation tools prefer meshes for numerical work, and high-end renderers are no different. Before you preceed using look dev tools, the model has to be tessellated.
 
-The catch is that CAD models and meshes are fundamentally different, so they live in different file formats. Formats like `.SLDPRT`, `.SLDASM`, and **STEP** store BRep data, while formats like **STL** or **OBJ** store triangle meshes — but without much else.
+The catch is that CAD models and meshes are fundamentally different, so they live in different file formats. Formats like `.SLDPRT`, `.SLDASM`, and **STEP** store BRep data, while formats like **STL** or **OBJ** store triangle meshes.
 
-For rendering, that's not enough. **USD (Universal Scene Description)** acts like a "STEP file for movies," bundling mesh geometry with materials, lighting, cameras, and more.
+For serious CG work (especially with a team of people), a richer encapsulation is prefered. Enter dramatic music and **USD (Universal Scene Description)** which acts like a "STEP file for movies," bundling mesh geometry with materials, lighting, cameras, and more.
 
-The short version: start with BRep (STEP), turn it into a mesh, then package it in USD for rendering. View (EXPORTING.md)[EXPORTING.md] on extracting a `.STEP` model from a `.SLDASM`
+The short version: start with BRep (STEP), turn it into a mesh, then package it in USD for rendering. View [EXPORTING.md](EXPORTING.md) on extracting a `.STEP` model from a `.SLDASM`
 
 ---
 # Usage
 
 `StepUsdTesselate` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
 
-```bash
+```
 $ StepUsdTesselate -h
     StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene
     Options: 
@@ -98,7 +98,7 @@ Working from the bottom up:
 
 ### Selective Remeshing
 
-By default, `StepUsdTesselate` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which is useful when iterating on a single part without paying the cost of a full rerun.
+It is generally expected that the assembly will need to be tweaked in subtle ways throughout look development. By default, `StepUsdTesselate` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which avoids a full rerun.
 
 ```bash
 StepUsdTesselate -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything

@@ -444,7 +444,6 @@ static void writeWireframeGeometry(
             curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
             curve.GetPointsAttr().Set(pts);
             curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            curve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
             UsdGeomPrimvarsAPI api(curve);
@@ -582,7 +581,6 @@ static void writeSketchGeometry(
             sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
             sketchCurve.GetPointsAttr().Set(pts);
             sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
-            sketchCurve.CreateWidthsAttr().Set(VtArray<float>(count, 0.005f));
             sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
             UsdGeomPrimvarsAPI api(sketchCurve);
@@ -785,6 +783,8 @@ void StepUsdPipeline::writeAssemblyXforms(
                 if (!hasChildren[i]) {
                     xform.GetPrim().SetInstanceable(true);
                 }
+                UsdGeomImageable api(xform.GetPrim());
+                api.GetVisibilityAttr().Set(UsdGeomTokens->inherited);
                 if (node.color.has_value()) {
                     VtArray<GfVec3f> displayColor = {{
                         static_cast<float>(node.color->Red()),
