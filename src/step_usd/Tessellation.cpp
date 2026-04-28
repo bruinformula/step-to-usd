@@ -134,6 +134,7 @@ private:
 struct UVPatch {
     std::vector<GfVec2f> uvs; // one per face-vertex, in raw param space
     float uMin, uMax, vMin, vMax;
+    float worldW, worldH; // world-space extents of this face's nodes
 };
 
 static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
@@ -149,10 +150,9 @@ static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
             uv[0] = (uv[0] - patches[i].uMin) / uRange;
             uv[1] = (uv[1] - patches[i].vMin) / vRange;
         }
-        // Tile dims proportional to param range
-        float area = std::sqrt(uRange * vRange);
-        tileWidths[i] = uRange / area;
-        tileHeights[i] = vRange / area;
+        // Size tiles by world-space extent
+        tileWidths[i]  = patches[i].worldW;
+        tileHeights[i] = patches[i].worldH;
     }
 
     // Scale so patches roughly tile a unit square
@@ -1013,6 +1013,9 @@ bool StepUsdPipeline::tessellatePart(
         surfaceBoundIdx += tri->NbTriangles();
 
         gp_Trsf trsf = loc.Transformation();
+        float wxMin= std::numeric_limits<float>::max(), wxMax=-std::numeric_limits<float>::max();
+        float wyMin= std::numeric_limits<float>::max(), wyMax=-std::numeric_limits<float>::max();
+        float wzMin= std::numeric_limits<float>::max(), wzMax=-std::numeric_limits<float>::max();
 
         for (int j = 1; j <= tri->NbNodes(); j++) {
             TriNodeKey key = resolveAlias({tri.get(), j});
@@ -1026,6 +1029,10 @@ bool StepUsdPipeline::tessellatePart(
                 static_cast<float>(p.Z())
             ));
             nodeToCanonical[key] = idx;
+
+            wxMin = std::min(wxMin, (float)p.X()); wxMax = std::max(wxMax, (float)p.X());
+            wyMin = std::min(wyMin, (float)p.Y()); wyMax = std::max(wyMax, (float)p.Y());
+            wzMin = std::min(wzMin, (float)p.Z()); wzMax = std::max(wzMax, (float)p.Z());
 
             if (boundaryKeys.count(key))
                 boundaryNodes.insert(idx);
@@ -1044,9 +1051,40 @@ bool StepUsdPipeline::tessellatePart(
         GeomAdaptor_Surface adapterSurface = adapter.Surface();
         occt::handle<Geom_Surface> geomSurface = adapterSurface.Surface();
 
+        // Tangent frame for hasUV=false fallback
+        gp_Vec faceTangentU(1,0,0), faceTangentV(0,1,0), faceNormalVec(0,0,1);
+        {
+            GeomLProp_SLProps props(geomSurface,
+                (uMin+uMax)*0.5, (vMin+vMax)*0.5, 1, 1e-6);
+            if (props.IsNormalDefined()) {
+                faceNormalVec = gp_Vec(props.Normal());
+                faceTangentU  = gp_Vec(1,0,0);
+                if (std::abs(faceNormalVec.Dot(faceTangentU)) > 0.9)
+                    faceTangentU = gp_Vec(0,1,0);
+                faceTangentV = faceNormalVec.Crossed(faceTangentU).Normalized();
+                faceTangentU = faceTangentV.Crossed(faceNormalVec).Normalized();
+            }
+        }
+        gp_Pnt faceCentroid(0,0,0);
+        for (int j = 1; j <= tri->NbNodes(); j++) {
+            gp_Pnt p = tri->Node(j).Transformed(trsf);
+            faceCentroid.SetX(faceCentroid.X() + p.X());
+            faceCentroid.SetY(faceCentroid.Y() + p.Y());
+            faceCentroid.SetZ(faceCentroid.Z() + p.Z());
+        }
+        faceCentroid.SetX(faceCentroid.X() / tri->NbNodes());
+        faceCentroid.SetY(faceCentroid.Y() / tri->NbNodes());
+        faceCentroid.SetZ(faceCentroid.Z() / tri->NbNodes());
+
         UVPatch patch;
-        patch.uMin = uMin; patch.uMax = uMax;
-        patch.vMin = vMin; patch.vMax = vMax;
+        patch.uMin =  std::numeric_limits<float>::max();
+        patch.uMax = -std::numeric_limits<float>::max();
+        patch.vMin =  std::numeric_limits<float>::max();
+        patch.vMax = -std::numeric_limits<float>::max();
+        float dims[3] = { wxMax-wxMin, wyMax-wyMin, wzMax-wzMin };
+        std::sort(dims, dims+3, std::greater<float>());
+        patch.worldW = std::max(dims[0], 1e-10f);
+        patch.worldH = std::max(dims[1], 1e-10f);
 
         for (int j = 1; j <= tri->NbTriangles(); j++) {
             int n1, n2, n3;
@@ -1068,8 +1106,18 @@ bool StepUsdPipeline::tessellatePart(
 
                 if (hasUV) {
                     gp_Pnt2d uv = tri->UVNode(localIdx);
-                    u = std::clamp(static_cast<float>(uv.X()), uMin, uMax);
-                    v = std::clamp(static_cast<float>(uv.Y()), vMin, vMax);
+                    u = static_cast<float>(uv.X());
+                    v = static_cast<float>(uv.Y());
+                } else {
+                    int canonIdx = nodeToCanonical[resolveAlias({tri.get(), localIdx})];
+                    const GfVec3f& wp = result.points[canonIdx];
+                    gp_Vec offset(
+                        wp[0] - faceCentroid.X(),
+                        wp[1] - faceCentroid.Y(),
+                        wp[2] - faceCentroid.Z()
+                    );
+                    u = static_cast<float>(offset.Dot(faceTangentU));
+                    v = static_cast<float>(offset.Dot(faceTangentV));
                 }
 
                 GeomLProp_SLProps props(geomSurface, u, v, 1, 1e-6);
@@ -1103,8 +1151,12 @@ bool StepUsdPipeline::tessellatePart(
                 if (reversed) normal = -normal;
 
                 result.normals.push_back(normal);
-                patch.uvs.push_back(GfVec2f(u, v)); // raw param coords, packed later
-                                
+                patch.uvs.push_back(GfVec2f(u, v));
+                patch.uMin = std::min(patch.uMin, u);
+                patch.uMax = std::max(patch.uMax, u);
+                patch.vMin = std::min(patch.vMin, v);
+                patch.vMax = std::max(patch.vMax, v);      
+
                 int canonIdx = nodeToCanonical[resolveAlias({tri.get(), localIdx})];
                 if (canonIdx >= (int)pointNormalAccum.size()) {
                     pointNormalAccum.resize(canonIdx + 1, GfVec3f(0.f, 0.f, 0.f));
