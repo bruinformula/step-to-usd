@@ -989,7 +989,6 @@ bool StepUsdPipeline::tessellatePart(
     result.faceVertexCounts.reserve(totalTris);
     result.faceVertexIndices.reserve(totalTris * 3);
     result.normals.reserve(totalTris * 3);
-    result.surfaceIDs.reserve(totalTris);
     std::vector<UVPatch> uvPatches;
     uvPatches.reserve(faceMap.Extent());
     result.surfaceIDBounds.reserve(faceMap.Extent());
@@ -1062,7 +1061,6 @@ bool StepUsdPipeline::tessellatePart(
             result.faceVertexIndices.push_back(i1);
             result.faceVertexIndices.push_back(i2);
             result.faceVertexIndices.push_back(i3);
-            result.surfaceIDs.push_back(surfaceIndex);
 
             for (int localIdx : {n1, n2, n3}) {
                 GfVec3f normal(0.0f, 0.0f, 1.0f);

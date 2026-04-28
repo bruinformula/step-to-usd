@@ -21,11 +21,7 @@ def StepContainer "Model2" (
 {
     asset step:sourceAsset = @../step/model2.STEP@
 
-    def StepPrototypes "Prototypes" (
-        active = false
-    )
-    {
+    def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>
     }
 }
-

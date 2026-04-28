@@ -97,7 +97,6 @@ struct TessResult {
     VtArray<int> faceVertexIndices;
 
     VtArray<GfVec2f> perSurfaceUVs;
-    VtArray<int> surfaceIDs;
     VtArray<bool> isBoundaryVertex;
 
     struct SurfaceIDBounds {

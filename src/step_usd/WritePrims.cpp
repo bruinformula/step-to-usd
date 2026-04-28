@@ -236,7 +236,9 @@ void StepUsdPipeline::writePrototypeOverridesInAssemblyStage(
             TDF_Tool::Entry(label, entry);
             
             AutolibStepAPI api(protoPrim);
-            api.CreateStepLabelAttr().Set(TfToken(entry.ToCString()));
+            UsdGeomPrimvar labelPrimvar(api.CreateStepLabelAttr());
+            labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
+            labelPrimvar.Set(TfToken(entry.ToCString()));
 
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
@@ -272,7 +274,6 @@ static void defineMeshGeometry(
     
     UsdGeomPrimvarsAPI api(proto);
     api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
-    api.CreatePrimvar(TfToken("surfaceID"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
     api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
 }
 
@@ -316,7 +317,6 @@ static void writeMeshGeometry(
 
     UsdGeomPrimvarsAPI api(proto);
     if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
-    if (params.meshEnableSurfaceID) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceID"))) p.Set(r.surfaceIDs);
     if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
 }
 
@@ -797,6 +797,8 @@ void StepUsdPipeline::writeAssemblyXforms(
                         false
                     );
                     colorAttr.Set(displayColor);
+                    UsdGeomPrimvar labelPrimvar(colorAttr);
+                    labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
                 }
                 if (!node.visible) {
                     UsdGeomImageable(xform.GetPrim())
@@ -858,7 +860,6 @@ void StepUsdPipeline::writePrototypeGeometries(
         SdfLayerRefPtr threadLayer = SdfLayer::CreateAnonymous();
         UsdStageRefPtr threadStage = UsdStage::Open(threadLayer);
 
-        // Define Prims first 
         // their properties are later populated in the SdfChangeBlock 
         for (int i = startIdx; i < endIdx; i++) {
             const SdfPath& protoPath = jobs[i].protoPath;
