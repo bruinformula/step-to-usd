@@ -275,6 +275,7 @@ static void defineMeshGeometry(
     UsdGeomPrimvarsAPI api(proto);
     api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
     api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
+    api.CreatePrimvar(TfToken("boundaryTangent"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
 }
 
 static void writeMeshGeometry(
@@ -318,6 +319,10 @@ static void writeMeshGeometry(
     UsdGeomPrimvarsAPI api(proto);
     if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
     if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
+    if (!r.boundaryTangents.empty() && r.boundaryTangents.size() == r.points.size()) {
+        if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("boundaryTangent")))
+            p.Set(r.boundaryTangents);
+    }
 }
 
 // MARK: Wireframe
@@ -785,7 +790,7 @@ void StepUsdPipeline::writeAssemblyXforms(
                 }
                 UsdGeomImageable api(xform.GetPrim());
                 api.GetVisibilityAttr().Set(UsdGeomTokens->inherited);
-                if (node.color.has_value()) {
+                if (node.color.has_value()) { // TODO: Support muliple colors per mesh
                     VtArray<GfVec3f> displayColor = {{
                         static_cast<float>(node.color->Red()),
                         static_cast<float>(node.color->Green()),

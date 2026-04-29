@@ -98,6 +98,7 @@ struct TessResult {
 
     VtArray<GfVec2f> perSurfaceUVs;
     VtArray<bool> isBoundaryVertex;
+    VtArray<GfVec3f> boundaryTangents;
 
     struct SurfaceIDBounds {
         int startIdx;

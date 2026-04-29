@@ -414,6 +414,9 @@ bool StepUsdPipeline::tessellatePart(
 
     std::vector<DeferredCurve> deferredCurves;
 
+    std::unordered_map<TriNodeKey, GfVec3f, PairHash> tangentAccum;
+    std::unordered_map<TriNodeKey, int, PairHash> tangentCount;
+
     for (TopExp_Explorer edgeExp(workingShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
         if (BRep_Tool::Degenerated(edge)) continue;
@@ -519,6 +522,37 @@ bool StepUsdPipeline::tessellatePart(
             std::cerr << "Standard Exception in face iteration: " << e.what() << "\n";
         } catch (...) {
             std::cerr << "Unknown exception in face iteration\n";
+        }
+
+        if (canonical.poly->HasParameters()) {
+            BRepAdaptor_Curve curveAdaptor(edge);
+            const opencascade::handle<TColStd_HArray1OfReal>& edgeParams = canonical.poly->Parameters();
+
+            for (int k = 1; k <= numNodes; ++k) {
+                gp_Pnt pt;
+                gp_Vec dv;
+                try {
+                    curveAdaptor.D1(edgeParams->Array1()(k), pt, dv);
+                } catch (const Standard_Failure&) {
+                    continue;
+                }
+
+                const double mag = dv.Magnitude();
+                if (mag < 1e-10) continue;
+
+                const GfVec3f tan(
+                    static_cast<float>(dv.X() / mag),
+                    static_cast<float>(dv.Y() / mag),
+                    static_cast<float>(dv.Z() / mag)
+                );
+
+                // Use the same resolved canonical key so junction vertices
+                // accumulate contributions from every edge that shares them.
+                int canonicalNode = canonical.poly->Node(k);
+                TriNodeKey canonKey = resolveAlias({canonical.tri.get(), canonicalNode});
+                tangentAccum[canonKey] += tan;
+                tangentCount [canonKey]++;
+            }
         }
 
         auto sampleNearestSurfaceNormal = [&](const TopoDS_Face& face, const gp_Pnt& p) -> GfVec3f {
@@ -704,6 +738,8 @@ bool StepUsdPipeline::tessellatePart(
     // split all free edges at intersections, connect split edges into wires,
     // convert closed wires into planar faces, then triangulate those faces.
     
+
+    // TODO: Support Muliplanar sketches
     if (!freeEdges.empty()) {
         try {
             // Assemble free edges into a compound and connect them into wires
@@ -1174,6 +1210,22 @@ bool StepUsdPipeline::tessellatePart(
     for (int idx : boundaryNodes)
         result.isBoundaryVertex[idx] = true;
 
+    result.boundaryTangents.assign(result.points.size(), GfVec3f(0.0f, 0.f, 0.f));
+    for (auto& [key, accum] : tangentAccum) {
+        auto it = nodeToCanonical.find(resolveAlias(key));
+        if (it == nodeToCanonical.end()) continue;
+
+        const int idx = it->second;
+        if (idx < 0 || idx >= (int)result.points.size()) continue;
+
+        const float len = accum.GetLength();
+        if (len > 1e-10f) {
+            result.boundaryTangents[idx] = accum / len;
+        } else {
+            result.boundaryTangents[idx] = GfVec3f(0.0f, 0.0f, 0.0f);
+        }
+    }
+
     VtArray<GfVec3f> pointNormals(pointNormalAccum.size(), GfVec3f(0.0f, 0.0f, 1.0f));
     if (params.wireframeEmbedSurfaceNormals && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
         for (int i = 0; i < (int)pointNormalAccum.size(); ++i) {
@@ -1244,8 +1296,13 @@ bool StepUsdPipeline::tessellatePart(
         VtArray<GfVec3f> newPoints;
         newPoints.reserve(result.points.size());
         VtArray<bool> newIsBoundary;
+        VtArray<GfVec3f> newBoundaryTangents;
         if (!result.isBoundaryVertex.empty()) {
             newIsBoundary.reserve(result.points.size());
+        }
+
+        if (!result.boundaryTangents.empty()) {
+            newBoundaryTangents.reserve(result.points.size());
         }
 
         for (int index : result.faceVertexIndices) {
@@ -1254,6 +1311,9 @@ bool StepUsdPipeline::tessellatePart(
                 newPoints.push_back(result.points[index]);
                 if (!result.isBoundaryVertex.empty()) {
                     newIsBoundary.push_back(result.isBoundaryVertex[index]);
+                }
+                if (!result.boundaryTangents.empty()) {
+                    newBoundaryTangents.push_back(result.boundaryTangents[index]);
                 }
             }
         }
@@ -1265,6 +1325,9 @@ bool StepUsdPipeline::tessellatePart(
         result.points = std::move(newPoints);
         if (!result.isBoundaryVertex.empty()) {
             result.isBoundaryVertex = std::move(newIsBoundary);
+        }
+        if (!result.boundaryTangents.empty()) {
+            result.boundaryTangents = std::move(newBoundaryTangents);
         }
     }
 
