@@ -10,12 +10,15 @@ def StepTessellationOptions "DefaultOptions"
 {
     double step:meshAngularDeflection = 0.1
     double step:meshLinearDeflection = 0.1
-    bool step:wireframeEmbedSurfaceNormals = 1 
+    bool step:wireframeEmbedSurfaceNormals = 1
     token step:wireframeSampling = "underlying"
 }
 
 def StepContainer "Model3" (
-    prepend payload = @model3/model3-prototypes.usdc@
+    prepend payload = [
+        @model3/model3-prototypes.usdc@,
+        @model3/model3-sandwich.usda@
+    ]
 )
 {
     asset step:sourceAsset = @../step/model3.STEP@

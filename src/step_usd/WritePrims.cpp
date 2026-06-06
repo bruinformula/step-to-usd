@@ -70,7 +70,7 @@ void StepUsdPipeline::writePartClass(
     UsdStageRefPtr prototypesStage,
     const UsdPrim& prototypesPrimOnContainerStage,
     const SdfPath& containerPrimPath,
-    const SdfPath& partClassPath
+    const SdfPath& partPath
 ) {
     std::optional<SdfReference> defaultParamsRef = StepUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
@@ -83,17 +83,16 @@ void StepUsdPipeline::writePartClass(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    SdfPath realPartClassPath = containerPrimPath.AppendChild(partClassPath.GetNameToken());
-
-    UsdPrim partClass = prototypesStage->CreateClassPrim(realPartClassPath);
+    SdfPath realPartClassPath = containerPrimPath.AppendChild(partPath.GetNameToken());
+    UsdPrim partPrim = prototypesStage->CreateClassPrim(realPartClassPath);
 
     prototypesStage->GetPrimAtPath(containerPrimPath).SetSpecifier(SdfSpecifierOver);
 
-    UsdGeomImageable(partClass).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+    UsdGeomImageable(partPrim).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     auto makeClassChild = [&](const char* name) {
         SdfPath childPath = realPartClassPath.AppendChild(TfToken(name));
-        UsdPrim child = prototypesStage->DefinePrim(childPath);
+        UsdPrim child = prototypesStage->OverridePrim(childPath);
         UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
     };
 
@@ -103,7 +102,7 @@ void StepUsdPipeline::writePartClass(
     makeClassChild("SketchPlanes");
     
     if (defaultParamsRef.has_value()) {
-        partClass.GetReferences().AddReference(
+        partPrim.GetPrim().GetReferences().AddReference(
             relativePath.string(),
             defaultParamsRef->GetPrimPath(),
             defaultParamsRef->GetLayerOffset()
@@ -137,7 +136,7 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
 
     UsdGeomXform::Define(prototypesStage, containerPrimPath);
     
-    SdfPath partClassPath = containerPrimPath.AppendChild(TfToken("Part"));
+    SdfPath partPath = containerPrimPath.AppendChild(TfToken("Part"));
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         const TDF_Label& defLabel = defs[defIdx].first;
@@ -187,7 +186,7 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
 
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName);
-            protoPrim.GetInherits().AddInherit(partClassPath);
+            protoPrim.GetInherits().AddInherit(partPath);
 
         }
 
@@ -316,6 +315,15 @@ static void writeMeshGeometry(
     proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
     proto.GetNormalsAttr().Set(r.normals);
 
+    {
+        VtVec3fArray extent(2);
+        if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+            proto.CreateExtentAttr().Set(extent);
+        } else {
+            LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
+        }
+    }
+
     UsdGeomPrimvarsAPI api(proto);
     if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
     if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
@@ -323,6 +331,130 @@ static void writeMeshGeometry(
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("boundaryTangent")))
             p.Set(r.boundaryTangents);
     }
+}
+
+struct CurvePiece {
+    int sourceCurveIdx; // index into original counts/continuity array
+    int pointOffset;    // offset into points array
+    int pointCount;     // length of this piece (<= pointLimit)
+};
+
+// Split each original curve into pieces no longer than pointLimit.
+// For oversized curves, each continuation piece repeats the previous
+// piece's endpoint as its first point to avoid visual gaps.
+static std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts, uint64_t pointLimit) {
+    std::vector<CurvePiece> pieces;
+    int pointOffset = 0;
+
+    if (pointLimit == 0) {
+        return pieces;
+    }
+
+    for (size_t curveIdx = 0; curveIdx < counts.size(); ++curveIdx) {
+        int curveCount = counts[curveIdx];
+        if (curveCount <= 0) {
+            continue;
+        }
+
+        if ((uint64_t)curveCount <= pointLimit || pointLimit == 1) {
+            int remaining = curveCount;
+            int offset = pointOffset;
+            while (remaining > 0) {
+                int take = (int)std::min((uint64_t)remaining, pointLimit);
+                pieces.push_back({(int)curveIdx, offset, take});
+                offset += take;
+                remaining -= take;
+            }
+            pointOffset += curveCount;
+            continue;
+        }
+
+        int consumed = 0;
+
+        // First piece uses up to pointLimit unique points.
+        int firstCount = (int)std::min((uint64_t)curveCount, pointLimit);
+        pieces.push_back({(int)curveIdx, pointOffset, firstCount});
+        consumed += firstCount;
+
+        // Remaining pieces repeat the previous endpoint, then add up to
+        // (pointLimit - 1) new points.
+        while (consumed < curveCount) {
+            int remainingUnique = curveCount - consumed;
+            int takeUnique = (int)std::min((uint64_t)remainingUnique, pointLimit - 1);
+
+            int pieceStart = pointOffset + consumed - 1;
+            int pieceCount = 1 + takeUnique;
+            pieces.push_back({(int)curveIdx, pieceStart, pieceCount});
+
+            consumed += takeUnique;
+        }
+
+        pointOffset += curveCount;
+    }
+    return pieces;
+}
+
+struct CurveChunk {
+    std::vector<CurvePiece> pieces;
+    int pointOffset; // == pieces.front().pointOffset
+    int pointCount;  // sum of piece pointCounts
+};
+
+// Group pieces into prim-sized chunks. If combine==false, each piece is its own chunk.
+static std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts, uint64_t pointLimit, bool combine) {
+    std::vector<CurvePiece> pieces = splitCurvesIntoPieces(counts, pointLimit);
+    std::vector<CurveChunk> chunks;
+
+    if (!combine) {
+        for (const auto& piece : pieces) {
+            chunks.push_back({{piece}, piece.pointOffset, piece.pointCount});
+        }
+        return chunks;
+    }
+
+    size_t i = 0;
+    while (i < pieces.size()) {
+        CurveChunk chunk;
+        chunk.pointOffset = pieces[i].pointOffset;
+        chunk.pointCount = 0;
+        while (i < pieces.size()) {
+            int c = pieces[i].pointCount;
+            if (!chunk.pieces.empty() && (uint64_t)(chunk.pointCount + c) > pointLimit) break;
+            chunk.pieces.push_back(pieces[i]);
+            chunk.pointCount += c;
+            i++;
+        }
+        chunks.push_back(chunk);
+    }
+    return chunks;
+}
+
+static VtIntArray chunkVertexCounts(const CurveChunk& chunk) {
+    VtIntArray counts(chunk.pieces.size());
+    for (size_t j = 0; j < chunk.pieces.size(); ++j) counts[j] = chunk.pieces[j].pointCount;
+    return counts;
+}
+
+template <typename T>
+static VtArray<T> gatherChunkValues(const VtArray<T>& source, const CurveChunk& chunk) {
+    std::vector<T> values;
+    for (const auto& piece : chunk.pieces) {
+        if (piece.pointCount <= 0 || piece.pointOffset < 0) {
+            continue;
+        }
+
+        int end = piece.pointOffset + piece.pointCount;
+        if (end > (int)source.size()) {
+            continue;
+        }
+
+        values.insert(
+            values.end(),
+            source.begin() + piece.pointOffset,
+            source.begin() + end
+        );
+    }
+    return VtArray<T>(values.begin(), values.end());
 }
 
 // MARK: Wireframe
@@ -335,7 +467,14 @@ static void defineWireframeGeometry(
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
     UsdGeomXform::Define(stage, wireframePath);
 
-    if (params.wireframeCombineCurves) {
+    if (params.wireframePointLimit <= 0) {
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineWireframeGeometry: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
+        return;
+    }
+
+    uint64_t numSubCurves = (r.wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+
+    if (params.wireframeCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
             stage, wireframePath.AppendChild(TfToken("Curves"))
         );
@@ -353,15 +492,14 @@ static void defineWireframeGeometry(
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
         }
     } else {
-        int pointOffset = 0;
-        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
-            int count = r.wireframeCounts[ci];
+        std::vector<CurveChunk> chunks = computeCurveChunks(r.wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
 
+        for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
                 stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
             );
-            
-            if (ci < (int)r.wireframeContinuity.size()) {
+
+            if (!r.wireframeContinuity.empty()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
             }
             if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
@@ -370,7 +508,6 @@ static void defineWireframeGeometry(
             if (!r.wireframeArcValues.empty()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
             }
-            pointOffset += count;
         }
     }
 }
@@ -383,7 +520,14 @@ static void writeWireframeGeometry(
 ) {
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
 
-    if (params.wireframeCombineCurves) {
+    if (params.wireframePointLimit <= 0) {
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineWireframeGeometry: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
+        return;
+    }
+    
+    uint64_t numSubCurves = (r.wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+
+    if (params.wireframeCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
         if (!curve) {
@@ -400,6 +544,15 @@ static void writeWireframeGeometry(
         curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
         curve.GetPointsAttr().Set(r.wireframePoints);
         curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
+
+        {
+            VtVec3fArray extent(2);
+            if (UsdGeomPointBased::ComputeExtent(r.wireframePoints, &extent)) {
+                curve.CreateExtentAttr().Set(extent);
+            } else {
+                LOG_ERR("writeWireframeGeometry: ComputeExtent failed at " + protoPath.GetString());
+            }
+        }
         
         //curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
         //UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
@@ -423,20 +576,14 @@ static void writeWireframeGeometry(
                 p.Set(r.wireframeArcValues);
         }
     } else {
-        int pointOffset = 0;
-        for (int ci = 0; ci < (int)r.wireframeCounts.size(); ++ci) {
-            int count = r.wireframeCounts[ci];
+        std::vector<CurveChunk> chunks = computeCurveChunks(r.wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
 
-            VtArray<GfVec3f> pts(
-                r.wireframePoints.begin() + pointOffset,
-                r.wireframePoints.begin() + pointOffset + count
-            );
-            
+        for (size_t ci = 0; ci < chunks.size(); ++ci) {
+            const CurveChunk& chunk = chunks[ci];
+
             UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
-
             if (!curve) {
                 LOG_ERR("writeWireframeGeometry: missing curve prim Wireframe_" + std::to_string(ci));
-                pointOffset += count;
                 continue;
             }
 
@@ -447,35 +594,44 @@ static void writeWireframeGeometry(
                 curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
             }
             curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+
+            VtArray<GfVec3f> pts = gatherChunkValues(r.wireframePoints, chunk);
             curve.GetPointsAttr().Set(pts);
-            curve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+            curve.GetCurveVertexCountsAttr().Set(chunkVertexCounts(chunk));
             curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
-            UsdGeomPrimvarsAPI api(curve);
-            if (ci < (int)r.wireframeContinuity.size()) {
-                if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) {
-                    p.Set(VtIntArray{r.wireframeContinuity[ci]});
+            {
+                VtVec3fArray extent(2);
+                if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+                    curve.CreateExtentAttr().Set(extent);
+                } else {
+                    LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
                 }
             }
 
-            if (!r.wireframeArcValues.empty() && pointOffset + count <= (int)r.wireframeArcValues.size()) {
-                VtArray<float> arcUs(
-                    r.wireframeArcValues.begin() + pointOffset,
-                    r.wireframeArcValues.begin() + pointOffset + count
-                );
+            UsdGeomPrimvarsAPI api(curve);
+
+            if (!r.wireframeContinuity.empty()) {
+                VtIntArray continuity(chunk.pieces.size());
+                for (size_t j = 0; j < chunk.pieces.size(); ++j) {
+                    int srcIdx = chunk.pieces[j].sourceCurveIdx;
+                    continuity[j] = (srcIdx < (int)r.wireframeContinuity.size()) ? r.wireframeContinuity[srcIdx] : 0;
+                }
+                if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType")))
+                    p.Set(continuity);
+            }
+
+            if (!r.wireframeArcValues.empty()) {
+                VtArray<float> arcUs = gatherChunkValues(r.wireframeArcValues, chunk);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
                     p.Set(arcUs);
             }
 
-            if (params.wireframeEmbedSurfaceNormals && pointOffset + count <= (int)r.wireframeSurfaceNormals.size()) {
-                VtArray<GfVec3f> normals(
-                    r.wireframeSurfaceNormals.begin() + pointOffset,
-                    r.wireframeSurfaceNormals.begin() + pointOffset + count
-                );
+            if (params.wireframeEmbedSurfaceNormals && !r.wireframeSurfaceNormals.empty()) {
+                VtArray<GfVec3f> normals = gatherChunkValues(r.wireframeSurfaceNormals, chunk);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
                     p.Set(normals);
             }
-            pointOffset += count;
         }
     }
 }
@@ -490,7 +646,14 @@ static void defineSketchGeometry(
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
     UsdGeomScope::Define(stage, sketchPath);
 
-    if (params.sketchCombineCurves) {
+    if (params.sketchPointLimit <= 0) {
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " + std::to_string(params.sketchPointLimit) + ", must be > 0.");
+        return;
+    }
+
+    uint64_t numSubCurves = (r.sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+
+    if (params.sketchCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(
             stage, sketchPath.AppendChild(TfToken("Curves"))
         );
@@ -500,10 +663,9 @@ static void defineSketchGeometry(
             );
         }
     } else {
-        int pointOffset = 0;
-        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
-            int count = r.sketchCounts[ci];
+        std::vector<CurveChunk> chunks = computeCurveChunks(r.sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
+        for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
                 stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))
             );
@@ -513,8 +675,6 @@ static void defineSketchGeometry(
                     TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
                 );
             }
-
-            pointOffset += count;
         }
     }
 }
@@ -527,7 +687,14 @@ static void writeSketchGeometry(
 ) {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
 
-    if (params.sketchCombineCurves) {
+    if (params.sketchPointLimit <= 0) {
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " + std::to_string(params.sketchPointLimit) + ", must be > 0.");
+        return;
+    }
+
+    uint64_t numSubCurves = (r.sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+
+    if (params.sketchCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curves"))));
 
         if (!sketchCurve) {
@@ -545,6 +712,15 @@ static void writeSketchGeometry(
         sketchCurve.GetPointsAttr().Set(r.sketchPoints);
         sketchCurve.GetCurveVertexCountsAttr().Set(r.sketchCounts);
 
+        {
+            VtVec3fArray extent(2);
+            if (UsdGeomPointBased::ComputeExtent(r.sketchPoints, &extent)) {
+                sketchCurve.CreateExtentAttr().Set(extent);
+            } else {
+                LOG_ERR("writeSketchGeometry: ComputeExtent failed at " + protoPath.GetString());
+            }
+        }
+
         if (r.sketchArcValues.size() == r.sketchPoints.size()) {
             UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
         }
@@ -560,20 +736,14 @@ static void writeSketchGeometry(
         
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
-        int pointOffset = 0;
-        for (int ci = 0; ci < (int)r.sketchCounts.size(); ++ci) {
-            int count = r.sketchCounts[ci];
+        std::vector<CurveChunk> chunks = computeCurveChunks(r.sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
-            VtArray<GfVec3f> pts(
-                r.sketchPoints.begin() + pointOffset,
-                r.sketchPoints.begin() + pointOffset + count
-            );
+        for (size_t ci = 0; ci < chunks.size(); ++ci) {
+            const CurveChunk& chunk = chunks[ci];
 
             UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
-
             if (!sketchCurve) {
                 LOG_ERR("writeSketchGeometry: missing curve prim Curve_" + std::to_string(ci));
-                pointOffset += count;
                 continue;
             }
 
@@ -584,24 +754,27 @@ static void writeSketchGeometry(
                 sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
             }
             sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
+
+            VtArray<GfVec3f> pts = gatherChunkValues(r.sketchPoints, chunk);
             sketchCurve.GetPointsAttr().Set(pts);
-            sketchCurve.GetCurveVertexCountsAttr().Set(VtIntArray{count});
+            sketchCurve.GetCurveVertexCountsAttr().Set(chunkVertexCounts(chunk));
             sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
-            UsdGeomPrimvarsAPI api(sketchCurve);
+            {
+                VtVec3fArray extent(2);
+                if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+                    sketchCurve.CreateExtentAttr().Set(extent);
+                } else {
+                    LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
+                }
+            }
 
-            // Guard arcUs slice
-            if (!r.sketchArcValues.empty() &&
-                pointOffset + count <= (int)r.sketchArcValues.size()) {
-                VtArray<float> arcUs(
-                    r.sketchArcValues.begin() + pointOffset,
-                    r.sketchArcValues.begin() + pointOffset + count
-                );
+            if (!r.sketchArcValues.empty()) {
+                VtArray<float> arcUs = gatherChunkValues(r.sketchArcValues, chunk);
+                UsdGeomPrimvarsAPI api(sketchCurve);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
                     p.Set(arcUs);
             }
-
-            pointOffset += count;
         }
     }
 }

@@ -57,6 +57,7 @@ TessParams StepUsdPipeline::getTessParams(
     updateIfAuthored(api.GetStepWireframeDeflectionAttr(), &params.wireframeDeflection);
     updateIfAuthored(api.GetStepWireframeTypeAttr(), &params.wireframeMode.type);
     updateIfAuthored(api.GetStepWireframeEmbedSurfaceNormalsAttr(), &params.wireframeEmbedSurfaceNormals);
+    updateIfAuthored(api.GetStepWireframePointLimitAttr(), &params.wireframePointLimit);
     updateIfAuthored(api.GetStepWireframeSamplingAttr(), &params.wireframeMode.sampling);
 
     // Sketch
@@ -64,6 +65,7 @@ TessParams StepUsdPipeline::getTessParams(
     updateIfAuthored(api.GetStepSketchDeflectionAttr(), &params.sketchDeflection);
     updateIfAuthored(api.GetStepSketchTypeAttr(), &params.sketchMode.type);
     updateIfAuthored(api.GetStepSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
+    updateIfAuthored(api.GetStepSketchPointLimitAttr(), &params.sketchPointLimit);
 
     // Sketch Plane
     updateIfAuthored(api.GetStepSketchPlaneLinearDeflectionAttr(), &params.sketchPlaneLinearDeflection);

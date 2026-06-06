@@ -126,6 +126,10 @@ class "StepTessellationAPI" (
         doc = "Whether to embed the surface normals of the underlying mesh as primvars on wireframe curve prims."
         customData = { string variability = "SdfVariabilityUniform" }
     )
+    uint64 step:wireframePointLimit = 65535 (
+        doc = "Maximum number of points to allow on a wireframe curve before automatically adding another curve prim"
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
 
     # Sketch
     token step:sketchType = "linear" (
@@ -143,6 +147,10 @@ class "StepTessellationAPI" (
     )
     bool step:sketchEmbedSurfaceNormals = 1 (
         doc = "Whether to embed the surface normals of the underlying sketch as primvars on sketch curve prims."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
+    uint64 step:sketchPointLimit = 65535 (
+        doc = "Maximum number of points to allow on a wireframe curve before automatically adding another curve prim"
         customData = { string variability = "SdfVariabilityUniform" }
     )
 

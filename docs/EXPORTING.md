@@ -15,6 +15,9 @@ Much like C++, there is a lineage of adding features to the core STEP specificat
 
 # Exporting STEP from Solidworks 2025
 
+## Important Notes 
+Solidworks embeds visiblity information into the STEP file. It is mostly standard though in some cases the STEP file may not match (In my testing, it may not even match between CAD tools either).
+
 ## Stardard
 You know the drill (File -> Export), select STEP. This method only supports AP203 and AP214, so we won't get sketches.
 

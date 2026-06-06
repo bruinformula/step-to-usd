@@ -3,3 +3,10 @@ build/
 .build/
 .cache/
 **/*.xbf
+
+test/model1/model1
+test/model2/model2
+test/model3/model3
+test/model4/model4
+test/model5/model5
+test/model6/model6

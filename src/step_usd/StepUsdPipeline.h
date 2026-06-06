@@ -59,12 +59,14 @@ struct TessParams {
     CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
     bool wireframeCombineCurves = true;
     bool wireframeEmbedSurfaceNormals = true;
+    uint64_t wireframePointLimit = 65535; 
 
     // Sketch
     double sketchDeflection = 0.005f;       
     CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
     bool sketchCombineCurves = true;
     bool sketchEmbedSurfaceNormals = true;
+    uint64_t sketchPointLimit = 65535; 
 
     // Sketch Plane 
     double sketchPlaneLinearDeflection = 0.01f;

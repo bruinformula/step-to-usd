@@ -297,7 +297,7 @@ void OpenCascadeAssembly::fillLeaf(
     partNodes[myIdx].firstChildIdx    = -1;
     partNodes[myIdx].childCount       = 0;
     partNodes[myIdx].depth            = depth;
-    partNodes[myIdx].visible          = isLabelVisible(defLabel);
+    partNodes[myIdx].visible          = isLabelVisible(instLabel) && isLabelVisible(defLabel);
 
     // Only store the shape the first time we see this definition label.
     // Subsequent instances of the same part share this entry.
@@ -334,7 +334,7 @@ void OpenCascadeAssembly::fillAssembly(
 
     partNodes[myIdx].name = resolved;
     partNodes[myIdx].color = std::nullopt;
-    partNodes[myIdx].visible = isLabelVisible(defLabel);
+    partNodes[myIdx].visible = isLabelVisible(instLabel) && isLabelVisible(defLabel);
 
     NCollection_Sequence<TDF_Label> components;
     shapeTool->GetComponents(defLabel, components);
