@@ -69,7 +69,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 void StepUsdPipeline::writePartClass(
     UsdStageRefPtr prototypesStage,
     const UsdPrim& prototypesPrimOnContainerStage,
-    const SdfPath& containerPrimPath,
     const SdfPath& partPath
 ) {
     std::optional<SdfReference> defaultParamsRef = StepUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
@@ -83,10 +82,10 @@ void StepUsdPipeline::writePartClass(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    SdfPath realPartClassPath = containerPrimPath.AppendChild(partPath.GetNameToken());
+    SdfPath realPartClassPath = this->pathConfig.containerPrimPath.AppendChild(partPath.GetNameToken());
     UsdPrim partPrim = prototypesStage->CreateClassPrim(realPartClassPath);
 
-    prototypesStage->GetPrimAtPath(containerPrimPath).SetSpecifier(SdfSpecifierOver);
+    prototypesStage->GetPrimAtPath(this->pathConfig.containerPrimPath).SetSpecifier(SdfSpecifierOver);
 
     UsdGeomImageable(partPrim).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
@@ -114,9 +113,7 @@ void StepUsdPipeline::writePartClass(
 void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
     UsdStageRefPtr prototypesStage,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const SdfPath& prototypesPath,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& containerPrimPath,
     const std::string& variantSetName,
     const std::string& variantName,
     const LabelMap<std::string>& definitionNames,
@@ -134,9 +131,9 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
 
-    UsdGeomXform::Define(prototypesStage, containerPrimPath);
+    UsdGeomXform::Define(prototypesStage, this->pathConfig.containerPrimPath);
     
-    SdfPath partPath = containerPrimPath.AppendChild(TfToken("Part"));
+    SdfPath partPath = this->pathConfig.containerPrimPath.AppendChild(TfToken("Part"));
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         const TDF_Label& defLabel = defs[defIdx].first;
@@ -161,7 +158,7 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
             rawName = "__" + suffix;
         }
 
-        SdfPath protoPath = prototypesPath.AppendChild(TfToken(rawName));
+        SdfPath protoPath = this->pathConfig.prototypesPath.AppendChild(TfToken(rawName));
         prototypePaths[defLabel] = protoPath;
 
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
@@ -891,7 +888,6 @@ static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
 // Assembly Xforms
 void StepUsdPipeline::writeAssemblyXforms(
     UsdStageRefPtr stage, 
-    const SdfPath& containerPrimPath,
     const std::vector<OpenCascadeAssembly::PartNode>& partNodes,
     const std::vector<SdfPath>& paths, 
     const LabelMap<SdfPath>& prototypePaths,
@@ -1001,7 +997,6 @@ void StepUsdPipeline::writePrototypeGeometries(
     UsdStageRefPtr stage,
     const std::vector<ProtoGeomJob>& inJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& containerPrimPath,
     const std::string& variantSetName,
     const std::string& variantName
 ) {
@@ -1044,7 +1039,7 @@ void StepUsdPipeline::writePrototypeGeometries(
             const TessResult& r = jobs[i].result;
             const TessParams& params = jobs[i].params;
 
-            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
+            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                 continue;
             }
 
@@ -1120,7 +1115,7 @@ void StepUsdPipeline::writePrototypeGeometries(
                 const TessResult& r = jobs[i].result;
                 const TessParams& params = jobs[i].params;
 
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
                     if (Logger::activeLevel == Logger::DEBUG) {
                         //LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
@@ -1226,7 +1221,7 @@ void StepUsdPipeline::writePrototypeGeometries(
             if (!res.layer) continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i].protoPath;
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
+                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     continue; // Skip filtered
                 }
                 if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
@@ -1256,7 +1251,7 @@ void StepUsdPipeline::writePrototypeGeometries(
         for (size_t i = res.startIdx; i < res.endIdx; i++) {
             const SdfPath& protoPath = jobs[i].protoPath;
             if (!selectedPaths.empty() &&
-                !isPrototypeActiveInFilter(selectedPaths, containerPrimPath, protoPath, variantSetName, variantName)) {
+                !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                 continue;
             }
 

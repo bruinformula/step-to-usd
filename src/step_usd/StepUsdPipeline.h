@@ -153,6 +153,13 @@ struct StageFilterInfo {
 
 struct StepUsdPipeline {
 
+    struct PathConfig {
+        SdfPath containerPrimPath;
+        SdfPath assemblyPath;
+        SdfPath prototypesPath;
+        SdfPath prototypesInContainerPath;
+    };
+
     static std::optional<StepUsdPipeline> create(
         const fs::path& inputUsdFile
     );
@@ -168,6 +175,7 @@ struct StepUsdPipeline {
         std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> mc
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
+    PathConfig pathConfig;
     UsdStageRefPtr containerStage;
     std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
 
@@ -214,21 +222,19 @@ private:
 
     const OpenCascadeAssembly& getModelForProto(const PrototypeContainer& proto) const;
 
-    static bool isAssemblyActiveInFilter(
+    bool isAssemblyActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& containerPrimPath,
         const SdfPath& prototypePath
     );
 
-    static bool isPrototypeActiveInFilter(
+    bool isPrototypeActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& containerPrimPath,
         const SdfPath& prototypePath,
         const std::string& variantSetName,
         const std::string& variantName
     );
 
-    static bool tessellatePart(
+    bool tessellatePart(
         TessResult& result, 
         const TopoDS_Shape& defShape, 
         const TessParams& params,
@@ -236,38 +242,28 @@ private:
         bool mesherInParallel
     );
 
-    static void tessellateGeometry(
+    void tessellateGeometry(
         std::vector<TessellationJob>& tessJobs,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& containerPrimPath
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
     );
 
-    static bool populatePrototypeContainers(
+    bool populatePrototypeContainers(
         const UsdPrim& containerPrim,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         fs::path rootPath,
         std::string baseName,
-        const std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash>& modelCache,
         const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
-        const SdfPath& prototypesPath,
-        const SdfPath& prototypesInContainerPath,
-        const SdfPath& containerPrimPath,
-        const SdfPath& assemblyPath,
         double outputMetersPerUnit,
         const std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap,
         std::vector<PrototypeContainer>& prototypes
     );
 
-    static bool buildPrototypeAndAssemblyStages(
+    bool buildPrototypeAndAssemblyStages(
         const OpenCascadeAssembly& model,
         const std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         fs::path rootPath,
-        const SdfPath& assemblyPath,
-        const SdfPath& containerPrimPath,
-        const SdfPath& prototypesPath,
-        const SdfPath& prototypesInContainerPath,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
         double outputMetersPerUnit,
@@ -277,54 +273,47 @@ private:
         std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
     );
 
-    static bool populateParamsBank(
+    bool populateParamsBank(
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
         const PrototypeContainer& proto,
-        const SdfPath& prototypesPath,
         const TessParams& variantLevelParams,
         std::map<SdfPath, TessParams>& paramsBank
     );
 
-    static bool populateTessellationJobs(
+    bool populateTessellationJobs(
         const std::vector<PrototypeContainer>& prototypes,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
-        const SdfPath& prototypesInContainerPath,
-        const SdfPath& prototypesPath,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const LabelMap<SdfPath>& prototypePaths,
         double sourceToOutputScale,
         std::vector<TessellationJob>& tessJobs
     );
 
-    static void writeAssemblyXforms(
+    void writeAssemblyXforms(
         UsdStageRefPtr stage, 
-        const SdfPath& containerPrimPath,
         const std::vector<OpenCascadeAssembly::PartNode>& instances,
         const std::vector<SdfPath>& paths, 
         const LabelMap<SdfPath>& prototypePaths,
         double linearScale
     );
 
-    static void writePrototypeOverridesInAssemblyStage(
+    void writePrototypeOverridesInAssemblyStage(
         UsdStageRefPtr assemblyStage,
         LabelMap<SdfPath>& prototypePaths
     );
 
-    static void writePartClass(
+    void writePartClass(
         UsdStageRefPtr prototypesStage,
         const UsdPrim& prototypesPrimOnContainerStage,
-        const SdfPath& containerPrimPath,
         const SdfPath& partClassPath
     );
 
-    static void writePrototypeXformsInPrototypesStage(
+    void writePrototypeXformsInPrototypesStage(
         UsdStageRefPtr prototypesStage,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const SdfPath& prototypesPath,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName,
         const LabelMap<std::string>& definitionNames,
@@ -332,22 +321,21 @@ private:
         bool makeFreshStage
     );
 
-    static void writePrototypeGeometries(
+    void writePrototypeGeometries(
         UsdStageRefPtr stage,
         const std::vector<ProtoGeomJob>& jobs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& containerPrimPath,
         const std::string& variantSetName,
         const std::string& variantName
     );
 
-    static bool writePrototypeXform(
+    bool writePrototypeXform(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
         int defIdx
     );
 
-    static bool writePrototypeGeometry(
+    bool writePrototypeGeometry(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
         const TessResult& r,
@@ -355,11 +343,9 @@ private:
         int defIdx
     ); 
 
-    static void writeGeometry(
+    void writeGeometry(
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const LabelMap<SdfPath>& prototypePaths,
-        const SdfPath& prototypesPath,
-        const SdfPath& prototypesInContainerPath,
         UsdStageRefPtr targetStage,
         const std::string& logLabel,
         const TessParams& containerParams,

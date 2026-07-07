@@ -33,10 +33,7 @@ def StepContainer "Wonderful" (
     }
     variantSet "LOD" = {
         "high" (
-            prepend payload = [
-                @model1/LOD/model1-LOD-high-sandwich.usda@,
-                @model1/LOD/model1-LOD-high-prototypes-sandwich.usda@
-            ]
+            prepend payload = @model1/LOD/model1-LOD-high-prototypes-sandwich.usda@
         ) {
             over StepPrototypes "Prototypes"
             {
@@ -51,10 +48,7 @@ def StepContainer "Wonderful" (
 
         }
         "low" (
-            prepend payload = [
-                @model1/LOD/model1-LOD-low-sandwich.usda@,
-                @model1/LOD/model1-LOD-low-prototypes-sandwich.usda@
-            ]
+            prepend payload = @model1/LOD/model1-LOD-low-prototypes-sandwich.usda@
         ) {
             over StepPrototypes "Prototypes"
             {

@@ -1367,8 +1367,7 @@ bool StepUsdPipeline::tessellatePart(
 void StepUsdPipeline::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& containerPrimPath
+    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
 ) {
     std::vector<int> defIndices(defs.size());
     for (int i = 0; i < defs.size(); ++i) defIndices[i] = i;
@@ -1399,7 +1398,7 @@ void StepUsdPipeline::tessellateGeometry(
             for (TessellationJob& job : tessJobs) {
                 if (job.defIndex != idx) continue;
 
-                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, containerPrimPath, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
+                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
                 
                 if (bTessellate) {
                     if (job.runMesherInParallel) {
