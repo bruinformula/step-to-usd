@@ -7,14 +7,14 @@
 
 def StepTessellationOptions "OptionsA"
 {
-    double step:meshAngularDeflection = 15
-    double step:meshLinearDeflection = 0.1
+    double step:mesh:angularDeflection = 15
+    double step:mesh:linearDeflection = 0.1
 }
 
 def StepTessellationOptions "OptionsB"
 {
-    double step:meshAngularDeflection = 0.1
-    double step:meshLinearDeflection = 0.1
+    double step:mesh:angularDeflection = 0.1
+    double step:mesh:linearDeflection = 0.1
 }
 
 def StepContainer "Model1" {

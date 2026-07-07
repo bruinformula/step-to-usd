@@ -8,12 +8,12 @@
 #include <string>
 #include <vector>
 
-#include <opencascade/gp_Trsf.hxx>
-#include <opencascade/TDF_Label.hxx>
-#include <opencascade/TopoDS_Shape.hxx>
-#include <opencascade/Quantity_Color.hxx>
-#include <opencascade/Standard_Handle.hxx>
-#include <opencascade/TDF_Label.hxx>
+#include <gp_Trsf.hxx>
+#include <TDF_Label.hxx>
+#include <TopoDS_Shape.hxx>
+#include <Quantity_Color.hxx>
+#include <Standard_Handle.hxx>
+#include <TDF_Label.hxx>
 
 class TDocStd_Application;
 class TDocStd_Document;

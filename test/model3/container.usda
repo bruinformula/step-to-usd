@@ -8,10 +8,10 @@
 
 def StepTessellationOptions "DefaultOptions"
 {
-    double step:meshAngularDeflection = 0.1
-    double step:meshLinearDeflection = 0.1
-    bool step:wireframeEmbedSurfaceNormals = 1
-    token step:wireframeSampling = "underlying"
+    double step:mesh:angularDeflection = 0.1
+    double step:mesh:linearDeflection = 0.1
+    bool step:wireframe:embedSurfaceNormals = 1
+    token step:wireframe:sampling = "underlying"
 }
 
 def StepContainer "Model3" (

@@ -8,11 +8,11 @@
 #include <mutex>
 #include <atomic>
 
-#include <opencascade/TDF_Label.hxx>
-#include <opencascade/Quantity_Color.hxx>
-#include <opencascade/TopoDS_Shape.hxx>
-#include <opencascade/gp_XYZ.hxx>
-#include <opencascade/TDF_Tool.hxx>
+#include <TDF_Label.hxx>
+#include <Quantity_Color.hxx>
+#include <TopoDS_Shape.hxx>
+#include <gp_XYZ.hxx>
+#include <TDF_Tool.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -159,9 +159,20 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
         }
 
         SdfPath protoPath = this->pathConfig.prototypesPath.AppendChild(TfToken(rawName));
-        prototypePaths[defLabel] = protoPath;
 
         if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
+            prototypePaths[defLabel] = protoPath;
+            continue;
+        }
+
+        UsdPrim protoPrim = prototypesStage->DefinePrim(protoPath);
+        if (!protoPrim.IsValid()) {
+            std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
+            continue;
+        }
+        prototypePaths[defLabel] = protoPath;
+
+        if (!makeFreshStage && protoPrim.IsValid()) {
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
                 //LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
@@ -171,20 +182,21 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
             continue;
         }
 
-        UsdPrim protoPrim = prototypesStage->DefinePrim(protoPath);
-
+        TCollection_AsciiString entry;
+        TDF_Tool::Entry(defLabel, entry);
+        
+        AutolibStepAPI api(protoPrim);
+        UsdGeomPrimvar labelPrimvar(api.CreateStepLabelAttr());
+        
         {
             SdfChangeBlock changeBlock;
-
-            if (!protoPrim.IsValid()) {
-                std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
-                continue;
-            }
-
+            
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName);
             protoPrim.GetInherits().AddInherit(partPath);
-
+            
+            labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
+            labelPrimvar.Set(TfToken(entry.ToCString()));
         }
 
         completed++;
@@ -194,57 +206,6 @@ void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
             LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
         }
     }
-    LOG_PROGRESS_DONE();
-}
-
-void StepUsdPipeline::writePrototypeOverridesInAssemblyStage(
-    UsdStageRefPtr assemblyStage,
-    LabelMap<SdfPath>& prototypePaths
-) {
-    LOG_SCOPED_TIMER("writePrototypeOverridesInAssemblyStage");
-    const int total = (int)prototypePaths.size();
-    int completed = 0;
-    
-    { // SdfChangeBlock
-        SdfChangeBlock changeBlock;
-
-        for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
-            const SdfPath& protoPath = protoIter->second;
-            assemblyStage->OverridePrim(protoPath);
-
-            completed++;
-            if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + protoPath.GetString());
-            } else {
-                LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
-            }
-        }
-        completed = 0;
-    }
-    { // SdfChangeBlock
-        SdfChangeBlock changeBlock;
-        for (auto protoIter = prototypePaths.begin(); protoIter != prototypePaths.end(); ++protoIter) {
-            const TDF_Label& label = protoIter->first;
-            const SdfPath& protoPath = protoIter->second;
-            const UsdPrim& protoPrim = assemblyStage->GetPrimAtPath(protoPath);
-
-            TCollection_AsciiString entry;
-            TDF_Tool::Entry(label, entry);
-            
-            AutolibStepAPI api(protoPrim);
-            UsdGeomPrimvar labelPrimvar(api.CreateStepLabelAttr());
-            labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
-            labelPrimvar.Set(TfToken(entry.ToCString()));
-
-            completed++;
-            if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Override: " + protoPath.GetString());
-            } else {
-                LOG_PROGRESS(completed, total, "Writing Prototype Overrides");
-            }
-        }
-    } // SdfChangeBlock
-
     LOG_PROGRESS_DONE();
 }
 

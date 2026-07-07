@@ -503,21 +503,27 @@ struct RemapperArgs {
     bool verify() const {
         bool ok = true;
         if (oldAssembly.empty()) {
-            std::cerr << "--oldAssembly is required.\n"; ok = false;
+            std::cerr << "--oldAssembly is required.\n"; 
+            ok = false;
         } else if (!fs::exists(oldAssembly)) {
-            std::cerr << "Old assembly file not found: " << oldAssembly << "\n"; ok = false;
+            std::cerr << "Old assembly file not found: " << oldAssembly << "\n"; 
+            ok = false;
         }
 
         if (newAssembly.empty()) {
-            std::cerr << "--newAssembly is required.\n"; ok = false;
+            std::cerr << "--newAssembly is required.\n"; 
+            ok = false;
         } else if (!fs::exists(newAssembly)) {
-            std::cerr << "New assembly file not found: " << newAssembly << "\n"; ok = false;
+            std::cerr << "New assembly file not found: " << newAssembly << "\n"; 
+            ok = false;
         }
 
         if (targetFile.empty()) {
-            std::cerr << "--target is required.\n"; ok = false;
+            std::cerr << "--target is required.\n"; 
+            ok = false;
         } else if (!fs::exists(targetFile)) {
-            std::cerr << "Target file not found: " << targetFile << "\n"; ok = false;
+            std::cerr << "Target file not found: " << targetFile << "\n"; 
+            ok = false;
         }
         return ok;
     }

@@ -57,10 +57,11 @@ struct StepUsdTesselateArgs {
     };
 
     std::filesystem::path inputUsdFile;
+    std::filesystem::path outputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) {
-        if (token == "-i" || token == "--inputUsdFile") {
+        if (token == "-i" || token == "--input") {
             if (nextToken.empty()) {
                 std::cerr << "Expected another token following command-line option: " << token << std::endl;
                 return FAILURE;
@@ -70,6 +71,19 @@ struct StepUsdTesselateArgs {
                 return FAILURE;
             }
             inputUsdFile = nextToken;
+            return SUCCESS_CONSUME_NEXT;
+        }
+
+       if (token == "-o" || token == "--output") {
+            if (nextToken.empty()) {
+                std::cerr << "Expected another token following command-line option: " << token << std::endl;
+                return FAILURE;
+            }
+            if (!outputUsdFile.empty()) {
+                std::cerr << token << " is already set!" << std::endl;
+                return FAILURE;
+            }
+            outputUsdFile = nextToken;
             return SUCCESS_CONSUME_NEXT;
         }
 
@@ -168,7 +182,6 @@ int main(int argc, char** argv) {
     StepUsdPipeline stepExporter = std::move(*optionalStepExporter);
 
     const UsdStageRefPtr& stage = stepExporter.containerStage;
-    const std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash>& modelCache = stepExporter.modelCache;
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {

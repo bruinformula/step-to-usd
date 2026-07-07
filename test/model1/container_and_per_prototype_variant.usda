@@ -12,20 +12,20 @@ def StepTessellationOptions "DefaultOptions"
 
 def StepTessellationOptions "FinalOptions"
 {
-    double step:meshAngularDeflection = 0.05
-    double step:meshLinearDeflection = 0.05
+    double step:mesh:angularDeflection = 0.05
+    double step:mesh:linearDeflection = 0.05
 }
 
 def StepTessellationOptions "HighOptions"
 {
-    double step:meshAngularDeflection = 0.1
-    double step:meshLinearDeflection = 0.1
+    double step:mesh:angularDeflection = 0.1
+    double step:mesh:linearDeflection = 0.1
 }
 
 def StepTessellationOptions "LowOptions"
 {
-    double step:meshAngularDeflection = 10
-    double step:meshLinearDeflection = 10
+    double step:mesh:angularDeflection = 10
+    double step:mesh:linearDeflection = 10
 }
 
 def "World"
@@ -80,8 +80,8 @@ def "World"
 
                     over "rod_1__78316e9d"
                     {
-                        double step:meshAngularDeflection = 0.01
-                        double step:meshLinearDeflection = 0.01
+                        double step:mesh:angularDeflection = 0.01
+                        double step:mesh:linearDeflection = 0.01
                     }
                 }
 

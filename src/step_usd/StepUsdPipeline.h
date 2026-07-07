@@ -200,9 +200,8 @@ private:
         std::string variantSetName;
         std::string variantName;
         bool makeFreshStage = false;
-        UsdStageRefPtr assemblySandwichStage;
-        UsdStageRefPtr stage;
-        UsdStageRefPtr prototypeSandwichStage;
+        UsdStageRefPtr stage; // contains the /Assembly and /Prototypes prims, subLayers contains container stage
+        UsdStageRefPtr containerStage; // defins the container prim and mesh params
     };
 
     struct TessellationJob {
@@ -250,6 +249,7 @@ private:
 
     bool populatePrototypeContainers(
         const UsdPrim& containerPrim,
+        const UsdStageRefPtr& containerStage,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         fs::path rootPath,
         std::string baseName,

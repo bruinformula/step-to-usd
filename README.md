@@ -34,8 +34,8 @@ Create a scene like the one below and run `stepmesh -i your_scene.usd`. Example 
     upAxis = "Z"
 )
 def StepTessellationOptions "DefaultOptions" {
-    double step:meshAngularDeflection = 0.1
-    double step:meshLinearDeflection = 0.1
+    double step:mesh:angularDeflection = 0.1
+    double step:mesh:linearDeflection = 0.1
     # other options...
 }
 def StepContainer "WonderfulModel" {

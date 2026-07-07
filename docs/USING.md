@@ -118,7 +118,7 @@ In addition to surface meshes, step-to-usd generates curve geometry from BRep su
 
 Both support `linear` and `cubic` curve types. Sampling strategy is either `underlying` (uses the prexisting mesh vertices) or `resampled` (resamples to a target curve independently of the mesh). Setting `step:wireframeType` or `step:sketchType` to `"none"` disables that geometry type entirely.
 
-Tessellation quality is controlled through USD attributes on `StepTessellationOptions` prims. The most important are `step:meshLinearDeflection` and `step:meshAngularDeflection` — smaller values produce finer meshes at the cost of performance ( read more here). Both are expressed as a fraction of the bounding-box diagonal, so they scale automatically with model size.
+Tessellation quality is controlled through USD attributes on `StepTessellationOptions` prims. The most important are `step:mesh:linearDeflection` and `step:mesh:angularDeflection` — smaller values produce finer meshes at the cost of performance ( read more here). Both are expressed as a fraction of the bounding-box diagonal, so they scale automatically with model size.
 
 Parameters are inherited through a class prim, `/Part`, that also defines `Mesh`, `Sketch`, and `Wireframe` subprims. so you can set sensible defaults at the assembly level and override selectively on individual prototypes. The `step:defaultParams` relationship on `StepPrototypes` points to the `StepTessellationOptions` prim that serves as the fallback for the whole file.
 
@@ -128,12 +128,12 @@ USD variant sets are a natural fit for LOD. A `StepContainer` can carry a `varia
 
 ```usda
 def StepTessellationOptions "HighOptions" {
-    double step:meshAngularDeflection = 0.1
-    double step:meshLinearDeflection = 0.1
+    double step:mesh:angularDeflection = 0.1
+    double step:mesh:linearDeflection = 0.1
 }
 def StepTessellationOptions "LowOptions" {
-    double step:meshAngularDeflection = 10
-    double step:meshLinearDeflection = 10
+    double step:mesh:angularDeflection = 10
+    double step:mesh:linearDeflection = 10
 }
 
 def StepContainer "Wonderful" (
