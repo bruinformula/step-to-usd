@@ -28,21 +28,21 @@ install(TARGETS step-to-usd
     ARCHIVE DESTINATION lib
 )
 
-# StepUsdRemap
-add_executable(StepUsdRemap "${CMAKE_CURRENT_SOURCE_DIR}/StepUsdRemap.cpp")
-target_link_libraries(StepUsdRemap PRIVATE step-to-usd)
+# stepmap
+add_executable(stepmap "${CMAKE_CURRENT_SOURCE_DIR}/stepmap.cpp")
+target_link_libraries(stepmap PRIVATE step-to-usd)
 
-install(TARGETS StepUsdRemap
+install(TARGETS stepmap
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
 
-# StepUsdTesselate
-add_executable(StepUsdTesselate "${CMAKE_CURRENT_SOURCE_DIR}/StepUsdTesselate.cpp")
-target_link_libraries(StepUsdTesselate PRIVATE step-to-usd)
+# stepmesh
+add_executable(stepmesh "${CMAKE_CURRENT_SOURCE_DIR}/stepmesh.cpp")
+target_link_libraries(stepmesh PRIVATE step-to-usd)
 
-install(TARGETS StepUsdTesselate
+install(TARGETS stepmesh
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

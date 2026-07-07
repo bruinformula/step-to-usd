@@ -3,7 +3,6 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
-#include <string_view>
 #include <optional>
 #include <regex>
 #include <filesystem>
@@ -28,7 +27,6 @@
 
 #include "stepAPI.h"
  
-#include "ArgumentHandler.h"
 #include "Logger.h"
  
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -403,7 +401,15 @@ const std::string kArgOptions =
     "    -h, --help                       Print this message.\n\n"
     "    usage: StagePathRemapper -r <oldAssembly.usd> -n <newAssembly.usd> -t <target.usd> [options]\n";
 
-struct RemapperArgs : public ArgumentHandler {
+struct RemapperArgs {
+
+    enum ParseResult {
+        SUCCESS,
+        SUCCESS_CONSUME_NEXT,
+        FAILURE,
+        EXIT
+    };
+
     fs::path oldAssembly;
     fs::path newAssembly;
     fs::path targetFile;
@@ -411,76 +417,90 @@ struct RemapperArgs : public ArgumentHandler {
     std::unordered_set<SdfPath, SdfPath::Hash> skipPaths;
     bool dryRun = false;
 
-    ParseResult parse(const std::string& token, const std::string& next) override {
-        switch (hashString(token)) {
-            case hashString("-r"):
-            case hashString("--oldAssembly"):
-                if (next.empty()) goto expectOption;
-                if (!oldAssembly.empty()) goto alreadySet;
-                oldAssembly = next;
-                return SUCCESS_CONSUME_NEXT;
-
-            case hashString("-n"):
-            case hashString("--newAssembly"):
-                if (next.empty()) goto expectOption;
-                if (!newAssembly.empty()) goto alreadySet;
-                newAssembly = next;
-                return SUCCESS_CONSUME_NEXT;
-
-            case hashString("-t"):
-            case hashString("--target"):
-                if (next.empty()) goto expectOption;
-                if (!targetFile.empty()) goto alreadySet;
-                targetFile = next;
-                return SUCCESS_CONSUME_NEXT;
-
-            case hashString("-p"):
-            case hashString("--prefix"):
-                if (next.empty()) goto expectOption;
-                prefixPath = SdfPath(next);
-                return SUCCESS_CONSUME_NEXT;
-
-            case hashString("-s"):
-            case hashString("--skip"):
-                if (next.empty()) goto expectOption;
-                skipPaths.insert(SdfPath(next));
-                return SUCCESS_CONSUME_NEXT;
-
-            case hashString("-d"):
-            case hashString("--dryRun"):
-                dryRun = true;
-                return SUCCESS;
-
-            case hashString("-q"):
-            case hashString("--quiet"):
-                Logger::activeLevel = Logger::NONE;
-                return SUCCESS;
-
-            case hashString("-v"):
-            case hashString("--verbose"):
-                Logger::activeLevel = Logger::DEBUG;
-                return SUCCESS;
-
-            case hashString("-h"):
-            case hashString("--help"):
-                std::cout << kArgOptions << std::endl;
-                return EXIT;
-
-            default:
-                std::cerr << "Unrecognized option: " << token << "\n";
-                std::cout << kArgOptions << std::endl;
+    ParseResult parse(const std::string& token, const std::string& next) {
+        if (token == "-r" || token == "--oldAssembly") {
+            if (next.empty()) {
+                std::cerr << "Expected a value after: " << token << "\n";
                 return FAILURE;
+            }
+            if (!oldAssembly.empty()) {
+                std::cerr << token << " is already set!\n";
+                return FAILURE;
+            }
+            oldAssembly = next;
+            return SUCCESS_CONSUME_NEXT;
         }
 
-        alreadySet:
-            std::cerr << token << " is already set!\n";
-            return FAILURE;
-        expectOption:
-            std::cerr << "Expected a value after: " << token << "\n";
-            return FAILURE;
+        if (token == "-n" || token == "--newAssembly") {
+            if (next.empty()) {
+                std::cerr << "Expected a value after: " << token << "\n";
+                return FAILURE;
+            }
+            if (!newAssembly.empty()) {
+                std::cerr << token << " is already set!\n";
+                return FAILURE;
+            }
+            newAssembly = next;
+            return SUCCESS_CONSUME_NEXT;
+        }
+
+        if (token == "-t" || token == "--target") {
+            if (next.empty()) {
+                std::cerr << "Expected a value after: " << token << "\n";
+                return FAILURE;
+            }
+            if (!targetFile.empty()) {
+                std::cerr << token << " is already set!\n";
+                return FAILURE;
+            }
+            targetFile = next;
+            return SUCCESS_CONSUME_NEXT;
+        }
+
+        if (token == "-p" || token == "--prefix") {
+            if (next.empty()) {
+                std::cerr << "Expected a value after: " << token << "\n";
+                return FAILURE;
+            }
+            prefixPath = SdfPath(next);
+            return SUCCESS_CONSUME_NEXT;
+        }
+
+        if (token == "-s" || token == "--skip") {
+            if (next.empty()) {
+                std::cerr << "Expected a value after: " << token << "\n";
+                return FAILURE;
+            }
+            skipPaths.insert(SdfPath(next));
+            return SUCCESS_CONSUME_NEXT;
+        }
+
+        if (token == "-d" || token == "--dryRun") {
+            dryRun = true;
+            return SUCCESS;
+        }
+
+        if (token == "-q" || token == "--quiet") {
+            Logger::activeLevel = Logger::NONE;
+            return SUCCESS;
+        }
+
+        if (token == "-v" || token == "--verbose") {
+            Logger::activeLevel = Logger::DEBUG;
+            return SUCCESS;
+        }
+
+        if (token == "-h" || token == "--help") {
+            std::cout << kArgOptions << std::endl;
+            return EXIT;
+        }
+
+        std::cerr << "Unrecognized option: " << token << "\n";
+        std::cout << kArgOptions << std::endl;
+        return FAILURE;
     }
 
-    bool verify() const override {
+    bool verify() const {
         bool ok = true;
         if (oldAssembly.empty()) {
             std::cerr << "--oldAssembly is required.\n"; ok = false;
@@ -513,10 +533,10 @@ int main(int argc, char** argv) {
         const std::string& next = (i + 1 < tokens.size()) ? tokens[i + 1] : "";
 
         switch (args.parse(tok, next)) {
-            case ArgumentHandler::SUCCESS: break;
-            case ArgumentHandler::SUCCESS_CONSUME_NEXT: ++i; break;
-            case ArgumentHandler::FAILURE: return 1;
-            case ArgumentHandler::EXIT: return 0;
+            case RemapperArgs::SUCCESS: break;
+            case RemapperArgs::SUCCESS_CONSUME_NEXT: ++i; break;
+            case RemapperArgs::FAILURE: return 1;
+            case RemapperArgs::EXIT: return 0;
         }
     }
 

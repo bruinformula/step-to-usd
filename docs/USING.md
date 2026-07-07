@@ -15,11 +15,11 @@ The short version: start with BRep (STEP), turn it into a mesh, then package it 
 ---
 # Usage
 
-`StepUsdTesselate` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
+`stepmesh` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
 
 ```
-$ StepUsdTesselate -h
-    StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene
+$ stepmesh -h
+    stepmesh -- Meshes all StepContainer prims in a Usd scene
     Options: 
         -i, --inputUsdFile <path>        Path to the input Usd file. 
         -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.
@@ -27,12 +27,12 @@ $ StepUsdTesselate -h
         -v, --verbose                    Prints like everything.
         -h, --help                       Prints this message.
 
-        usage: StepUsdTesselate -i <path> [options] 
+        usage: stepmesh -i <path> [options] 
 ```
 
 #### STEP Parsing
 
-The first thing `StepUsdTesselate` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
+The first thing `stepmesh` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
 
 Once parsed, step-to-usd writes an XBF file alongside the STEP file:
 
@@ -98,16 +98,16 @@ Working from the bottom up:
 
 ### Selective Remeshing
 
-It is generally expected that the assembly will need to be tweaked in subtle ways throughout look development. By default, `StepUsdTesselate` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which avoids a full rerun.
+It is generally expected that the assembly will need to be tweaked in subtle ways throughout look development. By default, `stepmesh` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which avoids a full rerun.
 
 ```bash
-StepUsdTesselate -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
+stepmesh -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
 
-StepUsdTesselate -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
+stepmesh -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
 
-StepUsdTesselate -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
+stepmesh -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
 
-StepUsdTesselate -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
+stepmesh -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
 
 ```
 Multiple `-p` flags can be combined to target a set of prims simultaneously.

@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <string>
 #include <optional>
-#include <string_view>
 #include <utility>
 
 #pragma push_macro("Handle")
@@ -32,7 +31,6 @@
 #include "stepContainerAPI.h"
 #include "stepContainer.h"
 
-#include "ArgumentHandler.h"
 #include "StepUsdPipeline.h"
 #include "OpenCascadeAssembly.h"
 #include "Logger.h"
@@ -49,63 +47,72 @@ const std::string argOptions =
     "    -h, --help                       Prints this message.\n\n"
     "    usage: StepUsdTesselate -i <path> [options] \n";
 
-struct StepUsdTesselateArgumentHandler : public ArgumentHandler {
+struct StepUsdTesselateArgs {
+
+    enum ParseResult {
+        SUCCESS,
+        SUCCESS_CONSUME_NEXT,
+        FAILURE,
+        EXIT
+    };
 
     std::filesystem::path inputUsdFile;
-    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths; 
+    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths;
 
-    ParseResult parse(const std::string& token, const std::string& nextToken) override {
-        switch (hashString(token)) {
-            case hashString("-i"):
-            case hashString("--inputUsdFile"): {
-                if (nextToken.empty()) goto expectOption;
-                if (!inputUsdFile.empty()) goto alreadySet;
-                inputUsdFile = nextToken;
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("-p"):
-            case hashString("--prim"): {
-                if (nextToken.empty()) goto expectOption;
-                SdfPath path(nextToken);
-                selectedPaths.insert(path);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("-q"):
-            case hashString("--quiet"): {
-                Logger::activeLevel = Logger::NONE;
-                return SUCCESS;
-            }
-            case hashString("-v"):
-            case hashString("--verbose"): {
-                Logger::activeLevel = Logger::DEBUG;
-                return SUCCESS;
-            }
-            case hashString("-h"):
-            case hashString("--help"): {
-                std::cout << argOptions << std::endl;
-                return EXIT;
-            }
-            default: {
-                std::cout << "Unrecognized command-line option: " << token << std::endl;
-                std::cout << argOptions << std::endl;
+    ParseResult parse(const std::string& token, const std::string& nextToken) {
+        if (token == "-i" || token == "--inputUsdFile") {
+            if (nextToken.empty()) {
+                std::cerr << "Expected another token following command-line option: " << token << std::endl;
                 return FAILURE;
             }
+            if (!inputUsdFile.empty()) {
+                std::cerr << token << " is already set!" << std::endl;
+                return FAILURE;
+            }
+            inputUsdFile = nextToken;
+            return SUCCESS_CONSUME_NEXT;
         }
 
-        alreadySet: {
-            std::cerr << token << " is already set!" << std::endl;
-            return FAILURE;
-        }
-        expectOption: {
-            std::cerr << "Expected another token following command-line option: " << token << std::endl; 
-            return FAILURE;
+        if (token == "-p" || token == "--prim") {
+            if (nextToken.empty()) {
+                std::cerr << "Expected another token following command-line option: " << token << std::endl;
+                return FAILURE;
+            }
+            selectedPaths.insert(SdfPath(nextToken));
+            return SUCCESS_CONSUME_NEXT;
         }
 
-        std::cout << "Parsing token: " << token << " with next token: " << nextToken << std::endl;
+        if (token == "-q" || token == "--quiet") {
+            Logger::activeLevel = Logger::NONE;
+            return SUCCESS;
+        }
+
+        if (token == "-v" || token == "--verbose") {
+            Logger::activeLevel = Logger::DEBUG;
+            return SUCCESS;
+        }
+
+        if (token == "-h" || token == "--help") {
+            std::cout << argOptions << std::endl;
+            return EXIT;
+        }
+
+        // Not a recognized flag -- treat as an implicit positional input file,
+        if (!token.empty() && token[0] != '-') {
+            if (!inputUsdFile.empty()) {
+                std::cerr << "inputUsdFile is already set! Unexpected extra argument: " << token << std::endl;
+                return FAILURE;
+            }
+            inputUsdFile = token;
+            return SUCCESS;
+        }
+
+        std::cout << "Unrecognized command-line option: " << token << std::endl;
+        std::cout << argOptions << std::endl;
         return FAILURE;
     }
 
-    bool verify() const override {
+    bool verify() const {
         if (inputUsdFile.empty()) {
             std::cerr << "inputUsdFile is not set!" << std::endl;
             return false;
@@ -125,21 +132,21 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    StepUsdTesselateArgumentHandler inputArgs;
+    StepUsdTesselateArgs inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
         
-        ArgumentHandler::ParseResult parseResult = inputArgs.parse(token, nextToken);
+        StepUsdTesselateArgs::ParseResult parseResult = inputArgs.parse(token, nextToken);
         switch (parseResult) {
-            case ArgumentHandler::SUCCESS:
+            case StepUsdTesselateArgs::SUCCESS:
                 break;
-            case ArgumentHandler::SUCCESS_CONSUME_NEXT:
+            case StepUsdTesselateArgs::SUCCESS_CONSUME_NEXT:
                 i++;
                 break;
-            case ArgumentHandler::FAILURE:
+            case StepUsdTesselateArgs::FAILURE:
                 return 1;
-            case ArgumentHandler::EXIT:
+            case StepUsdTesselateArgs::EXIT:
                 return 0;
         }
     }
