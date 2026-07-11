@@ -90,21 +90,6 @@ std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     return variantPaths;
 }
 
-std::string stableLabelSuffix(const TDF_Label& label) {
-    std::ostringstream oss;
-    label.EntryDump(oss);
-    std::string entry = oss.str();
-    // FNV-1a 32-bit
-    uint32_t h = 2166136261u;
-    for (unsigned char c : entry) {
-        h ^= c;
-        h *= 16777619u;
-    }
-    char buf[9];
-    snprintf(buf, sizeof(buf), "%08x", h);
-    return std::string(buf);
-}
-
 std::string sanitizeUsdName(const std::string_view& name) {
     std::string result;
     result.reserve(name.size());

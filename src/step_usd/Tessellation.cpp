@@ -1364,78 +1364,103 @@ bool StepUsdPipeline::tessellatePart(
     return true;
 }
 
+
+struct DefKey {
+    const PrototypeContainer* proto;
+    int defIndex;
+
+    bool operator==(const DefKey& other) const noexcept {
+        return proto == other.proto && defIndex == other.defIndex;
+    }
+};
+
+struct DefKeyHash {
+    size_t operator()(const DefKey& k) const {
+        size_t h1 = std::hash<const void*>{}(k.proto);
+        size_t h2 = std::hash<int>{}(k.defIndex);
+        return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+    }
+};
+
 void StepUsdPipeline::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
 ) {
-    std::vector<int> defIndices(defs.size());
-    for (int i = 0; i < defs.size(); ++i) defIndices[i] = i;
+    std::unordered_map<DefKey, std::vector<TessellationJob*>, DefKeyHash> jobsByDef;
+    for (TessellationJob& job : tessJobs) {
+        jobsByDef[DefKey{job.proto.get(), job.defIndex}].push_back(&job);
+    }
 
-    // Pre-calculate complexity in the form of
-    // face counts for better load balancing
-    std::vector<int> shapeComplexity(defs.size(), 0);
-    for (int i = 0; i < defs.size(); ++i) {
+    // Pre-calculate complexity (face count) per unique (proto, defIndex) for load balancing.
+    std::vector<DefKey> defKeys;
+    defKeys.reserve(jobsByDef.size());
+    std::unordered_map<DefKey, int, DefKeyHash> shapeComplexity;
+    shapeComplexity.reserve(jobsByDef.size());
+
+    for (const auto& [key, jobs] : jobsByDef) {
+        defKeys.push_back(key);
+        const auto& defs = key.proto->model->getDefinitionShapes();
+        const TopoDS_Shape& shape = defs[key.defIndex].second;
         int complexity = 0;
-        for (TopExp_Explorer faceExp(defs[i].second, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
+        for (TopExp_Explorer faceExp(shape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
             complexity++;
         }
-        shapeComplexity[i] = complexity;
+        shapeComplexity[key] = complexity;
     }
 
     // Sort descending by complexity so heaviest jobs start first
-    std::sort(defIndices.begin(), defIndices.end(), [&shapeComplexity](int a, int b) {
-        return shapeComplexity[a] > shapeComplexity[b];
+    std::sort(defKeys.begin(), defKeys.end(), [&shapeComplexity](const DefKey& a, const DefKey& b) {
+        return shapeComplexity.at(a) > shapeComplexity.at(b);
     });
 
     {
-        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defIndices.size()) + " definition indices.");
+        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defKeys.size()) + " definition indices.");
         std::atomic<int> completedJobs{0};
         const int totalJobs = static_cast<int>(tessJobs.size());
-        
-        WorkParallelForEach(defIndices.begin(), defIndices.end(), [&](int idx) {
-            //LOG_DEBUG("Starting processing for definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
-            for (TessellationJob& job : tessJobs) {
-                if (job.defIndex != idx) continue;
 
-                bool bTessellate = isPrototypeActiveInFilter(selectedPaths, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
-                
+        WorkParallelForEach(defKeys.begin(), defKeys.end(), [&](const DefKey& key) {
+            const auto& defs = key.proto->model->getDefinitionShapes();
+            const TopoDS_Shape& shape = defs[key.defIndex].second;
+            
+            for (TessellationJob* jobPtr : jobsByDef.at(key)) {
+                TessellationJob& job = *jobPtr;
+
+                bool bTessellate = isPrototypeActiveInFilter(
+                    selectedPaths, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
+
                 if (bTessellate) {
                     if (job.runMesherInParallel) {
                         LOG_DEBUG("Job for " + job.prototypePath.GetString() + " is set to run mesher in mesherInParallel model");
                     }
-                    LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(idx) + ")");
+                    LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(key.defIndex) + ")");
                     try {
-                        tessellatePart(job.result, defs[idx].second, job.params, job.prototypePath, job.runMesherInParallel);
-                        //tessellateWithWatchdog(job, defs[idx].second);
+                        tessellatePart(job.result, shape, job.params, job.prototypePath, job.runMesherInParallel);
                         int currentCount = ++completedJobs;
                         LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (const Standard_Failure& e) {
                         LOG_PROGRESS_DONE();
-                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")" + ": " + e.GetMessageString());
+                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")" + ": " + e.GetMessageString());
                         int currentCount = ++completedJobs;
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (const std::exception& e) {
                         LOG_PROGRESS_DONE();
-                        LOG_ERR("std exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")" + ": " + e.what());
+                        LOG_ERR("std exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")" + ": " + e.what());
                         int currentCount = ++completedJobs;
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     } catch (...) {
                         LOG_PROGRESS_DONE();
-                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(idx) + ")");
+                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")");
                         int currentCount = ++completedJobs;
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     }
                 } else {
-                    //LOG_DEBUG("Skipping tessellation for inactive part: " + job.prototypePath.GetString());
                     int currentCount = ++completedJobs;
                     LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                 }
             }
-            //LOG_DEBUG("Thread finished with definition index: " + std::to_string(idx) + " / " + std::to_string(defIndices.size()));
         });
-        
+
         LOG_PROGRESS_DONE();
-    }    
+    }
 }

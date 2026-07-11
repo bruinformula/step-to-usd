@@ -151,6 +151,16 @@ struct StageFilterInfo {
     bool hasSpecificPrototypes = false; // individual prototypes targeted
 };
 
+struct PrototypeContainer {
+    std::shared_ptr<OpenCascadeAssembly> model;
+    std::string variantSetName;
+    std::string variantName;
+    bool makeFreshStage = false;
+    UsdStageRefPtr stage; // contains the /Assembly and /Prototypes prims, subLayers contains container stage
+    UsdStageRefPtr containerStage; // defins the container prim and mesh params
+    double sourceToOutputScale;
+};
+
 struct StepUsdPipeline {
 
     struct PathConfig {
@@ -180,15 +190,6 @@ struct StepUsdPipeline {
     std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
 
 private:
-
-    struct PrototypeContainer {
-        std::shared_ptr<OpenCascadeAssembly> model;
-        std::string variantSetName;
-        std::string variantName;
-        bool makeFreshStage = false;
-        UsdStageRefPtr stage; // contains the /Assembly and /Prototypes prims, subLayers contains container stage
-        UsdStageRefPtr containerStage; // defins the container prim and mesh params
-    };
 
     struct TessellationJob {
         std::shared_ptr<PrototypeContainer>  proto;
@@ -229,7 +230,6 @@ private:
 
     void tessellateGeometry(
         std::vector<TessellationJob>& tessJobs,
-        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
     );
 
@@ -237,8 +237,6 @@ private:
         const UsdPrim& containerPrim,
         const UsdStageRefPtr& containerStage,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        fs::path rootPath,
-        std::string baseName,
         const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
         double outputMetersPerUnit,
         const std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap,
@@ -246,17 +244,13 @@ private:
     );
 
     bool buildPrototypeStages(
-        const OpenCascadeAssembly& model,
         const std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        fs::path rootPath,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
         double outputMetersPerUnit,
-        double sourceToOutputScale,
 
-        LabelMap<SdfPath>& prototypePaths,
-        std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs
+        LabelMap<SdfPath>& prototypePaths
     );
 
     bool populateParamsBank(
@@ -271,9 +265,7 @@ private:
         const std::vector<PrototypeContainer>& prototypes,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
-        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const LabelMap<SdfPath>& prototypePaths,
-        double sourceToOutputScale,
         std::vector<TessellationJob>& tessJobs
     );
 

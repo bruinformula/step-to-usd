@@ -2,11 +2,18 @@
 
 #include <filesystem>
 
+#pragma push_macro("Handle")
+#undef Handle
+
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
 
+#pragma pop_macro("Handle")
+
 #include "StepUsdPipeline.h"
+
+namespace fs = std::filesystem;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -23,8 +30,6 @@ void addStageSubLayer(
 std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
     const UsdPrim& prim
 );
-
-std::string stableLabelSuffix(const TDF_Label& label);
 
 std::string sanitizeUsdName(
     const std::string_view& name
