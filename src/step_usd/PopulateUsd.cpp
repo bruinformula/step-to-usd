@@ -699,7 +699,6 @@ bool StepUsdPipeline::buildPrototypeStages(
                 nodePaths
             );
         }
-        proto.stage->Save();
     }
 
     return true;
@@ -797,8 +796,13 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         fs::path stepPath = sourceAssetPath.GetResolvedPath();
         fs::path xbfPath = cacheAssetPath.GetResolvedPath();
 
-        // This should probably be a part of usd validate 
+        if (xbfPath.empty()) {
+            xbfPath = stepPath;
+            xbfPath.replace_extension("xbf");
+            LOG_WARN("XBF path is missing for STEP file: " + prim.GetPath().GetString());
+        }
 
+        // This should probably be a part of usd validate 
         for (const auto& bundle : referencedAssetBundles) {
             bool xbfMissMatch = bundle.xbfPath != xbfPath;
             bool stepMissMatch = bundle.stepPath != stepPath;

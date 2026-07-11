@@ -15,7 +15,7 @@ def StepTessellationOptions "DefaultOptions"
 def StepContainer "Model6" {
     asset step:sourceAsset = @../step/model6.STEP@
     asset step:cacheAsset = @../step/model6.xbf@
-    asset step:outputAsset = @model6/model6.usdc@
+    asset step:outputAsset = @model6/geom.usdc@
 
     def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>

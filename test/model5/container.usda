@@ -13,12 +13,12 @@ def StepTessellationOptions "DefaultOptions"
 }
 
 def StepContainer "Model5" {
-    asset step:sourceAsset = @../step/model5.STEP@
 
-    def StepPrototypes "Prototypes" (
-        active = false
-    )
-    {
+    asset step:sourceAsset = @../step/model5.STEP@
+    asset step:cacheAsset = @../step/model5.xbf@
+    asset step:outputAsset = @model5/geom.usdc@
+
+    def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>
     }
 }

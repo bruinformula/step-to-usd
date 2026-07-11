@@ -190,8 +190,6 @@ int main(int argc, char** argv) {
         stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
     }
 
-    stage->GetRootLayer()->Save();
-
     if (Logger::activeLevel == Logger::Level::INFO) {
         auto end = std::chrono::high_resolution_clock::now();
         LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");

@@ -45,7 +45,7 @@ UsdStageRefPtr initUsdStage(
     // Open the stage. 
     UsdStageRefPtr stage = UsdStage::Open(layer);
 
-    stage->Save();
+    // stage->Save();
     return stage;
 }
 
