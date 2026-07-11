@@ -239,18 +239,14 @@ private:
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
         double outputMetersPerUnit,
-        const std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap,
         std::vector<PrototypeContainer>& prototypes
     );
 
     bool buildPrototypeStages(
-        const std::vector<PrototypeContainer>& prototypes,
+        std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const UsdStageRefPtr& containerStage,
-        const UsdPrim& containerPrim,
-        double outputMetersPerUnit,
-
-        LabelMap<SdfPath>& prototypePaths
+        const UsdPrim& containerPrim
     );
 
     bool populateParamsBank(
@@ -265,33 +261,23 @@ private:
         const std::vector<PrototypeContainer>& prototypes,
         const UsdStageRefPtr& containerStage,
         const UsdPrim& containerPrim,
-        const LabelMap<SdfPath>& prototypePaths,
         std::vector<TessellationJob>& tessJobs
     );
-
-    void writeAssemblyXforms(
-        UsdStageRefPtr stage, 
-        const std::vector<OpenCascadeAssembly::PartNode>& instances,
-        const std::vector<SdfPath>& paths, 
-        const LabelMap<SdfPath>& prototypePaths,
-        double linearScale
-    );
-
+    
     void writePartClass(
         UsdStageRefPtr prototypesStage,
         const UsdPrim& prototypesPrimOnContainerStage,
         const SdfPath& partClassPath
     );
-
+    
     void writePrototypeXforms(
-        UsdStageRefPtr prototypesStage,
-        const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const std::string& variantSetName,
-        const std::string& variantName,
-        const LabelMap<std::string>& definitionNames,
-        LabelMap<SdfPath>& prototypePaths,
-        bool makeFreshStage
+        PrototypeContainer& proto,
+        LabelMap<SdfPath>& variantPrototypePaths
+    );
+
+    void writeAssemblyXforms(
+        const PrototypeContainer& proto, 
+        const std::vector<SdfPath>& paths
     );
 
     void writePrototypeGeometries(

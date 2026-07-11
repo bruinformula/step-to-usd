@@ -111,29 +111,26 @@ void StepUsdPipeline::writePartClass(
 
 // MARK: - Write Prototype Xforms
 void StepUsdPipeline::writePrototypeXforms(
-    UsdStageRefPtr prototypesStage,
-    const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const std::string& variantSetName,
-    const std::string& variantName,
-    const LabelMap<std::string>& definitionNames,
-    LabelMap<SdfPath>& prototypePaths,
-    bool makeFreshStage
+    PrototypeContainer& proto,
+    LabelMap<SdfPath>& prototypePaths
 ) {
+    const auto& defs = proto.model->getDefinitionShapes();
+    
     const int total = (int)defs.size();
     int completed = 0;
 
     std::string logLabel = "";
-    if (!variantSetName.empty()) {
-        logLabel = " {" + variantSetName + "=" + variantName + "}";
+    if (!proto.variantSetName.empty()) {
+        logLabel = " {" + proto.variantSetName + "=" + proto.variantName + "}";
     }
 
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
 
-    UsdGeomXform::Define(prototypesStage, this->pathConfig.containerPrimPath);
+    UsdGeomXform::Define(proto.stage, this->pathConfig.containerPrimPath);
     
     SdfPath partPath = this->pathConfig.containerPrimPath.AppendChild(TfToken("Part"));
+    const LabelMap<std::string>& definitionNames = proto.model->definitionNames;
 
     for (int defIdx = 0; defIdx < total; defIdx++) {
         const TDF_Label& defLabel = defs[defIdx].first;
@@ -160,19 +157,19 @@ void StepUsdPipeline::writePrototypeXforms(
 
         SdfPath protoPath = this->pathConfig.prototypesPath.AppendChild(TfToken(rawName));
 
-        if (!makeFreshStage && prototypesStage->GetPrimAtPath(protoPath).IsValid()) {
+        if (!proto.makeFreshStage && proto.stage->GetPrimAtPath(protoPath).IsValid()) {
             prototypePaths[defLabel] = protoPath;
             continue;
         }
 
-        UsdPrim protoPrim = prototypesStage->DefinePrim(protoPath);
+        UsdPrim protoPrim = proto.stage->DefinePrim(protoPath);
         if (!protoPrim.IsValid()) {
             std::cerr << "writePrototypeXform: prim invalid after Define at " << protoPath << "\n";
             continue;
         }
         prototypePaths[defLabel] = protoPath;
 
-        if (!makeFreshStage && protoPrim.IsValid()) {
+        if (!proto.makeFreshStage && protoPrim.IsValid()) {
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
                 //LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
@@ -218,18 +215,18 @@ static void defineMeshGeometry(
     const TessResult& r,
     const TessParams& params
 ) {
-    UsdGeomMesh proto = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
+    UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
     if (params.meshEnableSurfaceSubsets) {
         for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
             UsdGeomSubset::Define(
                 stage,
-                proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
+                protoMesh.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
             );
         }
     }
     
-    UsdGeomPrimvarsAPI api(proto);
+    UsdGeomPrimvarsAPI api(protoMesh);
     api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
     api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
     api.CreatePrimvar(TfToken("boundaryTangent"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
@@ -241,8 +238,7 @@ static void writeMeshGeometry(
     const TessResult& r,
     const TessParams& params
 ) {
-    UsdGeomMesh proto(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
-
+    UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
 
     if (params.meshEnableSurfaceSubsets) {
         for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
@@ -251,7 +247,7 @@ static void writeMeshGeometry(
             VtIntArray indices(count);
             std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
             
-            UsdGeomSubset subset(stage->GetPrimAtPath(proto.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
+            UsdGeomSubset subset(stage->GetPrimAtPath(protoMesh.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
 
             if (!subset) {
                 LOG_ERR("writeMeshGeometry: missing subset prim SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID));
@@ -263,26 +259,26 @@ static void writeMeshGeometry(
             subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
         }
         
-        UsdGeomSubset::SetFamilyType(proto, TfToken("materialBind"), UsdGeomTokens->partition);
+        UsdGeomSubset::SetFamilyType(protoMesh, TfToken("materialBind"), UsdGeomTokens->partition);
     }
 
-    proto.GetPointsAttr().Set(r.points);
-    proto.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-    proto.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
-    proto.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-    proto.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-    proto.GetNormalsAttr().Set(r.normals);
+    protoMesh.GetPointsAttr().Set(r.points);
+    protoMesh.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
+    protoMesh.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+    protoMesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
+    protoMesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+    protoMesh.GetNormalsAttr().Set(r.normals);
 
     {
         VtVec3fArray extent(2);
         if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
-            proto.CreateExtentAttr().Set(extent);
+            protoMesh.CreateExtentAttr().Set(extent);
         } else {
             LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
         }
     }
 
-    UsdGeomPrimvarsAPI api(proto);
+    UsdGeomPrimvarsAPI api(protoMesh);
     if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
     if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
     if (!r.boundaryTangents.empty() && r.boundaryTangents.size() == r.points.size()) {
@@ -848,12 +844,12 @@ static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
 
 // Assembly Xforms
 void StepUsdPipeline::writeAssemblyXforms(
-    UsdStageRefPtr stage, 
-    const std::vector<OpenCascadeAssembly::PartNode>& partNodes,
-    const std::vector<SdfPath>& paths, 
-    const LabelMap<SdfPath>& prototypePaths,
-    double linearScale
+    const PrototypeContainer& proto, 
+    const std::vector<SdfPath>& paths
 ) {
+
+    const auto& partNodes = proto.model->partNodes;
+    const double& linearScale = proto.sourceToOutputScale;
     LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
     
     // pre compute which instances have children
@@ -867,7 +863,7 @@ void StepUsdPipeline::writeAssemblyXforms(
     int completed = 0;
     for (size_t i = 0; i < partNodes.size(); i++) {
         const OpenCascadeAssembly::PartNode& node = partNodes[i];
-        UsdGeomXform xform = UsdGeomXform::Define(stage, paths[i]);
+        UsdGeomXform xform = UsdGeomXform::Define(proto.stage, paths[i]);
         if (!xform) {
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
             completed++;
@@ -900,8 +896,8 @@ void StepUsdPipeline::writeAssemblyXforms(
             // Usd composes the full world transform later
             xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
             if (node.type == OpenCascadeAssembly::PartNodeType::Leaf) {
-                auto protoIter = prototypePaths.find(node.definitionLabel);
-                if (protoIter == prototypePaths.end()) {
+                auto protoIter = proto.model->prototypePaths.find(node.definitionLabel);
+                if (protoIter == proto.model->prototypePaths.end()) {
                     completed++;
                     if (Logger::activeLevel == Logger::DEBUG) {
                         LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());

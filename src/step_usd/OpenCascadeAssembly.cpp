@@ -145,7 +145,7 @@ const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& OpenCascadeAssembly::getD
     return defs;
 }
 
-const std::vector<SdfPath> OpenCascadeAssembly::getNodePaths(const SdfPath& assemblyRoot) {
+const std::vector<SdfPath> OpenCascadeAssembly::getNodePaths(const SdfPath& assemblyRoot) const {
     std::vector<SdfPath> nodePaths(partNodes.size());
     nodePaths[0] = assemblyRoot;
 

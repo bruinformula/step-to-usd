@@ -1369,7 +1369,7 @@ struct DefKey {
     const PrototypeContainer* proto;
     int defIndex;
 
-    bool operator==(const DefKey& other) const noexcept {
+    bool operator==(const DefKey& other) const {
         return proto == other.proto && defIndex == other.defIndex;
     }
 };
@@ -1421,7 +1421,7 @@ void StepUsdPipeline::tessellateGeometry(
         WorkParallelForEach(defKeys.begin(), defKeys.end(), [&](const DefKey& key) {
             const auto& defs = key.proto->model->getDefinitionShapes();
             const TopoDS_Shape& shape = defs[key.defIndex].second;
-            
+
             for (TessellationJob* jobPtr : jobsByDef.at(key)) {
                 TessellationJob& job = *jobPtr;
 

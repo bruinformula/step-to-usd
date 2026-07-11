@@ -104,7 +104,7 @@ struct OpenCascadeAssembly {
     static std::optional<OpenCascadeAssembly> loadFromFile(const fs::path& stepPath);
 
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& getDefinitionShapes();
-    const std::vector<SdfPath> getNodePaths(const SdfPath& assemblyRoot);
+    const std::vector<SdfPath> getNodePaths(const SdfPath& assemblyRoot) const;
 
     void buildInstanceTree();
 
@@ -122,6 +122,7 @@ struct OpenCascadeAssembly {
     LabelMap<TDF_Label> canonicalLabelMap;
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
     LabelMap<std::string> definitionNames;  // definition label -> name
+    LabelMap<SdfPath> prototypePaths;
     
     fs::path stepPath;
     

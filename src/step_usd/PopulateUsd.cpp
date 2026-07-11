@@ -280,9 +280,11 @@ bool StepUsdPipeline::populatePrototypeContainers(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
     double outputMetersPerUnit,
-    const std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap,
     std::vector<PrototypeContainer>& prototypes
 ) {
+
+    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
+    resolveStageFilterInfo(selectedPaths, this->pathConfig.containerPrimPath, this->pathConfig.prototypesPath, stageFilterMap);
 
     auto isContainerVariantSelected = [&](const SdfPath& variantPath) -> bool {
         if (selectedPaths.empty()) return true;
@@ -433,6 +435,36 @@ bool StepUsdPipeline::populatePrototypeContainers(
         prototypesStage->Save();
         prototypes.push_back({modelPtr, "", "",  makeFreshStage, prototypesStage, containerStage, sourceToOutputScale });
     } else {
+
+        std::unordered_set<fs::path> seenOutputAssets;
+        for (const SdfPath& variantPath : containerVariantPaths) {
+            if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
+                continue;
+            }
+            std::pair<std::string, std::string> variantSelection = variantPath.GetVariantSelection();
+            const std::string& variantSetName = variantSelection.first;
+            const std::string& variantName = variantSelection.second;
+
+            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
+            vset.SetVariantSelection(variantName);
+
+            auto prototypesStagePathOpt = getPrototypesStagePath();
+
+            if (!prototypesStagePathOpt.has_value()) continue;
+            
+            fs::path prototypesStageFilePath = prototypesStagePathOpt.value();
+
+            if (prototypesStageFilePath.empty()) {
+                LOG_ERR("Prototypes stage file path is empty");
+                return false;
+            }
+
+            if (seenOutputAssets.find(prototypesStageFilePath) != seenOutputAssets.end()) {
+                LOG_ERR("Duplicate output asset detected: " + prototypesStageFilePath.string());
+                return false;
+            }
+            seenOutputAssets.insert(prototypesStageFilePath);
+        }
 
         for (const SdfPath& variantPath : containerVariantPaths) {
             if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
@@ -588,7 +620,6 @@ bool StepUsdPipeline::populateTessellationJobs(
     const std::vector<PrototypeContainer>& prototypes,
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
-    const LabelMap<SdfPath>& prototypePaths,
     std::vector<TessellationJob>& tessJobs
 ) {
     for (const auto& proto : prototypes) {
@@ -623,8 +654,8 @@ bool StepUsdPipeline::populateTessellationJobs(
         const auto& defs = proto.model->getDefinitionShapes();
 
         for (size_t i = 0; i < defs.size(); ++i) {
-            auto it = prototypePaths.find(defs[i].first);
-            if (it == prototypePaths.end()) {
+            auto it = proto.model->prototypePaths.find(defs[i].first);
+            if (it == proto.model->prototypePaths.end()) {
                 std::cerr << "Warning: No prototype path found for definition label: " << defs[i].first << std::endl;
                 continue;
             }
@@ -668,15 +699,13 @@ bool StepUsdPipeline::populateTessellationJobs(
 }
 
 bool StepUsdPipeline::buildPrototypeStages(
-    const std::vector<PrototypeContainer>& prototypes,
+    std::vector<PrototypeContainer>& prototypes,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const UsdStageRefPtr& containerStage,
-    const UsdPrim& containerPrim,
-    double outputMetersPerUnit,
-    LabelMap<SdfPath>& prototypePaths
+    const UsdPrim& containerPrim
 ) {
     // Write prototype stages
-    for (const auto& proto : prototypes) {
+    for (auto& proto : prototypes) {
 
         if (!proto.variantSetName.empty()) {
             UsdVariantSet varSet = containerPrim.GetVariantSet(proto.variantSetName);
@@ -694,16 +723,10 @@ bool StepUsdPipeline::buildPrototypeStages(
 
         LabelMap<SdfPath> variantPrototypePaths; // fresh per variant
         writePrototypeXforms(
-            proto.stage,
-            proto.model->getDefinitionShapes(),
-            selectedPaths,
-            proto.variantSetName,
-            proto.variantName,
-             proto.model->definitionNames,
-            variantPrototypePaths,
-            proto.makeFreshStage
+            proto,
+            variantPrototypePaths
         );
-        prototypePaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
+        proto.model->prototypePaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
         
         bool isAssemblyInFilter = isAssemblyActiveInFilter(selectedPaths, this->pathConfig.containerPrimPath);
         if (!isAssemblyInFilter) {
@@ -716,11 +739,8 @@ bool StepUsdPipeline::buildPrototypeStages(
 
         if (shouldCreateAssembly) {
             writeAssemblyXforms(
-                proto.stage,
-                proto.model->partNodes,
-                nodePaths,
-                prototypePaths,
-                proto.sourceToOutputScale
+                proto,
+                nodePaths
             );
         }
         proto.stage->Save();
@@ -915,9 +935,6 @@ void StepUsdPipeline::populateUsd(
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = reparentPaths(containerParentPath, selectedInContainerPaths);
     std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = reparentPaths(containerParentPath, getVariantsOnPrim(containerPrim));
 
-    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash> stageFilterMap;
-    resolveStageFilterInfo(selectedPaths, this->pathConfig.containerPrimPath, this->pathConfig.prototypesPath, stageFilterMap);
-
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;
     populatePrototypeContainers(
@@ -926,20 +943,15 @@ void StepUsdPipeline::populateUsd(
         selectedPaths,
         containerVariantPaths,
         outputMetersPerUnit,
-        stageFilterMap,
         prototypes
     );
     
     // Write Xforms
-
-    LabelMap<SdfPath> prototypePaths;
     buildPrototypeStages(
         prototypes,
         selectedPaths,
         containerStage,
-        containerPrim,
-        outputMetersPerUnit,
-        prototypePaths
+        containerPrim
     );
 
     // Tessellation Jobs
@@ -948,7 +960,6 @@ void StepUsdPipeline::populateUsd(
         prototypes,
         containerStage,
         containerPrim,
-        prototypePaths,
         tessJobs
     );
 

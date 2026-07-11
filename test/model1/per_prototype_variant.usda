@@ -19,6 +19,7 @@ def StepTessellationOptions "OptionsB"
 
 def StepContainer "Model1" {
     asset step:sourceAsset = @../step/model1.STEP@
+    asset step:outputAsset = @model1/test.usdc@
 
     over StepPrototypes "Prototypes" (
         active = false
