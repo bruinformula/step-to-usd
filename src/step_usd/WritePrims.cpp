@@ -110,7 +110,7 @@ void StepUsdPipeline::writePartClass(
 }
 
 // MARK: - Write Prototype Xforms
-void StepUsdPipeline::writePrototypeXformsInPrototypesStage(
+void StepUsdPipeline::writePrototypeXforms(
     UsdStageRefPtr prototypesStage,
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,

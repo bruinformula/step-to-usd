@@ -660,7 +660,7 @@ bool StepUsdPipeline::populateTessellationJobs(
     return true;
 }
 
-bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
+bool StepUsdPipeline::buildPrototypeStages(
     const OpenCascadeAssembly& model,
     const std::vector<PrototypeContainer>& prototypes,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -730,7 +730,7 @@ bool StepUsdPipeline::buildPrototypeAndAssemblyStages(
         writePartClass(proto.stage, prototypesPrim, SdfPath("/Part"));
 
         LabelMap<SdfPath> variantPrototypePaths; // fresh per variant
-        writePrototypeXformsInPrototypesStage(
+        writePrototypeXforms(
             proto.stage,
             defs,
             selectedPaths,
@@ -1011,7 +1011,7 @@ void StepUsdPipeline::populateUsd(
     );
 
     LabelMap<SdfPath> prototypePaths;
-    buildPrototypeAndAssemblyStages(
+    buildPrototypeStages(
         model,
         prototypes,
         selectedPaths,

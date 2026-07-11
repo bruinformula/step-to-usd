@@ -181,20 +181,6 @@ struct StepUsdPipeline {
 
 private:
 
-    struct OpenCascadeAssemblyContainer {
-        std::shared_ptr<OpenCascadeAssembly> model;
-        std::vector<std::pair<TDF_Label, TopoDS_Shape>> defs;
-        
-        std::string variantSetName;
-        std::string variantName;
-        std::string baseName;
-        fs::path rootPath;
-        fs::path rootStageFilePath;
-        fs::path filePath;
-        UsdStageRefPtr stage;
-        double sourceToOutputScale;
-    };
-
     struct PrototypeContainer {
         std::shared_ptr<OpenCascadeAssembly> model;
         std::string variantSetName;
@@ -259,7 +245,7 @@ private:
         std::vector<PrototypeContainer>& prototypes
     );
 
-    bool buildPrototypeAndAssemblyStages(
+    bool buildPrototypeStages(
         const OpenCascadeAssembly& model,
         const std::vector<PrototypeContainer>& prototypes,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -299,18 +285,13 @@ private:
         double linearScale
     );
 
-    void writePrototypeOverridesInAssemblyStage(
-        UsdStageRefPtr assemblyStage,
-        LabelMap<SdfPath>& prototypePaths
-    );
-
     void writePartClass(
         UsdStageRefPtr prototypesStage,
         const UsdPrim& prototypesPrimOnContainerStage,
         const SdfPath& partClassPath
     );
 
-    void writePrototypeXformsInPrototypesStage(
+    void writePrototypeXforms(
         UsdStageRefPtr prototypesStage,
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
