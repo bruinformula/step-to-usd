@@ -191,12 +191,12 @@ struct StepUsdPipeline {
 
     StepUsdPipeline(
         UsdStageRefPtr cs, 
-        std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> mc
+        std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> mc
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
     PathConfig pathConfig;
     UsdStageRefPtr containerStage;
-    std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
+    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> modelCache;
 
 private:
 

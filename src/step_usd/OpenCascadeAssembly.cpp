@@ -71,17 +71,18 @@ std::string stableLabelSuffix(const TDF_Label& label) {
     return std::string(buf);
 }
 
-std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(const fs::path& stepPath) {
-    try {
-        constexpr double kOcctWorkingMetersPerUnit = 0.001;
+std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
+    const fs::path& stepPath, 
+    const fs::path& xbfPath
+) {
+    try {        
         OSD_Parallel::SetUseOcctThreads(true);
         occt::handle<TDocStd_Application> app = new TDocStd_Application();
         BinXCAFDrivers::DefineFormat(app);
-        fs::path xbfPath = stepPath;
-        xbfPath.replace_extension("xbf");
         occt::handle<TDocStd_Document> doc;
         app->NewDocument("BinXCAF", doc);
-
+        
+        constexpr double kOcctWorkingMetersPerUnit = 0.001;
         double metersPerUnit = kOcctWorkingMetersPerUnit;
         if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
             LOG_INFO("XBF doesn't exist or is out of date. Building from Step...");

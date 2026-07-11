@@ -25,8 +25,12 @@ class "StepContainerAPI" (
         doc = "Path to the source STEP file"
         customData = { string variability = "SdfVariabilityUniform" }
     )
+    asset step:cacheAsset (
+        doc = "Path to the parsed cache of the source STEP file. If not specified one will be automatically generated."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
     asset step:outputAsset (
-        doc = "Path to the output USD file. If not specified one will be automatically generated"
+        doc = "Path to the output USD file. If not specified one will be automatically generated."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }
@@ -228,6 +232,7 @@ class "StepContainer" (
     }
 ) {
     asset step:sourceAsset = @@ 
+    asset step:cacheAsset = @@
     asset step:outputAsset = @@
 }
 

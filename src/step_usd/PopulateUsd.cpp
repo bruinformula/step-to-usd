@@ -315,20 +315,30 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
     auto getOpenCascadeAssembly = [&](void) -> std::shared_ptr<OpenCascadeAssembly> {
         if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return nullptr;
-        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+        UsdAttribute sourceAttr = container.GetStepSourceAssetAttr();
         
-        SdfAssetPath sdfAssetPath;
-        if (!pathAttr.Get(&sdfAssetPath)) {
+        SdfAssetPath sourceAssetPath;
+        if (!sourceAttr.Get(&sourceAssetPath)) {
             LOG_ERR("Failed to get asset path from UsdAttribute");
             return nullptr;
         }
 
-        fs::path assetPath = sdfAssetPath.GetResolvedPath();
+        UsdAttribute cacheAttr = container.GetStepCacheAssetAttr();
+        
+        SdfAssetPath cacheAssetPath;
+        if (!cacheAttr.Get(&cacheAssetPath)) {
+            LOG_ERR("Failed to get asset path from UsdAttribute");
+            return nullptr;
+        }
+
+        fs::path sourcePath = sourceAssetPath.GetResolvedPath();
+        fs::path cachePath = cacheAssetPath.GetResolvedPath();
 
         // Load the model, using the cache to avoid re-parsing the same STEP file.
-        auto iter = modelCache.find(sdfAssetPath);
+        StepBundleKey key{sourcePath, cachePath, containerPrim.GetPath()};
+        auto iter = modelCache.find(key);
         if (iter == modelCache.end()) {
-            LOG_ERR("Model not found in cache for asset path: " + assetPath.string());
+            LOG_ERR("Model not found in cache for asset path: " + sourcePath.string());
             return nullptr;
         }
         return std::make_shared<OpenCascadeAssembly>(iter->second);
@@ -802,7 +812,7 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         return std::nullopt;
     }
 
-    std::unordered_set<SdfAssetPath, SdfAssetPath::Hash> referencedStepAssetPaths;
+    std::unordered_set<StepBundleKey, StepBundleKeyHash> referencedAssetBundles;
 
     // Do a scan for all refernced Step Assets, so 
     // we can load them in parallel and cache the 
@@ -814,20 +824,53 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         AutolibStepContainer container(prim);
         if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
 
-        UsdAttribute pathAttr = container.GetStepSourceAssetAttr();
+        UsdAttribute sourceAttr = container.GetStepSourceAssetAttr();
+        UsdAttribute cacheAttr = container.GetStepCacheAssetAttr();
 
-        SdfAssetPath sdfAssetPath;
-        if (!pathAttr.Get(&sdfAssetPath)) {
-            LOG_ERR("Failed to get asset path from UsdAttribute");
+        SdfAssetPath sourceAssetPath;
+        if (!sourceAttr.Get(&sourceAssetPath)) {
+            LOG_ERR("Failed to get sourceAsset path from UsdAttribute");
             return;
         }
 
-        if (sdfAssetPath.GetAssetPath().empty()) {
-            LOG_ERR("Resolved asset path is empty for prim: " + prim.GetPath().GetString());
+        if (sourceAssetPath.GetAssetPath().empty()) {
+            LOG_ERR("Resolved sourceAsset path is empty for prim: " + prim.GetPath().GetString());
+            return;
+        }
+        SdfAssetPath cacheAssetPath;
+        if (!cacheAttr.Get(&cacheAssetPath)) {
+            LOG_ERR("Failed to get cacheAsset path from UsdAttribute");
             return;
         }
 
-        referencedStepAssetPaths.insert(sdfAssetPath);
+        if (cacheAssetPath.GetAssetPath().empty()) {
+            LOG_ERR("Resolved cacheAsset path is empty for prim: " + prim.GetPath().GetString());
+            return;
+        }
+
+        fs::path stepPath = sourceAssetPath.GetResolvedPath();
+        fs::path xbfPath = cacheAssetPath.GetResolvedPath();
+
+        // This should probably be a part of usd validate 
+
+        for (const auto& bundle : referencedAssetBundles) {
+            bool xbfMissMatch = bundle.xbfPath != xbfPath;
+            bool stepMissMatch = bundle.stepPath != stepPath;
+
+            if (!stepMissMatch && xbfMissMatch) {
+                LOG_ERR("Found prim where sourceAsset points to different cacheAssets for prim: " + 
+                    prim.GetPath().GetString() + " and " + bundle.primPath.GetString());
+                return;
+            }
+
+            if (stepMissMatch && !xbfMissMatch) {
+                LOG_ERR("Found prim where cacheAsset points to different sourceAssets for prim: " + 
+                    prim.GetPath().GetString() + " and " + bundle.primPath.GetString());
+                return;
+            }
+        }
+
+        referencedAssetBundles.insert({stepPath, xbfPath, prim.GetPath()});
     };
 
     // Recursively iterate all variant combinations for a prim
@@ -861,8 +904,7 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
     };
 
     for (const auto& prim : stage->TraverseAll()) {
-        const std::vector<std::string> variantSetNames =
-            prim.GetVariantSets().GetNames();
+        const std::vector<std::string> variantSetNames = prim.GetVariantSets().GetNames();
 
         if (variantSetNames.empty()) {
             collectFromPrim(prim);
@@ -871,26 +913,35 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         }
     }
 
-    std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
+    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> modelCache;
 
     {
-        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedStepAssetPaths.size()) + " files)");
-        WorkParallelForEach( referencedStepAssetPaths.begin(), referencedStepAssetPaths.end(), [&](const SdfAssetPath& assetPath) {
-            std::string resolvedPath = assetPath.GetResolvedPath();
+        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedAssetBundles.size()) + " files)");
+        WorkParallelForEach( referencedAssetBundles.begin(), referencedAssetBundles.end(), [&](const StepBundleKey& bundle) {
 
-            if (resolvedPath.empty()) {
-                LOG_ERR("Failed to resolve path to: " + assetPath.GetAssetPath());
+            if (bundle.stepPath.empty()) {
+                LOG_ERR("Failed to resolve path to: " + bundle.stepPath.string());
                 return;
             }
 
-            std::optional<OpenCascadeAssembly> optModel = OpenCascadeAssembly::loadFromFile(resolvedPath);
+            fs::path xbfPath;
+
+            if (bundle.xbfPath.empty()) {
+                xbfPath = bundle.stepPath;
+                xbfPath.replace_extension("xbf");
+                LOG_WARN("XBF path is missing for STEP file: " + bundle.primPath.GetString());
+            } else {
+                xbfPath = bundle.xbfPath;
+            }
+
+            std::optional<OpenCascadeAssembly> optModel = OpenCascadeAssembly::loadFromFile(bundle.stepPath, xbfPath);
 
             if (!optModel.has_value()) {
-                LOG_ERR("Failed to load STEP model from " + resolvedPath);
+                LOG_ERR("Failed to load STEP model from " + bundle.stepPath.string());
                 return;
             }
 
-            modelCache.insert_or_assign(assetPath, std::move(*optModel));
+            modelCache.insert_or_assign(bundle, std::move(*optModel));
         });
     }
 

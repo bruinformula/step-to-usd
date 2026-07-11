@@ -31,6 +31,7 @@ def StepContainer "Wonderful" (
     }
     variantSet "LOD" = {
         "high" {
+            asset step:cacheAsset = @../step/model1.xbf@
             asset step:outputAsset = @model1/high.usdc@
             asset step:sourceAsset = @../step/model1.STEP@
 
@@ -47,6 +48,7 @@ def StepContainer "Wonderful" (
 
         }
         "low" {
+            asset step:cacheAsset = @../step/model2.xbf@
             asset step:outputAsset = @model1/low.usdc@
             asset step:sourceAsset = @../step/model2.STEP@
 
