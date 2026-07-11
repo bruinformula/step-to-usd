@@ -381,9 +381,56 @@ bool StepUsdPipeline::populatePrototypeContainers(
         containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
     );
 
+    std::vector<std::pair<std::string, std::string>> prototypesInits;
+
     if (containerVariantPaths.empty()) {
-        fs::path prototypesStageFilePath;
-        auto prototypesStagePathOpt = getPrototypesStagePath();
+        prototypesInits.push_back({"", ""});
+    } else {
+        std::unordered_set<fs::path> seenOutputAssets;
+        for (const SdfPath& variantPath : containerVariantPaths) {
+            if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
+                continue;
+            }
+
+            std::pair<std::string, std::string> variantSelection = variantPath.GetVariantSelection();
+            const std::string& variantSetName = variantSelection.first;
+            const std::string& variantName = variantSelection.second;
+
+            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
+            vset.SetVariantSelection(variantName);
+
+            auto prototypesStagePathOpt = getPrototypesStagePath();
+            if (!prototypesStagePathOpt.has_value()) continue;
+
+            fs::path prototypesStageFilePath = prototypesStagePathOpt.value();
+            if (prototypesStageFilePath.empty()) {
+                LOG_ERR("Prototypes stage file path is empty");
+                return false;
+            }
+
+            if (seenOutputAssets.count(prototypesStageFilePath)) {
+                LOG_ERR("Duplicate output asset detected: " + prototypesStageFilePath.string());
+                return false;
+            }
+            seenOutputAssets.insert(prototypesStageFilePath);
+
+            prototypesInits.push_back(std::move(variantSelection));
+        }
+    }
+
+    for (const auto& init : prototypesInits) {
+        const std::string& variantSetName = init.first;
+        const std::string& variantName = init.second;
+        const bool hasVariant = !variantSetName.empty();
+
+        if (hasVariant) {
+            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
+            if (!vset.IsValid()) {
+                LOG_ERR("Variant set [" + variantSetName + "] not found on container prim for variant [" + variantName + "]");
+                continue;
+            }
+            vset.SetVariantSelection(variantName);
+        }
 
         std::shared_ptr<OpenCascadeAssembly> modelPtr = getOpenCascadeAssembly();
         if (!modelPtr) {
@@ -391,10 +438,15 @@ bool StepUsdPipeline::populatePrototypeContainers(
             return false;
         }
 
-        std::string baseName = modelPtr->stepPath.stem().string();
+        fs::path prototypesStageFilePath;
+        auto prototypesStagePathOpt = getPrototypesStagePath();
         if (prototypesStagePathOpt.has_value()) {
             prototypesStageFilePath = prototypesStagePathOpt.value();
+        } else if (hasVariant) {
+            fs::path variantSubPath = containerFilePath / variantSetName;
+            prototypesStageFilePath = variantSubPath / (variantSetName + "-" + variantName + "-prototypes.usdc");
         } else {
+            std::string baseName = modelPtr->stepPath.stem().string();
             prototypesStageFilePath = containerFilePath / (baseName + "-prototypes.usdc");
         }
 
@@ -402,10 +454,12 @@ bool StepUsdPipeline::populatePrototypeContainers(
         fs::create_directories(prototypesStageFilePath.parent_path(), ec);
         if (ec) {
             LOG_ERR("Failed to create output directory " + prototypesStageFilePath.parent_path().string() + ": " + ec.message());
+            if (hasVariant) continue;   // <-- item 3: original no-variant behavior was `return false` instead
             return false;
         }
-        
-        bool makeFreshStage = getStageMakeFresh(selectedPaths, this->pathConfig.containerPrimPath, this->pathConfig.prototypesPath, "", "", stageFilterMap);
+
+        bool makeFreshStage = getStageMakeFresh(selectedPaths, this->pathConfig.containerPrimPath,
+                                                this->pathConfig.prototypesPath, variantSetName, variantName, stageFilterMap);
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
             LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
             makeFreshStage = true;
@@ -413,18 +467,20 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
         UsdStageRefPtr prototypesStage = initUsdStage(prototypesStageFilePath, makeFreshStage);
 
-        UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(this->pathConfig.prototypesInContainerPath);
+        const SdfPath& prototypesInContainerPath = this->pathConfig.prototypesInContainerPath;
+
+        UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
         if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
             existingPrototypesContainer.SetActive(true);
 
         UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
-        prototypesStage->GetRootLayer()->SetDocumentation(docString);
-        UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(this->pathConfig.containerPrimPath);
-        prototypesStage->SetDefaultPrim(containerPrimInPrototypes.GetPrim());
-        prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
+        prototypesStage->GetRootLayer()->SetDocumentation(docString); // immediately overwritten below either way
 
-        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, this->pathConfig.prototypesPath);
+        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesInContainerPath);
+
+        UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(this->pathConfig.containerPrimPath);
+        prototypesStage->SetDefaultPrim(containerPrimInPrototypes);
 
         UsdGeomXform::Define(prototypesStage, this->pathConfig.assemblyPath);
 
@@ -432,125 +488,16 @@ bool StepUsdPipeline::populatePrototypeContainers(
         fs::path containerStagePath = containerStage->GetRootLayer()->GetRealPath();
         std::string subLayerPath = fs::relative(containerStagePath, prototypesStageDirectory).string();
 
-        // std::cout << "Adding sublayer to container stage: " << subLayerPath << std::endl;
-
         addStageSubLayer(prototypesStage, subLayerPath);
 
-        UsdPrim prototypesInPrototypesStage = prototypesStage->GetPrimAtPath(this->pathConfig.prototypesPath);
+        UsdPrim prototypesInPrototypesStage = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
         if (prototypesInPrototypesStage.IsValid() && !prototypesInPrototypesStage.IsActive())
             prototypesInPrototypesStage.SetActive(true);
 
         const double sourceToOutputScale = modelPtr->metersPerUnit / outputMetersPerUnit;
 
         prototypesStage->Save();
-        prototypes.push_back({modelPtr, "", "",  makeFreshStage, prototypesStage, containerStage, sourceToOutputScale });
-    } else {
-
-        std::unordered_set<fs::path> seenOutputAssets;
-        for (const SdfPath& variantPath : containerVariantPaths) {
-            if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
-                continue;
-            }
-            std::pair<std::string, std::string> variantSelection = variantPath.GetVariantSelection();
-            const std::string& variantSetName = variantSelection.first;
-            const std::string& variantName = variantSelection.second;
-
-            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
-            vset.SetVariantSelection(variantName);
-
-            auto prototypesStagePathOpt = getPrototypesStagePath();
-
-            if (!prototypesStagePathOpt.has_value()) continue;
-            
-            fs::path prototypesStageFilePath = prototypesStagePathOpt.value();
-
-            if (prototypesStageFilePath.empty()) {
-                LOG_ERR("Prototypes stage file path is empty");
-                return false;
-            }
-
-            if (seenOutputAssets.find(prototypesStageFilePath) != seenOutputAssets.end()) {
-                LOG_ERR("Duplicate output asset detected: " + prototypesStageFilePath.string());
-                return false;
-            }
-            seenOutputAssets.insert(prototypesStageFilePath);
-        }
-
-        for (const SdfPath& variantPath : containerVariantPaths) {
-            if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
-                continue;
-            }
-            std::pair<std::string, std::string> variantSelection = variantPath.GetVariantSelection();
-            const std::string& variantSetName = variantSelection.first;
-            const std::string& variantName = variantSelection.second;
-
-            UsdVariantSet vset = containerPrim.GetVariantSet(variantSetName);
-            vset.SetVariantSelection(variantName);
-
-            std::shared_ptr<OpenCascadeAssembly> modelPtr = getOpenCascadeAssembly();
-            if (!modelPtr) {
-                LOG_ERR("Failed to load OpenCascadeAssembly for container prim at path: " + containerPrim.GetPath().GetAsString());
-                return false;
-            }
-
-            fs::path variantSubPath = containerFilePath / variantSetName;
-            fs::path prototypesStageFilePath;
-            auto prototypesStagePathOpt = getPrototypesStagePath();
-
-            if (prototypesStagePathOpt.has_value()) {
-                prototypesStageFilePath = prototypesStagePathOpt.value();
-            } else {
-                prototypesStageFilePath = variantSubPath / (variantSetName + "-" + variantName + "-prototypes.usdc");
-            }
-
-            std::error_code ec;
-            fs::create_directories(prototypesStageFilePath.parent_path(), ec);
-            if (ec) {
-                LOG_ERR("Failed to create output directory " + prototypesStageFilePath.parent_path().string() + ": " + ec.message());
-                continue;
-            }
-            
-            bool makeFreshStage = getStageMakeFresh(selectedPaths, this->pathConfig.containerPrimPath, this->pathConfig.prototypesPath, variantSetName, variantName, stageFilterMap);
-            if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
-                LOG_INFO("Resetting prototypes stage due to metersPerUnit mismatch: " + prototypesStageFilePath.string());
-                makeFreshStage = true;
-            }
-
-            UsdStageRefPtr prototypesStage = initUsdStage(prototypesStageFilePath, makeFreshStage);
-
-            UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(this->pathConfig.prototypesPath);
-            if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
-                existingPrototypesContainer.SetActive(true);
-
-            UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
-            AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, this->pathConfig.prototypesPath);
-            
-            UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(this->pathConfig.containerPrimPath);
-            prototypesStage->GetRootLayer()->SetDocumentation(docString);
-            prototypesStage->SetDefaultPrim(containerPrimInPrototypes);
-            prototypesStage->GetRootLayer()->SetDocumentation("Auto generated file that define the prototypes for the assembly");
-            UsdGeomXform::Define(prototypesStage, this->pathConfig.assemblyPath);
-
-            fs::path prototypesStageDirectory = fs::path(prototypesStage->GetRootLayer()->GetRealPath()).parent_path();
-            fs::path containerStagePath = containerStage->GetRootLayer()->GetRealPath();
-            std::string subLayerPath = fs::relative(containerStagePath, prototypesStageDirectory).string();
-
-            addStageSubLayer(prototypesStage, subLayerPath);
-
-            if (!vset.IsValid()) {
-                LOG_ERR("Variant set [" + variantSetName + "] not found on container prim for variant [" + variantName + "]");
-                continue;
-            }
-
-            UsdPrim prototypesInPrototypesStage = prototypesStage->GetPrimAtPath(this->pathConfig.prototypesPath);
-            if (prototypesInPrototypesStage.IsValid() && !prototypesInPrototypesStage.IsActive())
-                prototypesInPrototypesStage.SetActive(true);
-
-            const double sourceToOutputScale = modelPtr->metersPerUnit / outputMetersPerUnit;
-
-            prototypesStage->Save();
-            prototypes.push_back({modelPtr, variantSetName, variantName, makeFreshStage, prototypesStage, containerStage, sourceToOutputScale });
-        }
+        prototypes.push_back({modelPtr, variantSetName, variantName, makeFreshStage, prototypesStage, containerStage, sourceToOutputScale});
     }
     
     return true;
@@ -583,8 +530,7 @@ bool StepUsdPipeline::populateParamsBank(
     );
 
     SdfPath throwawayContainerPath = containerPrim.GetPath();
-    SdfPath throwawayPrototypesPath =
-        throwawayContainerPath.AppendChild(TfToken("Prototypes"));
+    SdfPath throwawayPrototypesPath = throwawayContainerPath.AppendChild(TfToken("Prototypes"));
 
     UsdPrim throwawayContainer =
         throwawayStage->GetPrimAtPath(throwawayContainerPath);

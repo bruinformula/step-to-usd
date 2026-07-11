@@ -14,11 +14,11 @@
 #include <cstring>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
+#include <string>
 
-#include "instant_meshes/mesher.h"
-#include "instant_meshes/common.h"
-
-#include "ArgumentHandler.h"
+#include "mesher.h"
+#include "common.h"
 
 int nprocs = -1;
 
@@ -26,6 +26,7 @@ const std::string argOptions =
     " Instant Meshes -- Field-aligned mesh remesher\n"
     " Options:\n"
     "   Required:\n"
+    "      --input <file>               Input PLY or OBJ path\n"
     "      --output <file>              Output PLY or OBJ path\n"
     "\n"
     "   Sizing (pick at most one):\n"
@@ -50,7 +51,6 @@ const std::string argOptions =
     "      --deterministic              Prefer slower but deterministic algorithms\n"
     "      --help                       Show this message\n";
 
-
 struct MeshArgumentHandler {
 
     MeshParams params;
@@ -59,116 +59,87 @@ struct MeshArgumentHandler {
 
     ParseResult parse(const std::string &token, const std::string &nextToken) {
 
-        switch (hashString(token)) {
-            case hashString("--help"):
-            case hashString("-h"): {
-                std::cout << argOptions;
-                return EXIT;
-            }
-            case hashString("--deterministic"):
-            case hashString("-d"): {
-                params.deterministic = true;
-                return SUCCESS;
-            }
-            case hashString("--intrinsic"):
-            case hashString("-i"): {
-                params.extrinsic = false;
-                return SUCCESS;
-            }
-            case hashString("--boundaries"):
-            case hashString("-b"): {
-                params.alignToBoundaries = true;
-                return SUCCESS;
-            }
-            case hashString("--dominant"):
-            case hashString("-D"): {
-                params.dominant = true;
-                return SUCCESS;
-            }
-            case hashString("--threads"):
-            case hashString("-t"): {
-                if (nextToken.empty()) goto expectOption;
-                nprocs = str_to_uint32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--smooth"):
-            case hashString("-S"): {
-                if (nextToken.empty()) goto expectOption;
-                params.smoothIter = str_to_uint32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--knn"):
-            case hashString("-k"): {
-                if (nextToken.empty()) goto expectOption;
-                params.knnPoints = str_to_uint32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--crease"):
-            case hashString("-c"): {
-                if (nextToken.empty()) goto expectOption;
-                params.creaseAngle = str_to_float(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--rosy"):
-            case hashString("-r"): {
-                if (nextToken.empty()) goto expectOption;
-                params.rosy = str_to_int32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--posy"):
-            case hashString("-p"): {
-                if (nextToken.empty()) goto expectOption;
-                params.posy = str_to_int32_t(nextToken);
-                if (params.posy == 6) params.posy = 3;
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--scale"):
-            case hashString("-s"): {
-                if (nextToken.empty()) goto expectOption;
-                params.scale = str_to_float(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--faces"):
-            case hashString("-f"): {
-                if (nextToken.empty()) goto expectOption;
-                params.faceCount = str_to_int32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--vertices"):
-            case hashString("-v"): {
-                if (nextToken.empty()) goto expectOption;
-                params.vertexCount = str_to_int32_t(nextToken);
-                return SUCCESS_CONSUME_NEXT;
-            }
-            case hashString("--output"):
-            case hashString("-o"): {
-                if (nextToken.empty()) goto expectOption;
-                if (!params.outputPath.empty()) goto alreadySet;
-                params.outputPath = nextToken;
-                return SUCCESS_CONSUME_NEXT;
-            }
-            default: {
-                if (!token.empty() && token[0] != '-') {
-                    if (!params.inputPath.empty()) {
-                        std::cerr << "Unexpected positional argument: " << token << "\n";
-                        return FAILURE;
-                    }
-                    params.inputPath = token;
-                    return SUCCESS;
+        if (token =="--input" || token == "-i") {
+            if (nextToken.empty()) goto expectOption;
+            params.inputPath = nextToken;
+            return SUCCESS_CONSUME_NEXT;
+        } if (token == "--help" || token == "-h") {
+            std::cout << argOptions;
+            return EXIT;
+        } else if (token == "--deterministic" || token == "-d") {
+            params.deterministic = true;
+            return SUCCESS;
+        } else if (token == "--intrinsic" || token == "-i") {
+            params.extrinsic = false;
+            return SUCCESS;
+        } else if (token == "--boundaries" || token == "-b") {
+            params.alignToBoundaries = true;
+            return SUCCESS;
+        } else if (token == "--dominant" || token == "-D") {
+            params.dominant = true;
+            return SUCCESS;
+        } else if (token == "--threads" || token == "-t") {
+            if (nextToken.empty()) goto expectOption;
+            nprocs = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--smooth" || token == "-S") {
+            if (nextToken.empty()) goto expectOption;
+            params.smoothIter = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--knn" || token == "-k") {
+            if (nextToken.empty()) goto expectOption;
+            params.knnPoints = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--crease" || token == "-c") {
+            if (nextToken.empty()) goto expectOption;
+            params.creaseAngle = str_to_float(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--rosy" || token == "-r") {
+            if (nextToken.empty()) goto expectOption;
+            params.rosy = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--posy" || token == "-p") {
+            if (nextToken.empty()) goto expectOption;
+            params.posy = str_to_int32_t(nextToken);
+            if (params.posy == 6) params.posy = 3;
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--scale" || token == "-s") {
+            if (nextToken.empty()) goto expectOption;
+            params.scale = str_to_float(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--faces" || token == "-f") {
+            if (nextToken.empty()) goto expectOption;
+            params.faceCount = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--vertices" || token == "-v") {
+            if (nextToken.empty()) goto expectOption;
+            params.vertexCount = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--output" || token == "-o") {
+            if (nextToken.empty()) goto expectOption;
+            if (!params.outputPath.empty()) goto alreadySet;
+            params.outputPath = nextToken;
+            return SUCCESS_CONSUME_NEXT;
+        } else {
+            if (!token.empty() && token[0] != '-') {
+                if (!params.inputPath.empty()) {
+                    std::cerr << "Unexpected positional argument: " << token << "\n";
+                    return FAILURE;
                 }
-                std::cerr << "Unrecognized command-line option: " << token << "\n";
-                return FAILURE;
+                params.inputPath = token;
+                return SUCCESS;
             }
+            std::cerr << "Unrecognized command-line option: " << token << "\n";
+            return FAILURE;
         }
 
-        alreadySet: {
-            std::cerr << token << " is already set!\n";
-            return FAILURE;
-        }
-        expectOption: {
-            std::cerr << "Expected another token following command-line option: " << token << "\n";
-            return FAILURE;
-        }
+    alreadySet:
+        std::cerr << token << " is already set!\n";
+        return FAILURE;
+        
+    expectOption:
+        std::cerr << "Expected another token following command-line option: " << token << "\n";
+        return FAILURE;
     }
 
     bool verify() const {
