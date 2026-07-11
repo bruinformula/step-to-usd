@@ -32,7 +32,7 @@ def "World"
 {
     def StepContainer "Wonderful" (
         variants = {
-            string LOD = "low"
+            string LOD = "high"
         }
         prepend variantSets = "LOD"
     )
@@ -71,7 +71,7 @@ def "World"
             "high" {
                 asset step:outputAsset = @model1/high.usdc@
 
-                over StepContainer "Prototypes"
+                over StepPrototypes "Prototypes"
                 {
                     rel step:defaultParams = </HighOptions>
 
@@ -86,7 +86,7 @@ def "World"
             "low" {
                 asset step:outputAsset = @model1/low.usdc@
 
-                over StepContainer "Prototypes"
+                over StepPrototypes "Prototypes"
                 {
                     rel step:defaultParams = </LowOptions>
                 }

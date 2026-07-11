@@ -161,6 +161,15 @@ struct PrototypeContainer {
     double sourceToOutputScale;
 };
 
+struct TessellationJob {
+    std::shared_ptr<PrototypeContainer>  proto;
+    int defIndex;
+    SdfPath prototypePath;
+    TessParams params;
+    TessResult result;
+    bool runMesherInParallel = false;
+};
+
 struct StepUsdPipeline {
 
     struct PathConfig {
@@ -190,15 +199,6 @@ struct StepUsdPipeline {
     std::unordered_map<SdfAssetPath, OpenCascadeAssembly, SdfAssetPath::Hash> modelCache;
 
 private:
-
-    struct TessellationJob {
-        std::shared_ptr<PrototypeContainer>  proto;
-        int defIndex;
-        SdfPath prototypePath;
-        TessParams params;
-        TessResult result;
-        bool runMesherInParallel = false;
-    };
 
     struct ProtoGeomJob {
         SdfPath protoPath;

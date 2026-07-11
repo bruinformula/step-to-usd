@@ -735,7 +735,7 @@ bool StepUsdPipeline::buildPrototypeStages(
         
         bool shouldCreateAssembly = proto.makeFreshStage || isAssemblyInFilter;
         
-        std::vector<SdfPath> nodePaths = proto.model->getNodePaths(this->pathConfig.containerPrimPath);
+        std::vector<SdfPath> nodePaths = proto.model->getNodePaths(this->pathConfig.assemblyPath);
 
         if (shouldCreateAssembly) {
             writeAssemblyXforms(
@@ -926,14 +926,14 @@ void StepUsdPipeline::populateUsd(
 
     this->pathConfig.prototypesInContainerPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
 
-    SdfPath containerParentPath = containerPrim.GetPath().GetParentPath();
-    this->pathConfig.containerPrimPath = containerPrim.GetPath().ReplacePrefix(containerParentPath, SdfPath::AbsoluteRootPath());
+    //SdfPath containerParentPath = .GetParentPath();
+    this->pathConfig.containerPrimPath = containerPrim.GetPath();
     this->pathConfig.assemblyPath = SdfPath("/Assembly").ReplacePrefix(SdfPath::AbsoluteRootPath(), this->pathConfig.containerPrimPath);
     this->pathConfig.prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), this->pathConfig.containerPrimPath);
 
     // Normalize paths from container-space to raw-space
-    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = reparentPaths(containerParentPath, selectedInContainerPaths);
-    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = reparentPaths(containerParentPath, getVariantsOnPrim(containerPrim));
+    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = selectedInContainerPaths;
+    std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = getVariantsOnPrim(containerPrim);
 
     // Setup Prototype Stages for all variants
     std::vector<PrototypeContainer> prototypes;

@@ -1365,42 +1365,51 @@ bool StepUsdPipeline::tessellatePart(
 }
 
 
-struct DefKey {
-    const PrototypeContainer* proto;
-    int defIndex;
+struct ShapeKey {
+    const void* tshape;
 
-    bool operator==(const DefKey& other) const {
-        return proto == other.proto && defIndex == other.defIndex;
+    bool operator==(const ShapeKey& other) const {
+        return tshape == other.tshape;
     }
 };
 
-struct DefKeyHash {
-    size_t operator()(const DefKey& k) const {
-        size_t h1 = std::hash<const void*>{}(k.proto);
-        size_t h2 = std::hash<int>{}(k.defIndex);
-        return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+struct ShapeKeyHash {
+    size_t operator()(const ShapeKey& k) const {
+        return std::hash<const void*>{}(k.tshape);
     }
+};
+static bool tessParamsEqual(const TessParams& a, const TessParams& b) {
+    return std::memcmp(&a, &b, sizeof(TessParams)) == 0;
+}
+
+struct ParamSubgroup {
+    TessParams params;
+    std::vector<TessellationJob*> jobs;
+    bool runMesherInParallel;
 };
 
 void StepUsdPipeline::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
 ) {
-    std::unordered_map<DefKey, std::vector<TessellationJob*>, DefKeyHash> jobsByDef;
+    std::unordered_map<ShapeKey, std::vector<TessellationJob*>, ShapeKeyHash> jobsByShape;
     for (TessellationJob& job : tessJobs) {
-        jobsByDef[DefKey{job.proto.get(), job.defIndex}].push_back(&job);
+        const auto& defs = job.proto->model->getDefinitionShapes();
+        const TopoDS_Shape& shape = defs[job.defIndex].second;
+        jobsByShape[ShapeKey{shape.TShape().get()}].push_back(&job);
     }
 
-    // Pre-calculate complexity (face count) per unique (proto, defIndex) for load balancing.
-    std::vector<DefKey> defKeys;
-    defKeys.reserve(jobsByDef.size());
-    std::unordered_map<DefKey, int, DefKeyHash> shapeComplexity;
-    shapeComplexity.reserve(jobsByDef.size());
+    // Pre-calculate complexity (face count) per unique shape for load balancing.
+    std::vector<ShapeKey> shapeKeys;
+    shapeKeys.reserve(jobsByShape.size());
+    std::unordered_map<ShapeKey, int, ShapeKeyHash> shapeComplexity;
+    shapeComplexity.reserve(jobsByShape.size());
 
-    for (const auto& [key, jobs] : jobsByDef) {
-        defKeys.push_back(key);
-        const auto& defs = key.proto->model->getDefinitionShapes();
-        const TopoDS_Shape& shape = defs[key.defIndex].second;
+    for (const auto& [key, jobs] : jobsByShape) {
+        shapeKeys.push_back(key);
+        const TessellationJob* rep = jobs.front();
+        const auto& defs = rep->proto->model->getDefinitionShapes();
+        const TopoDS_Shape& shape = defs[rep->defIndex].second;
         int complexity = 0;
         for (TopExp_Explorer faceExp(shape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
             complexity++;
@@ -1409,54 +1418,100 @@ void StepUsdPipeline::tessellateGeometry(
     }
 
     // Sort descending by complexity so heaviest jobs start first
-    std::sort(defKeys.begin(), defKeys.end(), [&shapeComplexity](const DefKey& a, const DefKey& b) {
+    std::sort(shapeKeys.begin(), shapeKeys.end(), [&shapeComplexity](const ShapeKey& a, const ShapeKey& b) {
         return shapeComplexity.at(a) > shapeComplexity.at(b);
     });
 
     {
-        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(defKeys.size()) + " definition indices.");
+        LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(shapeKeys.size()) + " unique shapes.");
         std::atomic<int> completedJobs{0};
         const int totalJobs = static_cast<int>(tessJobs.size());
 
-        WorkParallelForEach(defKeys.begin(), defKeys.end(), [&](const DefKey& key) {
-            const auto& defs = key.proto->model->getDefinitionShapes();
-            const TopoDS_Shape& shape = defs[key.defIndex].second;
+        WorkParallelForEach(shapeKeys.begin(), shapeKeys.end(), [&](const ShapeKey& key) {
+            const std::vector<TessellationJob*>& jobs = jobsByShape.at(key);
 
-            for (TessellationJob* jobPtr : jobsByDef.at(key)) {
+            const TessellationJob* rep = jobs.front();
+            const auto& defs = rep->proto->model->getDefinitionShapes();
+            const TopoDS_Shape& shape = defs[rep->defIndex].second;
+
+            std::vector<ParamSubgroup> subgroups;
+
+            for (TessellationJob* jobPtr : jobs) {
                 TessellationJob& job = *jobPtr;
 
                 bool bTessellate = isPrototypeActiveInFilter(
                     selectedPaths, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
 
-                if (bTessellate) {
-                    if (job.runMesherInParallel) {
-                        LOG_DEBUG("Job for " + job.prototypePath.GetString() + " is set to run mesher in mesherInParallel model");
-                    }
-                    LOG_DEBUG("Tessellating part: " + job.prototypePath.GetString() + " (def index " + std::to_string(key.defIndex) + ")");
-                    try {
-                        tessellatePart(job.result, shape, job.params, job.prototypePath, job.runMesherInParallel);
-                        int currentCount = ++completedJobs;
-                        LOG_DEBUG("Finished tessellating: " + job.prototypePath.GetString() + " | Faces: " + std::to_string(job.result.faceVertexCounts.size()) + " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
-                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
-                    } catch (const Standard_Failure& e) {
-                        LOG_PROGRESS_DONE();
-                        LOG_ERR("OCC exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")" + ": " + e.GetMessageString());
-                        int currentCount = ++completedJobs;
-                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
-                    } catch (const std::exception& e) {
-                        LOG_PROGRESS_DONE();
-                        LOG_ERR("std exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")" + ": " + e.what());
-                        int currentCount = ++completedJobs;
-                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
-                    } catch (...) {
-                        LOG_PROGRESS_DONE();
-                        LOG_ERR("Unknown exception on " + job.prototypePath.GetString() + "(def index " + std::to_string(key.defIndex) + ")");
-                        int currentCount = ++completedJobs;
-                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
-                    }
-                } else {
+                if (!bTessellate) {
                     int currentCount = ++completedJobs;
                     LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
+                    continue;
+                }
+
+                bool merged = false;
+                for (ParamSubgroup& sg : subgroups) {
+                    if (tessParamsEqual(sg.params, job.params)) {
+                        sg.jobs.push_back(jobPtr);
+                        sg.runMesherInParallel = sg.runMesherInParallel || job.runMesherInParallel;
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged) {
+                    subgroups.push_back(ParamSubgroup{job.params, {jobPtr}, job.runMesherInParallel});
+                }
+            }
+
+            for (ParamSubgroup& sg : subgroups) {
+                TessellationJob& primary = *sg.jobs.front();
+
+                if (sg.runMesherInParallel) {
+                    LOG_DEBUG("Job for " + primary.prototypePath.GetString() + " is set to run mesher in mesherInParallel mode");
+                }
+                LOG_DEBUG("Tessellating part: " + primary.prototypePath.GetString() +
+                          " (def index " + std::to_string(primary.defIndex) +
+                          ", shared by " + std::to_string(sg.jobs.size()) + " prototype path(s))");
+
+                try {
+                    tessellatePart(primary.result, shape, sg.params, primary.prototypePath, sg.runMesherInParallel);
+
+                    // Fan the computed result out to every other job that needs
+                    // this exact (shape, params) pair.
+                    for (size_t i = 1; i < sg.jobs.size(); ++i) {
+                        sg.jobs[i]->result = primary.result;
+                    }
+
+                    for (TessellationJob* jobPtr : sg.jobs) {
+                        int currentCount = ++completedJobs;
+                        LOG_DEBUG("Finished tessellating: " + jobPtr->prototypePath.GetString() +
+                                  " | Faces: " + std::to_string(jobPtr->result.faceVertexCounts.size()) +
+                                  " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
+                    }
+                } catch (const Standard_Failure& e) {
+                    LOG_PROGRESS_DONE();
+                    for (TessellationJob* jobPtr : sg.jobs) {
+                        LOG_ERR("OCC exception on " + jobPtr->prototypePath.GetString() +
+                                " (def index " + std::to_string(jobPtr->defIndex) + "): " + e.GetMessageString());
+                        int currentCount = ++completedJobs;
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
+                    }
+                } catch (const std::exception& e) {
+                    LOG_PROGRESS_DONE();
+                    for (TessellationJob* jobPtr : sg.jobs) {
+                        LOG_ERR("std exception on " + jobPtr->prototypePath.GetString() +
+                                " (def index " + std::to_string(jobPtr->defIndex) + "): " + e.what());
+                        int currentCount = ++completedJobs;
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
+                    }
+                } catch (...) {
+                    LOG_PROGRESS_DONE();
+                    for (TessellationJob* jobPtr : sg.jobs) {
+                        LOG_ERR("Unknown exception on " + jobPtr->prototypePath.GetString() +
+                                " (def index " + std::to_string(jobPtr->defIndex) + ")");
+                        int currentCount = ++completedJobs;
+                        LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
+                    }
                 }
             }
         });

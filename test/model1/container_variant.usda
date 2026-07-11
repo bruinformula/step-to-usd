@@ -19,7 +19,7 @@ def StepTessellationOptions "LowOptions"
 
 def StepContainer "Wonderful" (
     variants = {
-        string LOD = "low"
+        string LOD = "high"
     }
     prepend variantSets = "LOD"
 )
