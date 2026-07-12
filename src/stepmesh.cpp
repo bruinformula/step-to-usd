@@ -31,9 +31,9 @@
 #include "stepContainerAPI.h"
 #include "stepContainer.h"
 
-#include "StepUsdPipeline.h"
-#include "OpenCascadeAssembly.h"
-#include "Logger.h"
+#include "StepUSD/StepUsdPipeline.h"
+#include "StepUSD/OpenCascadeAssembly.h"
+#include "StepUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

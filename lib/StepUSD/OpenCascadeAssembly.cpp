@@ -33,9 +33,9 @@
 #include <Standard_Handle.hxx>
 #include <TDataStd_Name.hxx>
 
-#include "OpenCascadeAssembly.h"
-#include "UsdUtils.h"
-#include "Logger.h"
+#include "StepUSD/OpenCascadeAssembly.h"
+#include "StepUSD/UsdUtils.h"
+#include "StepUSD/Logger.h"
 
 std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;

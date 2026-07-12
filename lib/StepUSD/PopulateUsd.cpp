@@ -60,10 +60,10 @@
 #include "stepContainer.h"
 #include "stepPrototypes.h"
 
-#include "StepUsdPipeline.h"
-#include "OpenCascadeAssembly.h"
-#include "Logger.h"
-#include "UsdUtils.h"
+#include "StepUSD/StepUsdPipeline.h"
+#include "StepUSD/OpenCascadeAssembly.h"
+#include "StepUSD/Logger.h"
+#include "StepUSD/UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

@@ -78,8 +78,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUsdPipeline.h"
-#include "Logger.h"
+#include "StepUSD/StepUsdPipeline.h"
+#include "StepUSD/Logger.h"
 
 class Geom_Surface;
 
@@ -209,6 +209,32 @@ static VtArray<GfVec2f> packUVAtlas(std::vector<UVPatch>& patches) {
     }
     return result;
 }
+/*
+bool StepUsdPipeline::tessellatePart(
+    TessResult& result, 
+    const TopoDS_Shape& defShape, 
+    const TessParams& params,
+    const SdfPath& protoPath,
+    bool mesherInParallel
+) {
+    
+    using Clock = std::chrono::high_resolution_clock;
+    using Seconds = std::chrono::duration<double>;
+
+    auto tessellateStart = Clock::now();
+
+
+
+
+
+
+    auto tessellateEnd = Clock::now();
+    LOG_DEBUG("  Total tessellatePart time: " + std::to_string(Seconds(tessellateEnd - tessellateStart).count()) + " s");
+
+    return true;
+}
+*/
+
 
 bool StepUsdPipeline::tessellatePart(
     TessResult& result, 

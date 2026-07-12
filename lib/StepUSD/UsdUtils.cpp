@@ -19,8 +19,8 @@
 
 #include "tokens.h"
 
-#include "StepUsdPipeline.h"
-#include "Logger.h"
+#include "StepUSD/StepUsdPipeline.h"
+#include "StepUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

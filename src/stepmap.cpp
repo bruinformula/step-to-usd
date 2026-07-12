@@ -27,7 +27,7 @@
 
 #include "stepAPI.h"
  
-#include "Logger.h"
+#include "StepUSD/Logger.h"
  
 PXR_NAMESPACE_USING_DIRECTIVE
 
