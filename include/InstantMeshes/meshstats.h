@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "aabb.h"
+#include "InstantMeshes/aabb.h"
 
 struct MeshStats {
     AABB mAABB;

@@ -12,8 +12,8 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "reorder.h"
-#include "dedge.h"
+#include "InstantMeshes/reorder.h"
+#include "InstantMeshes/dedge.h"
 
 #include <unordered_set>
 #include <unordered_map>

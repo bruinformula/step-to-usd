@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "aabb.h"
+#include "InstantMeshes/aabb.h"
 
 /* BVH node in 32 bytes */
 struct BVHNode {

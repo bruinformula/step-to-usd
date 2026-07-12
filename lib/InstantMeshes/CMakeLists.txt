@@ -9,13 +9,14 @@ file(GLOB INSTANT_MESHES_CPP_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
 )
 
-add_library(AutolibInstantMeshes ${INSTANT_MESHES_CPP_SOURCES})
+add_library(InstantMeshes ${INSTANT_MESHES_CPP_SOURCES})
 
 find_package(Eigen3 REQUIRED)
 find_package(TBB REQUIRED)
 
-target_link_libraries(AutolibInstantMeshes PUBLIC Eigen3::Eigen)
-target_link_libraries(AutolibInstantMeshes PUBLIC TBB::tbb)
+target_link_libraries(InstantMeshes PUBLIC Eigen3::Eigen)
+target_link_libraries(InstantMeshes PUBLIC TBB::tbb)
 
-add_executable(InstantMeshes "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cc")
-target_link_libraries(InstantMeshes PRIVATE AutolibInstantMeshes)
+target_include_directories(InstantMeshes 
+  PUBLIC "${CMAKE_SOURCE_DIR}/include"
+)

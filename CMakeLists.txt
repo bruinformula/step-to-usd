@@ -16,6 +16,9 @@ if (NOT CMAKE_BUILD_TYPE)
     set (CMAKE_BUILD_TYPE "Release")
 endif()
 
+#set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE include-what-you-use)
+#set(CMAKE_OSX_SYSROOT "$(xcrun --show-sdk-path)")
+
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/lib")
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/src")
 

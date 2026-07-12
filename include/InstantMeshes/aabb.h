@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 struct Ray {
     Vector3f o, d;

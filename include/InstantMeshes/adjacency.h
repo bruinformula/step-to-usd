@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 /* Stores integer jumps between nodes of the adjacency matrix */
 struct IntegerVariable {

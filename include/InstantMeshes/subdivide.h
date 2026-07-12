@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 extern void subdivide(MatrixXu &F, MatrixXf &V, VectorXu &V2E, VectorXu &E2E,
                       VectorXb &boundary, VectorXb &nonmanifold,

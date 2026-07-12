@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 extern void reorder_mesh(MatrixXu &F, std::vector<MatrixXf> &V_vec, std::vector<MatrixXf> &F_vec,
                          const ProgressCallback &progress = ProgressCallback());

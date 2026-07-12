@@ -17,8 +17,8 @@
 #include <iostream>
 #include <string>
 
-#include "mesher.h"
-#include "common.h"
+#include "InstantMeshes/mesher.h"
+#include "InstantMeshes/common.h"
 
 int nprocs = -1;
 

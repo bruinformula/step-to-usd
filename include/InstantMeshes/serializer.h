@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 #include <map>
 #include <set>

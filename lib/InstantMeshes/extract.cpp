@@ -11,12 +11,12 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "extract.h"
-#include "field.h"
-#include "dset.h"
-#include "dedge.h"
-#include "reorder.h"
-#include "bvh.h"
+#include "InstantMeshes/extract.h"
+#include "InstantMeshes/field.h"
+#include "InstantMeshes/dset.h"
+#include "InstantMeshes/dedge.h"
+#include "InstantMeshes/reorder.h"
+#include "InstantMeshes/bvh.h"
 #include <tbb/concurrent_vector.h>
 #include <tuple>
 #include <set>

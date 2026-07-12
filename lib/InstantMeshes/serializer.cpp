@@ -11,11 +11,11 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "serializer.h"
+#include "InstantMeshes/serializer.h"
 #include <set>
 
 extern "C" {
-    #include "rply.h"
+    #include "InstantMeshes/rply.h"
 }
 
 Serializer::Serializer() : mCompatibilityMode(false) { mPrefixStack.push(""); }

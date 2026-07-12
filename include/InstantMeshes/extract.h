@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "hierarchy.h"
+#include "InstantMeshes/hierarchy.h"
 #include <set>
 
 struct TaggedLink {

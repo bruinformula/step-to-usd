@@ -13,11 +13,11 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "adjacency.h"
-#include "dedge.h"
-#include "bvh.h"
-#include "meshstats.h"
-#include "dset.h"
+#include "InstantMeshes/adjacency.h"
+#include "InstantMeshes/dedge.h"
+#include "InstantMeshes/bvh.h"
+#include "InstantMeshes/meshstats.h"
+#include "InstantMeshes/dset.h"
 #include <map>
 
 AdjacencyMatrix generate_adjacency_matrix_uniform(

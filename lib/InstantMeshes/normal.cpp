@@ -11,8 +11,8 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "normal.h"
-#include "dedge.h"
+#include "InstantMeshes/normal.h"
+#include "InstantMeshes/dedge.h"
 
 extern void
 generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, MatrixXf &N,

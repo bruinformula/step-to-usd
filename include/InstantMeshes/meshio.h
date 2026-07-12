@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 extern void
 load_mesh_or_pointcloud(const std::string &filename, MatrixXu &F,

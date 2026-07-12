@@ -11,8 +11,8 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "meshio.h"
-#include "normal.h"
+#include "InstantMeshes/meshio.h"
+#include "InstantMeshes/normal.h"
 #include <unordered_map>
 #include <fstream>
 #if !defined(_WIN32)
@@ -20,7 +20,7 @@
 #endif
 
 extern "C" {
-    #include "rply.h"
+    #include "InstantMeshes/rply.h"
 }
 
 void load_mesh_or_pointcloud(const std::string &filename, MatrixXu &F, MatrixXf &V, MatrixXf &N,

@@ -15,10 +15,10 @@
 #include <functional>
 #include <filesystem>
 
-#include "hierarchy.h"
-#include "field.h"
-#include "bvh.h"
-#include "meshstats.h"
+#include "InstantMeshes/hierarchy.h"
+#include "InstantMeshes/field.h"
+#include "InstantMeshes/bvh.h"
+#include "InstantMeshes/meshstats.h"
 
 struct MeshParams {
     std::filesystem::path inputPath;

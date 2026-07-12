@@ -10,13 +10,13 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "mesher.h"
-#include "meshio.h"
-#include "dedge.h"
-#include "normal.h"
-#include "extract.h"
-#include "subdivide.h"
-#include "adjacency.h"
+#include "InstantMeshes/mesher.h"
+#include "InstantMeshes/meshio.h"
+#include "InstantMeshes/dedge.h"
+#include "InstantMeshes/normal.h"
+#include "InstantMeshes/extract.h"
+#include "InstantMeshes/subdivide.h"
+#include "InstantMeshes/adjacency.h"
 
 #include <iostream>
 #include <stdexcept>

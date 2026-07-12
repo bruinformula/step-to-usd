@@ -11,7 +11,7 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "dedge.h"
+#include "InstantMeshes/dedge.h"
 
 void build_dedge(const MatrixXu &F, const MatrixXf &V, VectorXu &V2E,
                          VectorXu &E2E, VectorXb &boundary, VectorXb &nonManifold,

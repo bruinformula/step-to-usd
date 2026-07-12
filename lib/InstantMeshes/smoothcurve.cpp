@@ -12,9 +12,9 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "smoothcurve.h"
-#include "dedge.h"
-#include "bvh.h"
+#include "InstantMeshes/smoothcurve.h"
+#include "InstantMeshes/dedge.h"
+#include "InstantMeshes/bvh.h"
 #include <queue>
 #include <map>
 #include <set>

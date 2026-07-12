@@ -16,7 +16,7 @@
 #pragma once
 
 
-#include "hierarchy.h"
+#include "InstantMeshes/hierarchy.h"
 #include <map>
 
 /* Rotation helper functions */

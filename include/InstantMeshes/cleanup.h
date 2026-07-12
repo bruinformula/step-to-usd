@@ -13,6 +13,6 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 extern void remove_nonmanifold(MatrixXu &F, MatrixXf &V, MatrixXf &Nf);

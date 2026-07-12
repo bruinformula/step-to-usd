@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 extern void batch_process(const std::string &input, const std::string &output,
                           int rosy, int posy, Float scale, int face_count,

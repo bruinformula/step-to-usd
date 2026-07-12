@@ -12,11 +12,11 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "hierarchy.h"
-#include "serializer.h"
-#include "dedge.h"
-#include "field.h"
-#include "pcg32.h"
+#include "InstantMeshes/hierarchy.h"
+#include "InstantMeshes/serializer.h"
+#include "InstantMeshes/dedge.h"
+#include "InstantMeshes/field.h"
+#include "InstantMeshes/pcg32.h"
 
 AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
                                  const MatrixXf &N, const VectorXf &A,

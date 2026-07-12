@@ -12,8 +12,8 @@
     BSD-style license that can be found in the LICENSE.txt file.
 */
 
-#include "subdivide.h"
-#include "dedge.h"
+#include "InstantMeshes/subdivide.h"
+#include "InstantMeshes/dedge.h"
 
 void subdivide(MatrixXu &F, MatrixXf &V, VectorXu &V2E, VectorXu &E2E,
                VectorXb &boundary, VectorXb &nonmanifold, Float maxLength,

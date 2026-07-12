@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 static const uint32_t INVALID = (uint32_t) -1;
 

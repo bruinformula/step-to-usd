@@ -16,7 +16,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
 #include <tbb/parallel_invoke.h>
-#include "bvh.h"
+#include "InstantMeshes/bvh.h"
 
 // ---------------------------------------------------------------------------
 // Bin structure — unchanged

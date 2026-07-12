@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "adjacency.h"
+#include "InstantMeshes/adjacency.h"
 
 class Serializer;
 

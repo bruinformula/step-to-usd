@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "InstantMeshes/common.h"
 
 struct CurvePoint {
     Vector3f p;
