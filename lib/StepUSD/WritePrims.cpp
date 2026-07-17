@@ -62,7 +62,7 @@
 #include "StepUSD/OpenCascadeAssembly.h"
 #include "StepUSD/Logger.h"
 #include "StepUSD/UsdUtils.h"
-#include "StepUSD/Routine/PrototypeRoutines.h"
+#include "StepUSD/PrototypeMember/PrototypeMember.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -358,10 +358,10 @@ void StepUsdPipeline::writePrototypeGeometries(
     }
 
                 
-    MeshRoutine meshRoutine;
-    WireframeRoutine wireframeRoutine;
-    SketchRoutine sketchRoutine;
-    SketchPlaneRoutine sketchPlaneRoutine;
+    MeshPrim meshRoutine;
+    WireframePrim wireframeRoutine;
+    SketchPrim sketchRoutine;
+    SketchPlanePrim sketchPlaneRoutine;
 
     struct ThreadResult {
         int startIdx;
@@ -451,7 +451,8 @@ void StepUsdPipeline::writePrototypeGeometries(
         }
 
         if (!mark.IsClean()) {
-            for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";
+            for (const auto& error : mark)
+                LOG_ERR("Usd: " + error.GetCommentary());
         }
 
         { // SdfChangeBlock
@@ -516,7 +517,8 @@ void StepUsdPipeline::writePrototypeGeometries(
         } // SdfChangeBlock
         
         if (!mark.IsClean()) {
-            for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";
+            for (const auto& error : mark)
+                LOG_ERR("Usd: " + error.GetCommentary());
         }
 
         std::lock_guard<std::mutex> resLock(resultsMutex);

@@ -167,7 +167,6 @@ struct TessellationJob {
     SdfPath prototypePath;
     TessParams params;
     TessResult result;
-    bool runMesherInParallel = false;
 };
 
 struct StepUsdPipeline {
@@ -191,12 +190,12 @@ struct StepUsdPipeline {
 
     StepUsdPipeline(
         UsdStageRefPtr cs, 
-        std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> mc
+        std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> mc
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
     PathConfig pathConfig;
     UsdStageRefPtr containerStage;
-    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> modelCache;
+    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> modelCache;
 
 private:
 
@@ -224,8 +223,7 @@ private:
         TessResult& result, 
         const TopoDS_Shape& defShape, 
         const TessParams& params,
-        const SdfPath& protoPath,
-        bool mesherInParallel
+        const SdfPath& protoPath
     );
 
     void tessellateGeometry(

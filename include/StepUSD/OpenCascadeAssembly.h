@@ -75,13 +75,13 @@ struct StepBundleKey {
     bool operator==(const StepBundleKey& other) const {
         return stepPath == other.stepPath && xbfPath == other.xbfPath;
     }
+    struct Hash {
+        size_t operator()(const StepBundleKey& k) const {
+            return std::hash<std::string>{}(k.stepPath.string()) ^ std::hash<std::string>{}(k.xbfPath.string());
+        }
+    };
 };
 
-struct StepBundleKeyHash {
-    size_t operator()(const StepBundleKey& k) const {
-        return std::hash<std::string>{}(k.stepPath.string()) ^ std::hash<std::string>{}(k.xbfPath.string());
-    }
-};
 
 struct OpenCascadeAssembly {
 

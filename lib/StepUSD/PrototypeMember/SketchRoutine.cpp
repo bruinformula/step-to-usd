@@ -29,12 +29,12 @@
 
 #include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/Routine/PrototypeRoutines.h"
-#include "StepUSD/Routine/CurveUtils.h"
+#include "StepUSD/PrototypeMember/PrototypeMember.h"
+#include "StepUSD/Tessellation/TessellationUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool SketchRoutine::definePrim(
+bool SketchPrim::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -77,7 +77,7 @@ bool SketchRoutine::definePrim(
     return true;
 }
 
-bool SketchRoutine::writePrim(
+bool SketchPrim::writePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,

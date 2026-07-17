@@ -29,12 +29,12 @@
 
 #include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/Routine/PrototypeRoutines.h"
-#include "StepUSD/Routine/CurveUtils.h"
+#include "StepUSD/PrototypeMember/PrototypeMember.h"
+#include "StepUSD/Tessellation/TessellationUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool WireframeRoutine::definePrim(
+bool WireframePrim::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -89,7 +89,7 @@ bool WireframeRoutine::definePrim(
     return true;
 }
 
-bool WireframeRoutine::writePrim(
+bool WireframePrim::writePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -98,7 +98,7 @@ bool WireframeRoutine::writePrim(
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
 
     if (params.wireframePointLimit <= 0) {
-        LOG_ERR("Prim: " + protoPath.GetString() + ": WireframeRoutine::writePrim: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
+        LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
         return false;
     }
     
@@ -108,7 +108,7 @@ bool WireframeRoutine::writePrim(
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
         if (!curve) {
-            LOG_ERR("Prim: " + protoPath.GetString() + ": WireframeRoutine::writePrim: missing curve prim");
+            LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: missing curve prim");
             return false;
         }
 
@@ -127,7 +127,7 @@ bool WireframeRoutine::writePrim(
             if (UsdGeomPointBased::ComputeExtent(r.wireframePoints, &extent)) {
                 curve.CreateExtentAttr().Set(extent);
             } else {
-                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframeRoutine::writePrim: ComputeExtent failed at " + protoPath.GetString());
+                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: ComputeExtent failed at " + protoPath.GetString());
             }
         }
         
@@ -160,7 +160,7 @@ bool WireframeRoutine::writePrim(
 
             UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
             if (!curve) {
-                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframeRoutine::writePrim: missing curve prim Wireframe_" + std::to_string(ci));
+                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: missing curve prim Wireframe_" + std::to_string(ci));
                 continue;
             }
 
@@ -182,7 +182,7 @@ bool WireframeRoutine::writePrim(
                 if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
                     curve.CreateExtentAttr().Set(extent);
                 } else {
-                    LOG_ERR("Prim: " + protoPath.GetString() + ": WireframeRoutine::writePrim: ComputeExtent failed at " + protoPath.GetString());
+                    LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: ComputeExtent failed at " + protoPath.GetString());
                 }
             }
 

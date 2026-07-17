@@ -4,9 +4,9 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-struct PrototypeRoutine {
+struct PrototypeMember {
 
-    virtual ~PrototypeRoutine() = default;
+    virtual ~PrototypeMember() = default;
 
     virtual bool definePrim(
         UsdStageRefPtr stage,
@@ -23,7 +23,7 @@ struct PrototypeRoutine {
     ) = 0;
 };
 
-struct MeshRoutine : public PrototypeRoutine {
+struct MeshPrim : public PrototypeMember {
 
     bool definePrim(
         UsdStageRefPtr stage,
@@ -31,6 +31,7 @@ struct MeshRoutine : public PrototypeRoutine {
         const TessResult& r,
         const TessParams& params
     ) override;
+    
     bool writePrim(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
@@ -39,7 +40,7 @@ struct MeshRoutine : public PrototypeRoutine {
     ) override;
 };
 
-struct WireframeRoutine : public PrototypeRoutine {
+struct WireframePrim : public PrototypeMember {
 
     bool definePrim(
         UsdStageRefPtr stage,
@@ -47,6 +48,7 @@ struct WireframeRoutine : public PrototypeRoutine {
         const TessResult& r,
         const TessParams& params
     ) override;
+
     bool writePrim(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
@@ -55,7 +57,7 @@ struct WireframeRoutine : public PrototypeRoutine {
     ) override;
 };
 
-struct SketchRoutine : public PrototypeRoutine {
+struct SketchPrim : public PrototypeMember {
 
     bool definePrim(
         UsdStageRefPtr stage,
@@ -63,6 +65,7 @@ struct SketchRoutine : public PrototypeRoutine {
         const TessResult& r,
         const TessParams& params
     ) override;
+
     bool writePrim(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
@@ -71,7 +74,7 @@ struct SketchRoutine : public PrototypeRoutine {
     ) override;
 };
 
-struct SketchPlaneRoutine : public PrototypeRoutine {
+struct SketchPlanePrim : public PrototypeMember {
 
     bool definePrim(
         UsdStageRefPtr stage,
@@ -79,6 +82,7 @@ struct SketchPlaneRoutine : public PrototypeRoutine {
         const TessResult& r,
         const TessParams& params
     ) override;
+
     bool writePrim(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,

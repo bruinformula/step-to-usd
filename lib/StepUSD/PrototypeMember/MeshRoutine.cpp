@@ -26,11 +26,11 @@
 
 #include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/Routine/PrototypeRoutines.h"
+#include "StepUSD/PrototypeMember/PrototypeMember.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool MeshRoutine::definePrim(
+bool MeshPrim::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -54,7 +54,7 @@ bool MeshRoutine::definePrim(
     return true;
 }
 
-bool MeshRoutine::writePrim(
+bool MeshPrim::writePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,

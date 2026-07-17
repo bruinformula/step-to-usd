@@ -1,6 +1,10 @@
 #include <vector>
 #include <algorithm>
 
+#include <TopoDS_Shape.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+
 #pragma push_macro("Handle")
 #undef Handle
 
@@ -12,7 +16,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Routine/CurveUtils.h"
+#include "StepUSD/Tessellation/TessellationUtils.h"
+#include "StepUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -104,4 +109,37 @@ VtIntArray chunkVertexCounts(const CurveChunk& chunk) {
     VtIntArray counts(chunk.pieces.size());
     for (size_t j = 0; j < chunk.pieces.size(); ++j) counts[j] = chunk.pieces[j].pointCount;
     return counts;
+}
+
+std::vector<float> computeArcValues(const GCPnts_QuasiUniformDeflection& sampler) {
+    int n = sampler.NbPoints();
+    std::vector<float> arc(n, 0.0f);
+    if (n < 2) return arc;
+
+    float total = 0.0f;
+    for (int i = 2; i <= n; ++i)
+        total += static_cast<float>(sampler.Value(i - 1).Distance(sampler.Value(i)));
+
+    float cum = 0.0f;
+    for (int i = 2; i <= n; ++i) {
+        cum += static_cast<float>(sampler.Value(i - 1).Distance(sampler.Value(i)));
+        arc[i - 1] = (total > 1e-10f) ? cum / total : 1.0f;
+    }
+    arc[n - 1] = 1.0f; // guard against float drift
+    return arc;
+};
+
+double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape) {
+    Bnd_Box bbox;
+    BRepBndLib::Add(defShape, bbox);
+    double xmin, ymin, zmin, xmax, ymax, zmax;
+    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+
+    double diagonal = std::sqrt(
+        std::pow(xmax - xmin, 2) + 
+        std::pow(ymax - ymin, 2) + 
+        std::pow(zmax - zmin, 2)
+    );
+
+    return diagonal;
 }

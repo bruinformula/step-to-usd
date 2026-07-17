@@ -604,7 +604,6 @@ bool StepUsdPipeline::populateTessellationJobs(
             LOG_WARN("Failed to populate params bank for prototypes [" + proto.stage->GetRootLayer()->GetRealPath() + "].");
         }
 
-        bool runMesherInParallel = !proto.makeFreshStage;
         std::shared_ptr<PrototypeContainer> protoPtr = std::make_shared<PrototypeContainer>(proto);
 
         const auto& defs = proto.model->getDefinitionShapes();
@@ -641,13 +640,13 @@ bool StepUsdPipeline::populateTessellationJobs(
                     }
                     
                     //std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
-                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessResult(), runMesherInParallel});
+                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessResult()});
                 }
             }
             
             if (!foundVariantForProto) {
                 params.unitScale = proto.sourceToOutputScale;
-                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessResult(), runMesherInParallel});
+                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessResult()});
             }
         }
     }
@@ -757,7 +756,7 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         return std::nullopt;
     }
 
-    std::unordered_set<StepBundleKey, StepBundleKeyHash> referencedAssetBundles;
+    std::unordered_set<StepBundleKey, StepBundleKey::Hash> referencedAssetBundles;
 
     // Do a scan for all refernced Step Assets, so 
     // we can load them in parallel and cache the 
@@ -863,7 +862,7 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         }
     }
 
-    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKeyHash> modelCache;
+    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> modelCache;
 
     {
         LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedAssetBundles.size()) + " files)");
@@ -988,6 +987,7 @@ void StepUsdPipeline::populateUsd(
     LOG_DEBUG("Deactivating original prototype container in container stage: " + this->pathConfig.prototypesPath.GetString());
 
     if (!mark.IsClean()) {
-        for (const auto& error : mark) std::cerr << "Usd: " << error.GetCommentary() << "\n";
+        for (const auto& error : mark) 
+            LOG_ERR("Usd: " + error.GetCommentary());
     }
 }

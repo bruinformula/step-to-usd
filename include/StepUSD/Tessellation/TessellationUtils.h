@@ -2,6 +2,11 @@
 
 #include <vector>
 
+#include <TopoDS_Shape.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+
 #pragma push_macro("Handle")
 #undef Handle
 
@@ -56,3 +61,7 @@ VtArray<T> gatherChunkValues(const VtArray<T>& source, const CurveChunk& chunk) 
     }
     return VtArray<T>(values.begin(), values.end());
 }
+
+std::vector<float> computeArcValues(const GCPnts_QuasiUniformDeflection& sampler);
+
+double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape);

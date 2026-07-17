@@ -24,11 +24,11 @@
 #pragma pop_macro("Handle")
 
 #include "StepUSD/StepUsdPipeline.h"
-#include "StepUSD/Routine/PrototypeRoutines.h"
+#include "StepUSD/PrototypeMember/PrototypeMember.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool SketchPlaneRoutine::definePrim(
+bool SketchPlanePrim::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
@@ -42,7 +42,7 @@ bool SketchPlaneRoutine::definePrim(
     return true;
 }
 
-bool SketchPlaneRoutine::writePrim(
+bool SketchPlanePrim::writePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
     const TessResult& r,
