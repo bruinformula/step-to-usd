@@ -1,5 +1,5 @@
-#include <string>
-#include <vector>
+
+#include <stddef.h>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -9,79 +9,80 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/attribute.h>
+
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/path.h>
+
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/primvar.h>
+#include <pxr/usd/usdGeom/pointBased.h>
+
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/gf/vec3f.h>
-#include <pxr/usd/usdGeom/pointBased.h>
-#include <stddef.h>
-#include <stdint.h>
+
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/PrototypeMember/PrototypeMember.h"
+
 #include "StepUSD/Tessellation/TessellationUtils.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool WireframePrim::definePrim(
+bool MeshTessellationRoutine::defineWireframePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
     UsdGeomXform::Define(stage, wireframePath);
 
     if (params.wireframePointLimit <= 0) {
-        LOG_ERR("Prim: " + protoPath.GetString() + ": defineWireframeGeometry: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
+        LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::defineWireframePrim: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
         return false;
     }
 
-    uint64_t numSubCurves = (r.wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+    uint64_t numSubCurves = (wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
 
     if (params.wireframeCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
             stage, wireframePath.AppendChild(TfToken("Curves"))
         );
-        if (!r.wireframeContinuity.empty()) {
+        if (!wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
         }
-        if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
+        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
         }
 
-        if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
-            LOG_DEBUG("defineWireframeGeometry: Created surfaceNormal primvar for wireframe");
+        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
+            LOG_DEBUG("MeshTessellationRoutine::defineWireframePrim: Created surfaceNormal primvar for wireframe");
         }
-        if (r.wireframeArcValues.size() == r.wireframePoints.size()) {
+        if (wireframeArcValues.size() == wireframePoints.size()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
         }
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(r.wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
+        std::vector<CurveChunk> chunks = computeCurveChunks(wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
                 stage, wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))
             );
 
-            if (!r.wireframeContinuity.empty()) {
+            if (!wireframeContinuity.empty()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform);
             }
-            if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size()) {
+            if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
             }
-            if (!r.wireframeArcValues.empty()) {
+            if (!wireframeArcValues.empty()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
             }
         }
@@ -89,26 +90,25 @@ bool WireframePrim::definePrim(
     return true;
 }
 
-bool WireframePrim::writePrim(
+bool MeshTessellationRoutine::writeWireframePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
 
     if (params.wireframePointLimit <= 0) {
-        LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
+        LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::writeWireframePrim: invalid wireframePointLimit " + std::to_string(params.wireframePointLimit) + ", must be > 0.");
         return false;
     }
     
-    uint64_t numSubCurves = (r.wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+    uint64_t numSubCurves = (wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
 
     if (params.wireframeCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
         if (!curve) {
-            LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: missing curve prim");
+            LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::writeWireframePrim: missing curve prim");
             return false;
         }
 
@@ -119,15 +119,15 @@ bool WireframePrim::writePrim(
             curve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
         curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        curve.GetPointsAttr().Set(r.wireframePoints);
-        curve.GetCurveVertexCountsAttr().Set(r.wireframeCounts);
+        curve.GetPointsAttr().Set(wireframePoints);
+        curve.GetCurveVertexCountsAttr().Set(wireframeCounts);
 
         {
             VtVec3fArray extent(2);
-            if (UsdGeomPointBased::ComputeExtent(r.wireframePoints, &extent)) {
+            if (UsdGeomPointBased::ComputeExtent(wireframePoints, &extent)) {
                 curve.CreateExtentAttr().Set(extent);
             } else {
-                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: ComputeExtent failed at " + protoPath.GetString());
+                LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::writeWireframePrim: ComputeExtent failed at " + protoPath.GetString());
             }
         }
         
@@ -136,31 +136,31 @@ bool WireframePrim::writePrim(
         
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
-        if (!r.wireframeContinuity.empty()) {
+        if (!wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI api(curve);
-            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(r.wireframeContinuity);
+            if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType"))) p.Set(wireframeContinuity);
         }
 
-        if (params.wireframeEmbedSurfaceNormals && r.wireframeSurfaceNormals.size() == r.wireframePoints.size() && !r.points.empty()) {
+        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size() && !points.empty()) {
             UsdGeomPrimvarsAPI api(curve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
-                p.Set(r.wireframeSurfaceNormals);
+                p.Set(wireframeSurfaceNormals);
         }
 
-        if (r.wireframeArcValues.size() == r.wireframePoints.size()) {
+        if (wireframeArcValues.size() == wireframePoints.size()) {
             UsdGeomPrimvarsAPI api(curve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc"))) 
-                p.Set(r.wireframeArcValues);
+                p.Set(wireframeArcValues);
         }
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(r.wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
+        std::vector<CurveChunk> chunks = computeCurveChunks(wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             const CurveChunk& chunk = chunks[ci];
 
             UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Wireframe_" + std::to_string(ci)))));
             if (!curve) {
-                LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: missing curve prim Wireframe_" + std::to_string(ci));
+                LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::writeWireframePrim: missing curve prim Wireframe_" + std::to_string(ci));
                 continue;
             }
 
@@ -172,40 +172,40 @@ bool WireframePrim::writePrim(
             }
             curve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
 
-            VtArray<GfVec3f> pts = gatherChunkValues(r.wireframePoints, chunk);
+            VtArray<GfVec3f> pts = gatherChunkValues(wireframePoints, chunk);
             curve.GetPointsAttr().Set(pts);
             curve.GetCurveVertexCountsAttr().Set(chunkVertexCounts(chunk));
             curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 
             {
                 VtVec3fArray extent(2);
-                if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+                if (UsdGeomPointBased::ComputeExtent(points, &extent)) {
                     curve.CreateExtentAttr().Set(extent);
                 } else {
-                    LOG_ERR("Prim: " + protoPath.GetString() + ": WireframePrim::writePrim: ComputeExtent failed at " + protoPath.GetString());
+                    LOG_ERR("Prim: " + protoPath.GetString() + ": MeshTessellationRoutine::writeWireframePrim: ComputeExtent failed at " + protoPath.GetString());
                 }
             }
 
             UsdGeomPrimvarsAPI api(curve);
 
-            if (!r.wireframeContinuity.empty()) {
+            if (!wireframeContinuity.empty()) {
                 VtIntArray continuity(chunk.pieces.size());
                 for (size_t j = 0; j < chunk.pieces.size(); ++j) {
                     int srcIdx = chunk.pieces[j].sourceCurveIdx;
-                    continuity[j] = (srcIdx < (int)r.wireframeContinuity.size()) ? r.wireframeContinuity[srcIdx] : 0;
+                    continuity[j] = (srcIdx < (int)wireframeContinuity.size()) ? wireframeContinuity[srcIdx] : 0;
                 }
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("continuityType")))
                     p.Set(continuity);
             }
 
-            if (!r.wireframeArcValues.empty()) {
-                VtArray<float> arcUs = gatherChunkValues(r.wireframeArcValues, chunk);
+            if (!wireframeArcValues.empty()) {
+                VtArray<float> arcUs = gatherChunkValues(wireframeArcValues, chunk);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
                     p.Set(arcUs);
             }
 
-            if (params.wireframeEmbedSurfaceNormals && !r.wireframeSurfaceNormals.empty()) {
-                VtArray<GfVec3f> normals = gatherChunkValues(r.wireframeSurfaceNormals, chunk);
+            if (params.wireframeEmbedSurfaceNormals && !wireframeSurfaceNormals.empty()) {
+                VtArray<GfVec3f> normals = gatherChunkValues(wireframeSurfaceNormals, chunk);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
                     p.Set(normals);
             }

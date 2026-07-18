@@ -640,13 +640,13 @@ bool StepUsdPipeline::populateTessellationJobs(
                     }
                     
                     //std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
-                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessResult()});
+                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessellationRoutine()});
                 }
             }
             
             if (!foundVariantForProto) {
                 params.unitScale = proto.sourceToOutputScale;
-                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessResult()});
+                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessellationRoutine()});
             }
         }
     }
@@ -974,7 +974,7 @@ void StepUsdPipeline::populateUsd(
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
             if (job.proto->stage->GetRootLayer()->GetRealPath() == proto.stage->GetRootLayer()->GetRealPath()) {
-                geomJobs.push_back({job.prototypePath, job.result, job.params});
+                geomJobs.push_back({job.prototypePath, job.params, job.routine});
             }
         }
         

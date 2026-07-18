@@ -24,22 +24,21 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/PrototypeMember/PrototypeMember.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
+
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool MeshPrim::definePrim(
+bool MeshTessellationRoutine::defineMeshPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
     if (params.meshEnableSurfaceSubsets) {
-        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+        for (const auto& surfaceIDBounds : surfaceIDBounds) {
             UsdGeomSubset::Define(
                 stage,
                 protoMesh.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
@@ -54,16 +53,15 @@ bool MeshPrim::definePrim(
     return true;
 }
 
-bool MeshPrim::writePrim(
+bool MeshTessellationRoutine::writeMeshPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
 
     if (params.meshEnableSurfaceSubsets) {
-        for (const auto& surfaceIDBounds : r.surfaceIDBounds) {
+        for (const auto& surfaceIDBounds : surfaceIDBounds) {
             int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
 
             VtIntArray indices(count);
@@ -84,16 +82,16 @@ bool MeshPrim::writePrim(
         UsdGeomSubset::SetFamilyType(protoMesh, TfToken("materialBind"), UsdGeomTokens->partition);
     }
 
-    protoMesh.GetPointsAttr().Set(r.points);
-    protoMesh.GetFaceVertexCountsAttr().Set(r.faceVertexCounts);
-    protoMesh.GetFaceVertexIndicesAttr().Set(r.faceVertexIndices);
+    protoMesh.GetPointsAttr().Set(points);
+    protoMesh.GetFaceVertexCountsAttr().Set(faceVertexCounts);
+    protoMesh.GetFaceVertexIndicesAttr().Set(faceVertexIndices);
     protoMesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
     protoMesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
-    protoMesh.GetNormalsAttr().Set(r.normals);
+    protoMesh.GetNormalsAttr().Set(normals);
 
     {
         VtVec3fArray extent(2);
-        if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+        if (UsdGeomPointBased::ComputeExtent(points, &extent)) {
             protoMesh.CreateExtentAttr().Set(extent);
         } else {
             LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
@@ -101,11 +99,11 @@ bool MeshPrim::writePrim(
     }
 
     UsdGeomPrimvarsAPI api(protoMesh);
-    if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(r.perSurfaceUVs);
-    if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(r.isBoundaryVertex);
-    if (!r.boundaryTangents.empty() && r.boundaryTangents.size() == r.points.size()) {
+    if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(perSurfaceUVs);
+    if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(isBoundaryVertex);
+    if (!boundaryTangents.empty() && boundaryTangents.size() == points.size()) {
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("boundaryTangent")))
-            p.Set(r.boundaryTangents);
+            p.Set(boundaryTangents);
     }
     return true;
 }

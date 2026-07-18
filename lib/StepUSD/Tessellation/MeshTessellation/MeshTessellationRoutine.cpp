@@ -1,4 +1,3 @@
-#include <iostream>
 #include <chrono>
 #include <utility>
 #include <algorithm>
@@ -7,7 +6,6 @@
 #include <initializer_list>
 #include <unordered_map>
 #include <unordered_set>
-#include <atomic>
 #include <limits>
 #include <string>
 #include <vector>
@@ -77,10 +75,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
 #include "StepUSD/Tessellation/TessellationRoutine.h"
-#include "StepUSD/Tessellation/DeadlineProgressIndicator.h"
 #include "StepUSD/Tessellation/TessellationUtils.h"
 
 class Geom_Surface;
@@ -267,13 +263,12 @@ TriNodeKey resolveAlias(
 }
 
 // Samples a resampled (non-"Underlying") boundary curve and appends it to
-// result.wireframe*. Lifted out of the edge-walk loop unchanged.
+// wireframe*. Lifted out of the edge-walk loop unchanged.
 void MeshTessellationRoutine::emitResampledWireframeCurve(
     const TopoDS_Edge& edge,
     const NCollection_List<TopoDS_Shape>& adjFaces,
     int continuity,
-    const TessParams& params,
-    TessResult& result
+    const TessParams& params
 ) {
     BRepAdaptor_Curve adaptor(edge);
     GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframeDeflection, adaptor.FirstParameter(), adaptor.LastParameter());
@@ -313,37 +308,37 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(
     if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
         // Add phantom start for Catmull-Rom interpolation
         gp_Pnt p0 = sampler.Value(1);
-        result.wireframeArcValues.push_back(0.0f);
+        wireframeArcValues.push_back(0.0f);
 
-        result.wireframePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
-        if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[0]);
+        wireframePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+        if (params.wireframeEmbedSurfaceNormals) wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[0]);
 
         for (int i = 1; i <= n; ++i) {
             gp_Pnt p = sampler.Value(i);
-            result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
-            result.wireframeArcValues.push_back(arcValues[i - 1]);
-            if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
+            wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+            wireframeArcValues.push_back(arcValues[i - 1]);
+            if (params.wireframeEmbedSurfaceNormals) wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
         }
 
         // Add phantom end
         gp_Pnt pN = sampler.Value(n);
-        result.wireframePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
-        result.wireframeArcValues.push_back(1.0f);
-        if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[n - 1]);
+        wireframePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+        wireframeArcValues.push_back(1.0f);
+        if (params.wireframeEmbedSurfaceNormals) wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[n - 1]);
 
-        result.wireframeCounts.push_back(n + 2);
+        wireframeCounts.push_back(n + 2);
     } else {
         // ResampledLinear
         for (int i = 1; i <= n; ++i) {
             gp_Pnt p = sampler.Value(i);
-            result.wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
-            result.wireframeArcValues.push_back(arcValues[i - 1]);
-            if (params.wireframeEmbedSurfaceNormals) result.wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
+            wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+            wireframeArcValues.push_back(arcValues[i - 1]);
+            if (params.wireframeEmbedSurfaceNormals) wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
         }
-        result.wireframeCounts.push_back(n);
+        wireframeCounts.push_back(n);
     }
 
-    result.wireframeContinuity.push_back(continuity);
+    wireframeContinuity.push_back(continuity);
 }
 
 // Walk every edge once, unify triangulation nodes shared by
@@ -353,8 +348,7 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(
 void MeshTessellationRoutine::buildEdgeWalk(
     const TopoDS_Shape& defShape,
     const TessParams& params,
-    MeshTessellationContext& ctx,
-    TessResult& result
+    MeshTessellationContext& ctx
 ) {
     TopExp::MapShapes(defShape, TopAbs_FACE, ctx.faceMap);
     TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, ctx.edgeToFaces);
@@ -493,7 +487,7 @@ void MeshTessellationRoutine::buildEdgeWalk(
                 if (edgeCanonicalKeys.size() >= 2)
                     ctx.deferredCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
-                emitResampledWireframeCurve(edge, adjFaces, continuity, params, result);
+                emitResampledWireframeCurve(edge, adjFaces, continuity, params);
             }
         }
     }
@@ -514,14 +508,13 @@ void MeshTessellationRoutine::countTrianglesAndNodes(const TopoDS_Shape& defShap
     }
 }
 
-// Welds one face's triangulation nodes into result.points (skipping nodes
+// Welds one face's triangulation nodes into points (skipping nodes
 // already emitted by a face visited earlier, via ctx.nodeToCanonical), and
 // reports the world-space bounding box of the nodes it touched.
 void MeshTessellationRoutine::weldFaceNodes(
     const occt::handle<Poly_Triangulation>& tri,
     const gp_Trsf& trsf,
     MeshTessellationContext& ctx,
-    TessResult& result,
     float bboxOut[6] // xmin, xmax, ymin, ymax, zmin, zmax
 ) {
     float wxMin= std::numeric_limits<float>::max(), wxMax=-std::numeric_limits<float>::max();
@@ -533,8 +526,8 @@ void MeshTessellationRoutine::weldFaceNodes(
         if (ctx.nodeToCanonical.count(key)) continue;
 
         gp_Pnt p = tri->Node(j).Transformed(trsf);
-        int idx = static_cast<int>(result.points.size());
-        result.points.push_back(GfVec3f(
+        int idx = static_cast<int>(points.size());
+        points.push_back(GfVec3f(
             static_cast<float>(p.X()),
             static_cast<float>(p.Y()),
             static_cast<float>(p.Z())
@@ -566,7 +559,6 @@ void MeshTessellationRoutine::emitFaceTriangles(
     const gp_Vec& faceTangentV,
     const gp_Pnt& faceCentroid,
     MeshTessellationContext& ctx,
-    TessResult& result,
     UVPatch& patch
 ) {
     for (int j = 1; j <= tri->NbTriangles(); j++) {
@@ -578,10 +570,10 @@ void MeshTessellationRoutine::emitFaceTriangles(
         int i2 = ctx.nodeToCanonical[resolveAlias(ctx.nodeAlias, {tri.get(), n2})];
         int i3 = ctx.nodeToCanonical[resolveAlias(ctx.nodeAlias, {tri.get(), n3})];
 
-        result.faceVertexCounts.push_back(3);
-        result.faceVertexIndices.push_back(i1);
-        result.faceVertexIndices.push_back(i2);
-        result.faceVertexIndices.push_back(i3);
+        faceVertexCounts.push_back(3);
+        faceVertexIndices.push_back(i1);
+        faceVertexIndices.push_back(i2);
+        faceVertexIndices.push_back(i3);
 
         for (int localIdx : {n1, n2, n3}) {
             GfVec3f normal(0.0f, 0.0f, 1.0f);
@@ -593,7 +585,7 @@ void MeshTessellationRoutine::emitFaceTriangles(
                 v = static_cast<float>(uv.Y());
             } else {
                 int canonIdx = ctx.nodeToCanonical[resolveAlias(ctx.nodeAlias, {tri.get(), localIdx})];
-                const GfVec3f& wp = result.points[canonIdx];
+                const GfVec3f& wp = points[canonIdx];
                 gp_Vec offset(
                     wp[0] - faceCentroid.X(),
                     wp[1] - faceCentroid.Y(),
@@ -633,7 +625,7 @@ void MeshTessellationRoutine::emitFaceTriangles(
 
             if (reversed) normal = -normal;
 
-            result.normals.push_back(normal);
+            normals.push_back(normal);
             patch.uvs.push_back(GfVec2f(u, v));
             patch.uMin = std::min(patch.uMin, u);
             patch.uMax = std::max(patch.uMax, u);
@@ -656,8 +648,7 @@ void MeshTessellationRoutine::emitFaceTriangles(
 // hand off to emitFaceTriangles for the actual per-triangle work.
 void MeshTessellationRoutine::tessellateFaces(
     const TopoDS_Shape& defShape,
-    MeshTessellationContext& ctx,
-    TessResult& result
+    MeshTessellationContext& ctx
 ) {
     int surfaceBoundIdx = 0; // 'global' running triangle offset for geom subsets
 
@@ -668,14 +659,14 @@ void MeshTessellationRoutine::tessellateFaces(
         occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
 
-        TessResult::SurfaceIDBounds surfaceBounds = { surfaceBoundIdx, surfaceBoundIdx + tri->NbTriangles(), surfaceIndex };
-        result.surfaceIDBounds.push_back(surfaceBounds);
+        SurfaceIDBounds surfaceBounds = { surfaceBoundIdx, surfaceBoundIdx + tri->NbTriangles(), surfaceIndex };
+        surfaceIDBounds.push_back(surfaceBounds);
         surfaceBoundIdx += tri->NbTriangles();
 
         gp_Trsf trsf = loc.Transformation();
 
         float bbox[6];
-        weldFaceNodes(tri, trsf, ctx, result, bbox);
+        weldFaceNodes(tri, trsf, ctx, bbox);
 
         bool reversed = (face.Orientation() == TopAbs_REVERSED);
 
@@ -725,7 +716,7 @@ void MeshTessellationRoutine::tessellateFaces(
         patch.worldW = std::max(dims[0], 1e-10f);
         patch.worldH = std::max(dims[1], 1e-10f);
 
-        emitFaceTriangles(tri, trsf, reversed, hasUV, geomSurface, faceTangentU, faceTangentV, faceCentroid, ctx, result, patch);
+        emitFaceTriangles(tri, trsf, reversed, hasUV, geomSurface, faceTangentU, faceTangentV, faceCentroid, ctx, patch);
 
         ctx.uvPatches.push_back(std::move(patch));
     }
@@ -733,24 +724,24 @@ void MeshTessellationRoutine::tessellateFaces(
 
 // Turn the boundary node set / tangent accumulator collected during
 // the edge walk into per-output-point arrays.
-void MeshTessellationRoutine::finalizeBoundaryData(MeshTessellationContext& ctx, TessResult& result) {
-    result.isBoundaryVertex.resize(result.points.size(), false);
+void MeshTessellationRoutine::finalizeBoundaryData(MeshTessellationContext& ctx) {
+    isBoundaryVertex.resize(points.size(), false);
     for (int idx : ctx.boundaryNodes)
-        result.isBoundaryVertex[idx] = true;
+        isBoundaryVertex[idx] = true;
 
-    result.boundaryTangents.assign(result.points.size(), GfVec3f(0.0f, 0.f, 0.f));
+    boundaryTangents.assign(points.size(), GfVec3f(0.0f, 0.f, 0.f));
     for (auto& [key, accum] : ctx.tangentAccum) {
         auto it = ctx.nodeToCanonical.find(resolveAlias(ctx.nodeAlias, key));
         if (it == ctx.nodeToCanonical.end()) continue;
 
         const int idx = it->second;
-        if (idx < 0 || idx >= (int)result.points.size()) continue;
+        if (idx < 0 || idx >= (int)points.size()) continue;
 
         const float len = accum.GetLength();
         if (len > 1e-10f) {
-            result.boundaryTangents[idx] = accum / len;
+            boundaryTangents[idx] = accum / len;
         } else {
-            result.boundaryTangents[idx] = GfVec3f(0.0f, 0.0f, 0.0f);
+            boundaryTangents[idx] = GfVec3f(0.0f, 0.0f, 0.0f);
         }
     }
 }
@@ -778,8 +769,7 @@ VtArray<GfVec3f> computeEmbeddedPointNormals(const TessParams& params, const Mes
 void MeshTessellationRoutine::emitDeferredWireframeCurves(
     const TessParams& params,
     const MeshTessellationContext& ctx,
-    const VtArray<GfVec3f>& pointNormals,
-    TessResult& result
+    const VtArray<GfVec3f>& pointNormals
 ) {
     for (const DeferredCurve& deferred : ctx.deferredCurves) {
         std::vector<int> resolved;
@@ -795,10 +785,10 @@ void MeshTessellationRoutine::emitDeferredWireframeCurves(
         {
             float total = 0.0f;
             for (size_t i = 1; i < resolved.size(); ++i)
-                total += (result.points[resolved[i]] - result.points[resolved[i-1]]).GetLength();
+                total += (points[resolved[i]] - points[resolved[i-1]]).GetLength();
             float cum = 0.0f;
             for (size_t i = 1; i < resolved.size(); ++i) {
-                cum += (result.points[resolved[i]] - result.points[resolved[i-1]]).GetLength();
+                cum += (points[resolved[i]] - points[resolved[i-1]]).GetLength();
                 arcValues[i] = (total > 1e-10f) ? cum / total : 1.0f;
             }
             arcValues.back() = 1.0f;
@@ -806,85 +796,85 @@ void MeshTessellationRoutine::emitDeferredWireframeCurves(
 
         if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
             // Phantom start — duplicate first point
-            result.wireframePoints.push_back(result.points[resolved.front()]);
-            result.wireframeArcValues.push_back(0.0f);
+            wireframePoints.push_back(points[resolved.front()]);
+            wireframeArcValues.push_back(0.0f);
             if (params.wireframeEmbedSurfaceNormals)
-                result.wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
+                wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
         }
         for (size_t i = 0; i < resolved.size(); ++i) {
-            result.wireframePoints.push_back(result.points[resolved[i]]);
-            result.wireframeArcValues.push_back(arcValues[i]);
+            wireframePoints.push_back(points[resolved[i]]);
+            wireframeArcValues.push_back(arcValues[i]);
             if (params.wireframeEmbedSurfaceNormals)
-                result.wireframeSurfaceNormals.push_back(pointNormals[resolved[i]]);
+                wireframeSurfaceNormals.push_back(pointNormals[resolved[i]]);
         }
         if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
             // Phantom end — duplicate last point
-            result.wireframePoints.push_back(result.points[resolved.back()]);
-            result.wireframeArcValues.push_back(1.0f);
-            result.wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
+            wireframePoints.push_back(points[resolved.back()]);
+            wireframeArcValues.push_back(1.0f);
+            wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
             if (params.wireframeEmbedSurfaceNormals)
-                result.wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
+                wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
         } else {
-            result.wireframeCounts.push_back(static_cast<int>(resolved.size()));
+            wireframeCounts.push_back(static_cast<int>(resolved.size()));
         }
-        result.wireframeContinuity.push_back(deferred.continuity);
+        wireframeContinuity.push_back(deferred.continuity);
     }
 }
 
-// result.points was built incrementally and may contain points that
+// points was built incrementally and may contain points that
 // no triangle ended up referencing (e.g. from faces that failed to weld
 // cleanly). Drop them and reindex faceVertexIndices to match.
-void MeshTessellationRoutine::compactUnusedPoints(TessResult& result) {
-    if (result.faceVertexIndices.empty()) {
+void MeshTessellationRoutine::compactUnusedPoints() {
+    if (faceVertexIndices.empty()) {
         LOG_DEBUG("  -> tessellatePart: faceVertexIndices is empty, clearing points and boundary flags to avoid confusion downstream");
-        result.points.clear();
-        result.isBoundaryVertex.clear();
+        points.clear();
+        isBoundaryVertex.clear();
         return;
     }
 
-    if (result.points.empty()) return;
+    if (points.empty()) return;
 
     LOG_DEBUG("  -> tessellatePart: Welding vertices and reindexing faces");
-    std::vector<int> oldToNew(result.points.size(), -1);
+    std::vector<int> oldToNew(points.size(), -1);
     VtArray<GfVec3f> newPoints;
-    newPoints.reserve(result.points.size());
+    newPoints.reserve(points.size());
     VtArray<bool> newIsBoundary;
     VtArray<GfVec3f> newBoundaryTangents;
-    if (!result.isBoundaryVertex.empty()) {
-        newIsBoundary.reserve(result.points.size());
+    if (!isBoundaryVertex.empty()) {
+        newIsBoundary.reserve(points.size());
     }
 
-    if (!result.boundaryTangents.empty()) {
-        newBoundaryTangents.reserve(result.points.size());
+    if (!boundaryTangents.empty()) {
+        newBoundaryTangents.reserve(points.size());
     }
 
-    for (int index : result.faceVertexIndices) {
+    for (int index : faceVertexIndices) {
         if (oldToNew[index] == -1) {
             oldToNew[index] = newPoints.size();
-            newPoints.push_back(result.points[index]);
-            if (!result.isBoundaryVertex.empty()) {
-                newIsBoundary.push_back(result.isBoundaryVertex[index]);
+            newPoints.push_back(points[index]);
+            if (!isBoundaryVertex.empty()) {
+                newIsBoundary.push_back(isBoundaryVertex[index]);
             }
-            if (!result.boundaryTangents.empty()) {
-                newBoundaryTangents.push_back(result.boundaryTangents[index]);
+            if (!boundaryTangents.empty()) {
+                newBoundaryTangents.push_back(boundaryTangents[index]);
             }
         }
     }
 
-    for (int& index : result.faceVertexIndices) {
+    for (int& index : faceVertexIndices) {
         index = oldToNew[index];
     }
 
-    result.points = std::move(newPoints);
-    if (!result.isBoundaryVertex.empty()) {
-        result.isBoundaryVertex = std::move(newIsBoundary);
+    points = std::move(newPoints);
+    if (!isBoundaryVertex.empty()) {
+        isBoundaryVertex = std::move(newIsBoundary);
     }
-    if (!result.boundaryTangents.empty()) {
-        result.boundaryTangents = std::move(newBoundaryTangents);
+    if (!boundaryTangents.empty()) {
+        boundaryTangents = std::move(newBoundaryTangents);
     }
 }
 
-void MeshTessellationRoutine::applyUnitScale(const TessParams& params, TessResult& result) {
+void MeshTessellationRoutine::applyUnitScale(const TessParams& params) {
     if (params.unitScale == 1.0) return;
 
     const float s = static_cast<float>(params.unitScale);
@@ -893,30 +883,29 @@ void MeshTessellationRoutine::applyUnitScale(const TessParams& params, TessResul
             p *= s;
         }
     };
-    scalePoints(result.points);
-    scalePoints(result.wireframePoints);
+    scalePoints(points);
+    scalePoints(wireframePoints);
 }
 
 // A definition is valid if it has mesh geometry OR sketch curves.
 // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
 // but do carry sketch curves, so only reject if both are absent.
-bool MeshTessellationRoutine::hasValidGeometry(const TessResult& result) {
-    return !(result.points.empty() &&
-             result.wireframeCounts.empty());
+bool MeshTessellationRoutine::hasValidGeometry() {
+    return !(points.empty() &&
+             wireframeCounts.empty());
 }
 
 bool MeshTessellationRoutine::tessellate(
     const TopoDS_Shape& defShape, 
     const TessParams& params,
-    const SdfPath& protoPath,
-    TessResult& result
+    const SdfPath& protoPath
 ) {
     auto tessellateStart = Clock::now();
 
     LOG_DEBUG("  -> tessellatePart: Edge walk preparation");
 
     MeshTessellationContext ctx;
-    buildEdgeWalk(defShape, params, ctx, result);
+    buildEdgeWalk(defShape, params, ctx);
 
     auto edgeWalkEnd = Clock::now();
     LOG_DEBUG("  Edge-walk time: " + std::to_string(Seconds(edgeWalkEnd - tessellateStart).count()) + " s");
@@ -926,22 +915,22 @@ bool MeshTessellationRoutine::tessellate(
     int totalTris = 0, totalNodes = 0;
     countTrianglesAndNodes(defShape, totalTris, totalNodes);
 
-    result.faceVertexCounts.reserve(totalTris);
-    result.faceVertexIndices.reserve(totalTris * 3);
-    result.normals.reserve(totalTris * 3);
+    faceVertexCounts.reserve(totalTris);
+    faceVertexIndices.reserve(totalTris * 3);
+    normals.reserve(totalTris * 3);
     ctx.uvPatches.reserve(ctx.faceMap.Extent());
-    result.surfaceIDBounds.reserve(ctx.faceMap.Extent());
+    surfaceIDBounds.reserve(ctx.faceMap.Extent());
 
     // weld positions, emit faceVarying normals.
-    tessellateFaces(defShape, ctx, result);
-    result.perSurfaceUVs = packUVAtlas(ctx.uvPatches);
+    tessellateFaces(defShape, ctx);
+    perSurfaceUVs = packUVAtlas(ctx.uvPatches);
 
-    finalizeBoundaryData(ctx, result);
+    finalizeBoundaryData(ctx);
 
     VtArray<GfVec3f> pointNormals = computeEmbeddedPointNormals(params, ctx);
-    emitDeferredWireframeCurves(params, ctx, pointNormals, result);
+    emitDeferredWireframeCurves(params, ctx, pointNormals);
 
-    compactUnusedPoints(result);
+    compactUnusedPoints();
 
     auto faceProcessEnd = Clock::now();
     LOG_DEBUG("  Face processing time: " + std::to_string(Seconds(faceProcessEnd - edgeWalkEnd).count()) + " s");
@@ -949,12 +938,64 @@ bool MeshTessellationRoutine::tessellate(
     auto tessellateEnd = Clock::now();
     LOG_DEBUG("  Total tessellatePart time: " + std::to_string(Seconds(tessellateEnd - tessellateStart).count()) + " s");
 
-    applyUnitScale(params, result);
+    applyUnitScale(params);
 
-    if (!hasValidGeometry(result)) {
+    if (!hasValidGeometry()) {
         LOG_DEBUG("def produced no surface or wireframe geometry in Shape");
         return false;
     }
 
     return true;
+}
+
+bool MeshTessellationRoutine::definePrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessParams& params
+) const {
+    bool hasPoints = !points.empty() && !faceVertexIndices.empty() && !faceVertexCounts.empty();
+    bool meshDefined = false;
+    if (hasPoints) {
+        meshDefined = defineMeshPrim(stage, protoPath, params);
+    }
+    
+    bool hasWireframe = !wireframePoints.empty() && !wireframeCounts.empty();
+    bool wireframeDefined = false;
+    if (hasWireframe) {
+        wireframeDefined = defineWireframePrim(stage, protoPath, params);
+    }
+
+    return meshDefined && wireframeDefined;
+}
+
+bool MeshTessellationRoutine::writePrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessParams& params
+) const {
+    bool meshWritten = false;
+    if (!points.empty() && !faceVertexIndices.empty() && !faceVertexCounts.empty()) {
+        meshWritten = writeMeshPrim(stage, protoPath, params);
+    }
+
+    bool wireframeWritten = false;
+    if (!wireframePoints.empty() && !wireframeCounts.empty()) {
+        wireframeWritten = writeWireframePrim(stage, protoPath, params);
+    }
+
+    return meshWritten && wireframeWritten;
+}
+
+void MeshTessellationRoutine::clearPrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath
+) const {
+    stage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
+    stage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
+}
+
+size_t MeshTessellationRoutine::size() const {
+    size_t meshSize = points.size();
+    size_t wireframeSize = wireframePoints.size();
+    return meshSize + wireframeSize;
 }

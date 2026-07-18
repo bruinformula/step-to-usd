@@ -1,16 +1,14 @@
 #pragma once
 
-#include <limits>
 #include <vector>
 
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/timeCode.h>
 #include <pxr/usd/usd/attribute.h>
-
+#include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/reference.h>
 
 #include <pxr/base/vt/array.h>
@@ -20,131 +18,9 @@
 #pragma pop_macro("Handle")
 
 #include "OpenCascadeAssembly.h"
+#include "Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-struct TessParams {
-    // Meshing
-    double meshLinearDeflection = 1.0f;       // Linear deflection as fraction of bounding-box diagonal
-    double meshAngularDeflection = 0.5f;      // Angular deflection in radians
-    double meshMinSize = 0.0;                // Minimum triangle edge length as fraction of bounding-box diagonal
-    double meshSelfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
-    int meshMaxNumberRemeshPasses = 1;           // Maximum remesh passes
-    double meshFixPrecision = 1e-7;          // Tolerance for shape fixing
-    double meshFixTolerance = 1e-7;       // Tolerance for meshing operations
-
-    // Timeout in milliseconds
-    uint64_t meshFixTimeout = 3000;            
-    uint64_t meshMeshTimeout = 3000;           
-    uint64_t meshRemeshTimeout = 3000;   
-    
-    enum class CurveType {
-        None,                // ain't got nothing on me
-        Linear,              // polyline using the tessellated mesh boundary vertices directly
-        Cubic          // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
-    };
-
-    enum class CurveSampling {
-        Underlying, // polyline using the tessellated mesh boundary vertices
-        Resampled   // resampled from the underlying curve geometry
-    };
-
-    struct CurveMode {
-        CurveType type;
-        CurveSampling sampling;
-    };
-
-    // Wireframe
-    double wireframeDeflection = 0.01f;     
-    CurveMode wireframeMode = { CurveType::Linear, CurveSampling::Underlying };
-    bool wireframeCombineCurves = true;
-    bool wireframeEmbedSurfaceNormals = true;
-    uint64_t wireframePointLimit = 65535; 
-
-    // Sketch
-    double sketchDeflection = 0.005f;       
-    CurveMode sketchMode = { CurveType::Linear, CurveSampling::Underlying };
-    bool sketchCombineCurves = true;
-    bool sketchEmbedSurfaceNormals = true;
-    uint64_t sketchPointLimit = 65535; 
-
-    // Sketch Plane 
-    double sketchPlaneLinearDeflection = 0.01f;
-    double sketchPlaneAngularDeflection = 0.5f;
-    double sketchPlaneMinSize = 0.0;
-    double sketchPlaneCombineTolerance = 1e-5;
-    double sketchPlaneFixPrecision = 1e-7;
-    double sketchPlaneFixTolerance = 1e-7;
-
-    uint64_t sketchPlaneFixTimeout = 3000;            
-    uint64_t sketchPlaneMeshTimeout = 3000;     
-
-    // Other 
-    double renderPurposeThreshold = std::numeric_limits<double>::infinity();
-    bool meshEnableSurfaceSubsets = false;     
-    bool meshEnableUVs = true;
-    bool meshEnableSurfaceID = false;
-    bool meshEnableIsBoundaryVertex = false;
-    double unitScale = 1.0;                // Internal exporter scale: source model units -> target USD units.
-    // in the units of the model along the diagonal. 
-    // if proto is smaller it gets marked as a render only asset
-};
-
-struct TessResult {
-    SdfPath targetLayer;
-
-    VtArray<GfVec3f> points;
-    VtArray<GfVec3f> normals;
-    VtArray<int> faceVertexCounts;
-    VtArray<int> faceVertexIndices;
-
-    VtArray<GfVec2f> perSurfaceUVs;
-    VtArray<bool> isBoundaryVertex;
-    VtArray<GfVec3f> boundaryTangents;
-
-    struct SurfaceIDBounds {
-        int startIdx;
-        int endIdx;
-        int surfaceID;
-    };
-
-    std::vector<SurfaceIDBounds> surfaceIDBounds; // start, end index for a particular face id 
-
-    // Wireframe curves 
-    VtArray<GfVec3f> wireframePoints;
-    VtArray<int> wireframeCounts;
-    VtArray<float> wireframeArcValues;
-    VtArray<GfVec3f> wireframeSurfaceNormals;
-    VtArray<int> wireframeContinuity;
-
-    // Sketch curves
-    VtArray<GfVec3f> sketchPoints;
-    VtArray<int> sketchCounts;
-    VtArray<float> sketchArcValues;
-    VtArray<GfVec3f> sketchSurfaceNormals;
-
-    // Sketch planes reconstructed from closed free-edge loops
-    VtArray<GfVec3f> sketchPlanePoints;
-    VtArray<GfVec3f> sketchPlaneNormals;
-    VtArray<int> sketchPlaneFaceVertexCounts;
-    VtArray<int> sketchPlaneFaceVertexIndices;
-
-    struct SketchPlaneBounds {
-        int pointStart;
-        int pointCount;
-        int faceCountStart;
-        int faceCountCount;
-        int faceIndexStart;
-        int faceIndexCount;
-        int normalStart;
-        int normalCount;
-    };
-
-    std::vector<SketchPlaneBounds> sketchPlaneBounds;
-
-    // Render Purpose
-    bool renderOnly; 
-};
 
 struct StageFilterInfo {
     bool makeFresh = false; // whole stage targeted
@@ -162,11 +38,11 @@ struct PrototypeContainer {
 };
 
 struct TessellationJob {
-    std::shared_ptr<PrototypeContainer>  proto;
+    std::shared_ptr<PrototypeContainer> proto;
     int defIndex;
     SdfPath prototypePath;
     TessParams params;
-    TessResult result;
+    TessellationRoutine routine;
 };
 
 struct StepUsdPipeline {
@@ -201,8 +77,8 @@ private:
 
     struct ProtoGeomJob {
         SdfPath protoPath;
-        TessResult result;
         TessParams params;
+        TessellationRoutine routine;
     };
 
     const OpenCascadeAssembly& getModelForProto(const PrototypeContainer& proto) const;
@@ -217,13 +93,6 @@ private:
         const SdfPath& prototypePath,
         const std::string& variantSetName,
         const std::string& variantName
-    );
-
-    bool tessellatePart(
-        TessResult& result, 
-        const TopoDS_Shape& defShape, 
-        const TessParams& params,
-        const SdfPath& protoPath
     );
 
     void tessellateGeometry(
@@ -295,7 +164,6 @@ private:
     bool writePrototypeGeometry(
         UsdStageRefPtr stage,
         const SdfPath& protoPath,
-        const TessResult& r,
         const TessParams& params,
         int defIdx
     ); 
@@ -306,7 +174,6 @@ private:
         UsdStageRefPtr targetStage,
         const std::string& logLabel,
         const TessParams& containerParams,
-        const std::vector<TessResult>& tessResults,
         const std::map<SdfPath, TessParams>& paramsBank,
         const std::unordered_set<SdfPath, SdfPath::Hash>& prototypeFilter = {}
     );

@@ -27,19 +27,17 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
-#include "StepUSD/PrototypeMember/PrototypeMember.h"
 #include "StepUSD/Tessellation/TessellationUtils.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool SketchPrim::definePrim(
+bool SketchTessellationRoutine::defineSketchPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
     UsdGeomScope::Define(stage, sketchPath);
 
@@ -48,26 +46,26 @@ bool SketchPrim::definePrim(
         return false;
     }
 
-    uint64_t numSubCurves = (r.sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+    uint64_t numSubCurves = (sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
 
     if (params.sketchCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(
             stage, sketchPath.AppendChild(TfToken("Curves"))
         );
-        if (!r.sketchArcValues.empty()) {
+        if (!sketchArcValues.empty()) {
             UsdGeomPrimvarsAPI(curves).CreatePrimvar(
                 TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
             );
         }
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(r.sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+        std::vector<CurveChunk> chunks = computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
                 stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))
             );
 
-            if (!r.sketchArcValues.empty()) {
+            if (!sketchArcValues.empty()) {
                 UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(
                     TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
                 );
@@ -77,12 +75,11 @@ bool SketchPrim::definePrim(
     return true;
 }
 
-bool SketchPrim::writePrim(
+bool SketchTessellationRoutine::writeSketchPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
 
     if (params.sketchPointLimit <= 0) {
@@ -90,7 +87,7 @@ bool SketchPrim::writePrim(
         return false;
     }
 
-    uint64_t numSubCurves = (r.sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+    uint64_t numSubCurves = (sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
 
     if (params.sketchCombineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curves"))));
@@ -107,26 +104,26 @@ bool SketchPrim::writePrim(
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->linear);
         }
         sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
-        sketchCurve.GetPointsAttr().Set(r.sketchPoints);
-        sketchCurve.GetCurveVertexCountsAttr().Set(r.sketchCounts);
+        sketchCurve.GetPointsAttr().Set(sketchPoints);
+        sketchCurve.GetCurveVertexCountsAttr().Set(sketchCounts);
 
         {
             VtVec3fArray extent(2);
-            if (UsdGeomPointBased::ComputeExtent(r.sketchPoints, &extent)) {
+            if (UsdGeomPointBased::ComputeExtent(sketchPoints, &extent)) {
                 sketchCurve.CreateExtentAttr().Set(extent);
             } else {
                 LOG_ERR("writeSketchGeometry: ComputeExtent failed at " + protoPath.GetString());
             }
         }
 
-        if (r.sketchArcValues.size() == r.sketchPoints.size()) {
+        if (sketchArcValues.size() == sketchPoints.size()) {
             UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
         }
         
-        if (r.sketchArcValues.size() == r.sketchPoints.size()) {
+        if (sketchArcValues.size() == sketchPoints.size()) {
             UsdGeomPrimvarsAPI api(sketchCurve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
-                p.Set(r.sketchArcValues);
+                p.Set(sketchArcValues);
         }
 
         //sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
@@ -134,7 +131,7 @@ bool SketchPrim::writePrim(
         
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(r.sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+        std::vector<CurveChunk> chunks = computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             const CurveChunk& chunk = chunks[ci];
@@ -153,22 +150,22 @@ bool SketchPrim::writePrim(
             }
             sketchCurve.CreateWrapAttr().Set(UsdGeomTokens->nonperiodic);
 
-            VtArray<GfVec3f> pts = gatherChunkValues(r.sketchPoints, chunk);
+            VtArray<GfVec3f> pts = gatherChunkValues(sketchPoints, chunk);
             sketchCurve.GetPointsAttr().Set(pts);
             sketchCurve.GetCurveVertexCountsAttr().Set(chunkVertexCounts(chunk));
             sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
 
             {
                 VtVec3fArray extent(2);
-                if (UsdGeomPointBased::ComputeExtent(r.points, &extent)) {
+                if (UsdGeomPointBased::ComputeExtent(pts, &extent)) {
                     sketchCurve.CreateExtentAttr().Set(extent);
                 } else {
-                    LOG_ERR("writeMeshGeometry: ComputeExtent failed at " + protoPath.GetString());
+                    LOG_ERR("writeSketchGeometry: ComputeExtent failed at " + protoPath.GetString());
                 }
             }
 
-            if (!r.sketchArcValues.empty()) {
-                VtArray<float> arcUs = gatherChunkValues(r.sketchArcValues, chunk);
+            if (!sketchArcValues.empty()) {
+                VtArray<float> arcUs = gatherChunkValues(sketchArcValues, chunk);
                 UsdGeomPrimvarsAPI api(sketchCurve);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
                     p.Set(arcUs);

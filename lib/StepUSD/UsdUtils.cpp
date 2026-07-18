@@ -19,10 +19,12 @@
 
 #include "tokens.h"
 
-#include "StepUSD/StepUsdPipeline.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
 #include "StepUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace fs = std::filesystem;
 
 UsdStageRefPtr initUsdStage(
     const fs::path& newStagePath, 

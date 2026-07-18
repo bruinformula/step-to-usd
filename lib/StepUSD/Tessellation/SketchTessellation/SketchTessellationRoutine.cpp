@@ -1,15 +1,6 @@
-
-#include <iostream>
 #include <chrono>
 #include <utility>
 #include <algorithm>
-#include <cmath>
-#include <functional>
-#include <initializer_list>
-#include <unordered_map>
-#include <unordered_set>
-#include <atomic>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -78,7 +69,6 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
 #include "StepUSD/Tessellation/TessellationRoutine.h"
 #include "StepUSD/Tessellation/TessellationUtils.h"
@@ -117,8 +107,7 @@ void SketchTessellationRoutine::initializeFreeEdges(
 
 void SketchTessellationRoutine::tessellateSketchPlane(
     const TopoDS_Shape& defShape, 
-    SketchTessellationContext& ctx,
-    TessResult& result
+    SketchTessellationContext& ctx
 ) {
     // Build sketch planes from free edges using OCCT topology:
     // split all free edges at intersections, connect split edges into wires,
@@ -312,14 +301,14 @@ void SketchTessellationRoutine::tessellateSketchPlane(
         emittedPlaneTriangles += tri->NbTriangles();
 
         const gp_Trsf sketchTrsf = sketchLoc.Transformation();
-        const int basePoint = static_cast<int>(result.sketchPlanePoints.size());
-        const int faceCountStart = static_cast<int>(result.sketchPlaneFaceVertexCounts.size());
-        const int faceIndexStart = static_cast<int>(result.sketchPlaneFaceVertexIndices.size());
-        const int normalStart = static_cast<int>(result.sketchPlaneNormals.size());
+        const int basePoint = static_cast<int>(sketchPlanePoints.size());
+        const int faceCountStart = static_cast<int>(sketchPlaneFaceVertexCounts.size());
+        const int faceIndexStart = static_cast<int>(sketchPlaneFaceVertexIndices.size());
+        const int normalStart = static_cast<int>(sketchPlaneNormals.size());
 
         for (int ni = 1; ni <= tri->NbNodes(); ++ni) {
             gp_Pnt p = tri->Node(ni).Transformed(sketchTrsf);
-            result.sketchPlanePoints.push_back(GfVec3f(
+            sketchPlanePoints.push_back(GfVec3f(
                 static_cast<float>(p.X()),
                 static_cast<float>(p.Y()),
                 static_cast<float>(p.Z())
@@ -336,33 +325,33 @@ void SketchTessellationRoutine::tessellateSketchPlane(
             const int i2 = basePoint + (n2 - 1);
             const int i3 = basePoint + (n3 - 1);
 
-            result.sketchPlaneFaceVertexCounts.push_back(3);
-            result.sketchPlaneFaceVertexIndices.push_back(i1);
-            result.sketchPlaneFaceVertexIndices.push_back(i2);
-            result.sketchPlaneFaceVertexIndices.push_back(i3);
+            sketchPlaneFaceVertexCounts.push_back(3);
+            sketchPlaneFaceVertexIndices.push_back(i1);
+            sketchPlaneFaceVertexIndices.push_back(i2);
+            sketchPlaneFaceVertexIndices.push_back(i3);
 
-            const GfVec3f& p1 = result.sketchPlanePoints[i1];
-            const GfVec3f& p2 = result.sketchPlanePoints[i2];
-            const GfVec3f& p3 = result.sketchPlanePoints[i3];
+            const GfVec3f& p1 = sketchPlanePoints[i1];
+            const GfVec3f& p2 = sketchPlanePoints[i2];
+            const GfVec3f& p3 = sketchPlanePoints[i3];
             GfVec3f normal = GfCross(p2 - p1, p3 - p1);
             if (normal.GetLength() > 1e-10f) {
                 normal.Normalize();
             } else {
                 normal = GfVec3f(0.0f, 0.0f, 1.0f);
             }
-            result.sketchPlaneNormals.push_back(normal);
-            result.sketchPlaneNormals.push_back(normal);
-            result.sketchPlaneNormals.push_back(normal);
+            sketchPlaneNormals.push_back(normal);
+            sketchPlaneNormals.push_back(normal);
+            sketchPlaneNormals.push_back(normal);
         }
 
-        const int pointCount = static_cast<int>(result.sketchPlanePoints.size()) - basePoint;
-        const int faceCountCount = static_cast<int>(result.sketchPlaneFaceVertexCounts.size())  - faceCountStart;
-        const int faceIndexCount = static_cast<int>(result.sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
-        const int normalCount = static_cast<int>(result.sketchPlaneNormals.size()) - normalStart;
+        const int pointCount = static_cast<int>(sketchPlanePoints.size()) - basePoint;
+        const int faceCountCount = static_cast<int>(sketchPlaneFaceVertexCounts.size())  - faceCountStart;
+        const int faceIndexCount = static_cast<int>(sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
+        const int normalCount = static_cast<int>(sketchPlaneNormals.size()) - normalStart;
 
         if (pointCount > 0 && faceCountCount > 0 &&
             faceIndexCount > 0 && normalCount == faceIndexCount) {
-            result.sketchPlaneBounds.push_back({
+            sketchPlaneBounds.push_back({
                 basePoint,      pointCount,
                 faceCountStart, faceCountCount,
                 faceIndexStart, faceIndexCount,
@@ -381,19 +370,18 @@ void SketchTessellationRoutine::tessellateSketchPlane(
     );
     LOG_DEBUG(
         "  -> Sketch plane output buffers: points=" +
-        std::to_string(result.sketchPlanePoints.size()) +
+        std::to_string(sketchPlanePoints.size()) +
         ", faceCounts=" +
-        std::to_string(result.sketchPlaneFaceVertexCounts.size()) +
+        std::to_string(sketchPlaneFaceVertexCounts.size()) +
         ", faceIndices=" +
-        std::to_string(result.sketchPlaneFaceVertexIndices.size())
+        std::to_string(sketchPlaneFaceVertexIndices.size())
     );
 
 }
 
 void SketchTessellationRoutine::tessellateSketch(
     const TopoDS_Shape& defShape, 
-    SketchTessellationContext& ctx,
-    TessResult& result
+    SketchTessellationContext& ctx
 ) {
     if (params.sketchMode.type != TessParams::CurveType::None) 
         return;
@@ -414,31 +402,31 @@ void SketchTessellationRoutine::tessellateSketch(
         if (params.sketchMode.type == TessParams::CurveType::Cubic) {
             // Phantom start — duplicate first point for Catmull-Rom
             gp_Pnt p0 = sampler.Value(1);
-            result.sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
-            result.sketchArcValues.push_back(0.0f);
+            sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+            sketchArcValues.push_back(0.0f);
             for (int si = 1; si <= n; ++si) {
                 gp_Pnt p = sampler.Value(si);
-                result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
-                result.sketchArcValues.push_back(arcValues[si - 1]);
+                sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                sketchArcValues.push_back(arcValues[si - 1]);
             }
             // Phantom end — duplicate last point
             gp_Pnt pN = sampler.Value(n);
-            result.sketchPoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
-            result.sketchArcValues.push_back(1.0f);
-            result.sketchCounts.push_back(n + 2);
+            sketchPoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
+            sketchArcValues.push_back(1.0f);
+            sketchCounts.push_back(n + 2);
         } else {
             // Linear and ResampledLinear both produce polylines
             for (int si = 1; si <= n; ++si) {
                 gp_Pnt p = sampler.Value(si);
-                result.sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
-                result.sketchArcValues.push_back(arcValues[si - 1]);
+                sketchPoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
+                sketchArcValues.push_back(arcValues[si - 1]);
             }
-            result.sketchCounts.push_back(n);
+            sketchCounts.push_back(n);
         }
     }
 }
 
-void SketchTessellationRoutine::applyUnitScale(const TessParams& params, TessResult& result) {
+void SketchTessellationRoutine::applyUnitScale(const TessParams& params) {
     if (params.unitScale == 1.0) return;
 
     const float s = static_cast<float>(params.unitScale);
@@ -447,33 +435,32 @@ void SketchTessellationRoutine::applyUnitScale(const TessParams& params, TessRes
             p *= s;
         }
     };
-    scalePoints(result.sketchPoints);
-    scalePoints(result.sketchPlanePoints);
+    scalePoints(sketchPoints);
+    scalePoints(sketchPlanePoints);
 }
 
 // A definition is valid if it has mesh geometry OR sketch curves.
 // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
 // but do carry sketch curves, so only reject if both are absent.
-bool SketchTessellationRoutine::hasValidGeometry(const TessResult& result) {
-    return !(result.sketchCounts.empty() &&
-             result.sketchPlaneFaceVertexIndices.empty());
+bool SketchTessellationRoutine::hasValidGeometry() {
+    return !(sketchCounts.empty() &&
+             sketchPlaneFaceVertexIndices.empty());
 }
 
 bool SketchTessellationRoutine::tessellate(
     const TopoDS_Shape& defShape, 
     const TessParams& params,
-    const SdfPath& protoPath,
-    TessResult& result
+    const SdfPath& protoPath
 ) {
     try {
         SketchTessellationContext ctx;
         initializeFreeEdges(defShape, ctx);
-        tessellateSketchPlane(defShape, ctx, result);
-        tessellateSketch(defShape, ctx, result);
+        tessellateSketchPlane(defShape, ctx);
+        tessellateSketch(defShape, ctx);
 
-        applyUnitScale(params, result);
+        applyUnitScale(params);
 
-        if (!hasValidGeometry(result)) {
+        if (!hasValidGeometry()) {
             LOG_DEBUG("def produced no sketch curves in Shape");
             return false;
         }
@@ -487,4 +474,60 @@ bool SketchTessellationRoutine::tessellate(
     }
 
     return true;
+}
+
+bool SketchTessellationRoutine::definePrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessParams& params
+) const {
+    bool hasSketch = !sketchPoints.empty() && !sketchCounts.empty();
+    bool hasSketchPlanes = !sketchPlaneBounds.empty();
+
+    bool sketchDefined = false;
+    if (hasSketch) {
+        sketchDefined = defineSketchPrim(stage, protoPath, params);
+    }
+
+    bool sketchPlaneDefined = false;
+    if (hasSketchPlanes) {
+        sketchPlaneDefined = defineSketchPlanePrim(stage, protoPath, params);
+    }
+
+    return sketchDefined && sketchPlaneDefined;
+}
+
+bool SketchTessellationRoutine::writePrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath,
+    const TessParams& params
+) const {
+    bool hasSketch = !sketchPoints.empty() && !sketchCounts.empty();
+    bool hasSketchPlanes = !sketchPlaneBounds.empty();
+
+    bool sketchWritten = false;
+    if (hasSketch) {
+        sketchWritten = writeSketchPrim(stage, protoPath, params);
+    }
+
+    bool sketchPlaneWritten = false;
+    if (hasSketchPlanes) {
+        sketchPlaneWritten = writeSketchPlanePrim(stage, protoPath, params);
+    }
+
+    return sketchWritten && sketchPlaneWritten;
+}
+
+void SketchTessellationRoutine::clearPrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath
+) const {
+    stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
+    stage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlane")));
+}
+
+size_t SketchTessellationRoutine::size() const {
+    size_t sketchSize = sketchPoints.size();
+    size_t sketchPlaneSize = sketchPlanePoints.size();
+    return sketchSize + sketchPlaneSize;
 }

@@ -62,7 +62,6 @@
 #include "StepUSD/OpenCascadeAssembly.h"
 #include "StepUSD/Logger.h"
 #include "StepUSD/UsdUtils.h"
-#include "StepUSD/PrototypeMember/PrototypeMember.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -348,7 +347,7 @@ void StepUsdPipeline::writePrototypeGeometries(
     std::vector<ProtoGeomJob> jobs = inJobs;
     std::sort(jobs.begin(), jobs.end(), [](const ProtoGeomJob& a, const ProtoGeomJob& b) {
         // Sort descending by number of points to process larger geometries first
-        return a.result.points.size() > b.result.points.size();
+        return a.routine.size() > b.routine.size();
     });
 
     std::atomic<int> completed(0);
@@ -356,12 +355,6 @@ void StepUsdPipeline::writePrototypeGeometries(
     if (!variantSetName.empty()) {
         logLabel = " {" + variantSetName + "=" + variantName + "}";
     }
-
-                
-    MeshPrim meshRoutine;
-    WireframePrim wireframeRoutine;
-    SketchPrim sketchRoutine;
-    SketchPlanePrim sketchPlaneRoutine;
 
     struct ThreadResult {
         int startIdx;
@@ -382,8 +375,8 @@ void StepUsdPipeline::writePrototypeGeometries(
         // their properties are later populated in the SdfChangeBlock 
         for (int i = startIdx; i < endIdx; i++) {
             const SdfPath& protoPath = jobs[i].protoPath;
-            const TessResult& r = jobs[i].result;
             const TessParams& params = jobs[i].params;
+            const TessellationRoutine& routine = jobs[i].routine;
 
             if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                 continue;
@@ -392,11 +385,6 @@ void StepUsdPipeline::writePrototypeGeometries(
             UsdGeomScope protoXform;
                 
             auto variantSelection = protoPath.GetVariantSelection();
-
-            bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
-            bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
-            bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
-            bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
             
             if (!variantSelection.first.empty()) {
                 SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
@@ -414,17 +402,8 @@ void StepUsdPipeline::writePrototypeGeometries(
                 vset.SetVariantSelection(variantSelection.second);
                 UsdEditContext ctx(vset.GetVariantEditContext());
                 
-                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
-                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
-                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
-                threadStage->RemovePrim(baseProtoPath.AppendChild(TfToken("SketchPlanes")));
-
-                if (r.renderOnly) UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr();
-
-                if (hasPoints) meshRoutine.definePrim(threadStage, baseProtoPath, r, params);
-                if (hasWireframe) wireframeRoutine.definePrim(threadStage, baseProtoPath, r, params); 
-                if (hasSketch) sketchRoutine.definePrim(threadStage, baseProtoPath, r, params);
-                if (hasSketchPlanes) sketchPlaneRoutine.definePrim(threadStage, baseProtoPath, r, params);
+                routine.clearPrim(threadStage, baseProtoPath);
+                routine.definePrim(threadStage, baseProtoPath, params);
 
             } else {
                 protoXform = UsdGeomScope::Get(threadStage, protoPath);
@@ -437,16 +416,8 @@ void StepUsdPipeline::writePrototypeGeometries(
                     continue;
                 }
                         
-                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
-                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
-                threadStage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
-                threadStage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlanes")));
-
-                if (r.renderOnly) UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr(); 
-                if (hasPoints) meshRoutine.definePrim(threadStage, protoPath, r, params);
-                if (hasWireframe) wireframeRoutine.definePrim(threadStage, protoPath, r, params);
-                if (hasSketch) sketchRoutine.definePrim(threadStage, protoPath, r, params);
-                if (hasSketchPlanes) sketchPlaneRoutine.definePrim(threadStage, protoPath, r, params);
+                routine.clearPrim(threadStage, protoPath);
+                routine.definePrim(threadStage, protoPath, params);
             }
         }
 
@@ -459,8 +430,8 @@ void StepUsdPipeline::writePrototypeGeometries(
             SdfChangeBlock block;
             for (int i = startIdx; i < endIdx; i++) {
                 const SdfPath& protoPath = jobs[i].protoPath;
-                const TessResult& r = jobs[i].result;
                 const TessParams& params = jobs[i].params;
+                const TessellationRoutine& routine = jobs[i].routine;
 
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
@@ -495,17 +466,7 @@ void StepUsdPipeline::writePrototypeGeometries(
                     continue;
                 }
 
-                bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
-                bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
-                bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
-                bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
-
-                if (r.renderOnly) UsdGeomImageable(protoXform.GetPrim()).CreatePurposeAttr().Set(UsdGeomTokens->render); 
-
-                if (hasPoints) meshRoutine.writePrim(threadStage, writeProtoPath, r, params);
-                if (hasWireframe) wireframeRoutine.writePrim(threadStage, writeProtoPath, r, params);
-                if (hasSketch) sketchRoutine.writePrim(threadStage, writeProtoPath, r, params);
-                if (hasSketchPlanes) sketchPlaneRoutine.writePrim(threadStage, writeProtoPath, r, params);
+                routine.writePrim(threadStage, writeProtoPath, params);
 
                 int c = ++completed;
                 if (Logger::activeLevel == Logger::DEBUG) {
@@ -606,8 +567,9 @@ void StepUsdPipeline::writePrototypeGeometries(
             auto variantSelection = protoPath.GetVariantSelection();
             if (variantSelection.first.empty()) continue;
 
-            const TessResult& r = jobs[i].result;
             const TessParams& params = jobs[i].params;
+            const TessellationRoutine& routine = jobs[i].routine;
+
             SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
 
             UsdPrim basePrim = stage->GetPrimAtPath(baseProtoPath);
@@ -630,34 +592,12 @@ void StepUsdPipeline::writePrototypeGeometries(
             UsdEditContext ctx(vset.GetVariantEditContext());
 
             // Clear any previously written geometry under this variant
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Mesh")));
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Wireframe")));
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("Sketch")));
-            stage->RemovePrim(baseProtoPath.AppendChild(TfToken("SketchPlanes")));
-
-            if (r.renderOnly) {
-                UsdPrim p = stage->GetPrimAtPath(baseProtoPath);
-                if (p) {
-                    UsdGeomImageable(p).CreatePurposeAttr().Set(UsdGeomTokens->render);
-                }
-            }
-
-            bool hasPoints = !r.points.empty() && !r.faceVertexIndices.empty() && !r.faceVertexCounts.empty();
-            bool hasWireframe = !r.wireframePoints.empty() && !r.wireframeCounts.empty();
-            bool hasSketch = !r.sketchPoints.empty() && !r.sketchCounts.empty();
-            bool hasSketchPlanes = !r.sketchPlaneBounds.empty();
-
-            if (hasPoints) meshRoutine.definePrim(stage, baseProtoPath, r, params);
-            if (hasWireframe) wireframeRoutine.definePrim(stage, baseProtoPath, r, params);
-            if (hasSketch) sketchRoutine.definePrim(stage, baseProtoPath, r, params);
-            if (hasSketchPlanes) sketchPlaneRoutine.definePrim(stage, baseProtoPath, r, params);
+            routine.clearPrim(stage, baseProtoPath);
+            routine.definePrim(stage, baseProtoPath, params);
 
             {
                 SdfChangeBlock changeBlock;
-                if (hasPoints) meshRoutine.writePrim(stage, baseProtoPath, r, params);
-                if (hasWireframe) wireframeRoutine.writePrim(stage, baseProtoPath, r, params);
-                if (hasSketch) sketchRoutine.writePrim(stage, baseProtoPath, r, params);
-                if (hasSketchPlanes) sketchPlaneRoutine.writePrim(stage, baseProtoPath, r, params);
+                routine.writePrim(stage, baseProtoPath, params);
             }
 
             if (hasAuthoredActive) {

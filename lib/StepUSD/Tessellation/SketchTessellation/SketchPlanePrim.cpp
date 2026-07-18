@@ -23,35 +23,32 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
-#include "StepUSD/PrototypeMember/PrototypeMember.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool SketchPlanePrim::definePrim(
+bool SketchTessellationRoutine::defineSketchPlanePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
     UsdGeomScope::Define(stage, sketchPlanesPath);
-    for (size_t pi = 0; pi < r.sketchPlaneBounds.size(); ++pi) {
+    for (size_t pi = 0; pi < sketchPlaneBounds.size(); ++pi) {
         UsdGeomMesh::Define(stage, sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi))));
     }
     return true;
 }
 
-bool SketchPlanePrim::writePrim(
+bool SketchTessellationRoutine::writeSketchPlanePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
-    const TessResult& r,
     const TessParams& params
-) {
+) const {
     SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
 
-    for (size_t pi = 0; pi < r.sketchPlaneBounds.size(); ++pi) {
-        const TessResult::SketchPlaneBounds& b = r.sketchPlaneBounds[pi];
+    for (size_t pi = 0; pi < sketchPlaneBounds.size(); ++pi) {
+        const SketchPlaneBounds& b = sketchPlaneBounds[pi];
 
         if (b.pointStart < 0 || b.pointCount <= 0 ||
             b.faceCountStart < 0 || b.faceCountCount <= 0 ||
@@ -60,10 +57,10 @@ bool SketchPlanePrim::writePrim(
             continue;
         }
 
-        if (static_cast<size_t>(b.pointStart + b.pointCount) > r.sketchPlanePoints.size() ||
-            static_cast<size_t>(b.faceCountStart + b.faceCountCount) > r.sketchPlaneFaceVertexCounts.size() ||
-            static_cast<size_t>(b.faceIndexStart + b.faceIndexCount) > r.sketchPlaneFaceVertexIndices.size() ||
-            static_cast<size_t>(b.normalStart + b.normalCount) > r.sketchPlaneNormals.size()) {
+        if (static_cast<size_t>(b.pointStart + b.pointCount) > sketchPlanePoints.size() ||
+            static_cast<size_t>(b.faceCountStart + b.faceCountCount) > sketchPlaneFaceVertexCounts.size() ||
+            static_cast<size_t>(b.faceIndexStart + b.faceIndexCount) > sketchPlaneFaceVertexIndices.size() ||
+            static_cast<size_t>(b.normalStart + b.normalCount) > sketchPlaneNormals.size()) {
             continue;
         }
 
@@ -75,8 +72,8 @@ bool SketchPlanePrim::writePrim(
         VtArray<GfVec3f> normals;
 
         VtArray<int> counts(
-            r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
-            r.sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount
+            sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
+            sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount
         );
 
         VtArray<int> indices;
@@ -84,16 +81,16 @@ bool SketchPlanePrim::writePrim(
 
         bool corruptPlane = false;
         for (int fi = b.faceIndexStart; fi < b.faceIndexStart + b.faceIndexCount; ++fi) {
-            int globalIdx = r.sketchPlaneFaceVertexIndices[fi];
+            int globalIdx = sketchPlaneFaceVertexIndices[fi];
 
             auto [it, inserted] = globalToLocal.emplace(globalIdx, (int)points.size());
             if (inserted) {
-                if (static_cast<size_t>(globalIdx) >= r.sketchPlanePoints.size()) {
+                if (static_cast<size_t>(globalIdx) >= sketchPlanePoints.size()) {
                     // Corrupt index — skip entire plane
                     corruptPlane = true;
                     continue;
                 }
-                points.push_back(r.sketchPlanePoints[globalIdx]);
+                points.push_back(sketchPlanePoints[globalIdx]);
             }
             indices.push_back(it->second);
         }
@@ -102,8 +99,8 @@ bool SketchPlanePrim::writePrim(
 
         // Normals are faceVarying (one per face-vertex), slice directly
         normals = VtArray<GfVec3f>(
-            r.sketchPlaneNormals.begin() + b.normalStart,
-            r.sketchPlaneNormals.begin() + b.normalStart + b.normalCount
+            sketchPlaneNormals.begin() + b.normalStart,
+            sketchPlaneNormals.begin() + b.normalStart + b.normalCount
         );
 
         {

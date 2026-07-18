@@ -11,7 +11,7 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUsdPipeline.h"
+#include "StepUSD/Tessellation/TessellationRoutine.h"
 
 namespace fs = std::filesystem;
 

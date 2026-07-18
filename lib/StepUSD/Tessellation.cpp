@@ -1,15 +1,9 @@
-
-#include <iostream>
-#include <chrono>
 #include <utility>
 #include <algorithm>
-#include <cmath>
 #include <functional>
-#include <initializer_list>
 #include <unordered_map>
 #include <unordered_set>
 #include <atomic>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -81,134 +75,10 @@
 #include "StepUSD/StepUsdPipeline.h"
 #include "StepUSD/Logger.h"
 #include "StepUSD/Tessellation/TessellationRoutine.h"
-#include "StepUSD/Tessellation/TessellationUtils.h"
-#include "StepUSD/Tessellation/DeadlineProgressIndicator.h"
 
 class Geom_Surface;
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-bool StepUsdPipeline::tessellatePart(
-    TessResult& result, 
-    const TopoDS_Shape& defShape, 
-    const TessParams& params,
-    const SdfPath& protoPath
-) {
-    using Clock = std::chrono::high_resolution_clock;
-    using Seconds = std::chrono::duration<double>;
-
-    auto tessellateStart = Clock::now();
-
-    std::string protoName = protoPath.GetAsString();
-
-    LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
-    ShapeFix_Shape fixer(defShape);
-    fixer.SetPrecision(params.meshFixPrecision);
-    fixer.SetMaxTolerance(params.meshFixTolerance);
-    
-    bool fixTimedOut = runWithDeadline(
-        std::chrono::milliseconds(params.meshFixTimeout),
-        "ShapeFix_Shape for part " + protoName + ": ",
-        fixer
-    );
-
-    if (fixTimedOut) {
-        LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
-    }
-    
-    TopoDS_Shape fixedShape = fixer.Shape();
-
-    LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
-    BRepTools::Clean(defShape); // remove previously created tessellations for this part 
-
-    double diagonal = computeBoundingBoxDiagonal(defShape);
-
-    result.renderOnly = params.renderPurposeThreshold != std::numeric_limits<double>::infinity() && diagonal < params.renderPurposeThreshold;
-
-    IMeshTools_Parameters meshParams;
-    meshParams.InParallel = false; 
-    meshParams.Deflection = diagonal * params.meshLinearDeflection;
-    meshParams.Angle = params.meshAngularDeflection; // in radians
-    meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
-    
-    LOG_DEBUG("  -> tessellatePart: BRepMesh_IncrementalMesh");
-    BRepMesh_IncrementalMesh mesher(defShape, meshParams);
-
-    bool meshTimedOut = runWithDeadline(
-        std::chrono::milliseconds(params.meshMeshTimeout),
-        "BRepMesh_IncrementalMesh for part " + protoName + ": ",
-        mesher
-    );
-
-    if (meshTimedOut) {
-        LOG_DEBUG("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
-    }
-
-    int maxPasses = params.meshMaxNumberRemeshPasses;
-    IMeshTools_Parameters repairParams = meshParams;
-
-    // repeat check for self-intersections 
-    // if fail, refine the mesh until there are none 
-    // or we hit the max pass count.
-
-    // important note this is on the whole shape 
-    // not just the intersected shapes, 
-    // so the edge walk later works
-
-    LOG_DEBUG("  -> tessellatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
-    for (int pass = 0; pass < maxPasses; ++pass) {
-        LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
-        BRepExtrema_SelfIntersection checker(defShape, params.meshSelfIntersectionThreshold);
-        LOG_DEBUG("  -> checker.Perform()");
-        checker.Perform();
-
-        if (!checker.IsDone()) {
-            LOG_DEBUG("  -> checker not done, breaking");
-            break;
-        }
-
-        LOG_DEBUG("  -> checker getting OverlapElements");
-        const BRepExtrema_MapOfIntegerPackedMapOfInteger& overlaps = checker.OverlapElements();
-
-        if (overlaps.IsEmpty()) {
-            LOG_DEBUG("  No interesections found.");
-            break;
-        }
-        
-        LOG_DEBUG("  Found overlaps. Remeshing with finer parameters.");
-
-        repairParams.Deflection *= 0.5;
-        repairParams.Angle *= 0.5;
-
-        LOG_DEBUG("  -> BRepTools::Clean (repair)");
-        BRepTools::Clean(defShape); 
-        LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair)");
-        BRepMesh_IncrementalMesh remesher(defShape, repairParams);
-        
-        bool remeshTimedOut = runWithDeadline(
-            std::chrono::milliseconds(params.meshRemeshTimeout),
-            "BRepMesh_IncrementalMesh for part " + protoName + ": ",
-            remesher
-        );
-
-        if (remeshTimedOut) {
-            LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair) timed out");
-            break;
-        }
-    }
-    
-    auto meshEnd = Clock::now();
-    LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
-
-
-    MeshTessellationRoutine meshTessellationRoutine;
-    SketchTessellationRoutine sketchTessellationRoutine;
-
-    bool meshSuccess = meshTessellationRoutine.tessellate(fixedShape, params, protoPath, result);
-    bool sketchSuccess = sketchTessellationRoutine.tessellate(fixedShape, params, protoPath, result);
-
-    return meshSuccess && sketchSuccess;
-}
 
 struct ShapeKey {
     const void* tshape;
@@ -313,18 +183,17 @@ void StepUsdPipeline::tessellateGeometry(
                           ", shared by " + std::to_string(sg.jobs.size()) + " prototype path(s))");
 
                 try {
-                    tessellatePart(primary.result, shape, sg.params, primary.prototypePath);
+                    primary.routine.tessellate(shape, sg.params, primary.prototypePath);
 
                     // Fan the computed result out to every other job that needs
                     // this exact (shape, params) pair.
                     for (size_t i = 1; i < sg.jobs.size(); ++i) {
-                        sg.jobs[i]->result = primary.result;
+                        sg.jobs[i]->routine = primary.routine;
                     }
 
                     for (TessellationJob* jobPtr : sg.jobs) {
                         int currentCount = ++completedJobs;
                         LOG_DEBUG("Finished tessellating: " + jobPtr->prototypePath.GetString() +
-                                  " | Faces: " + std::to_string(jobPtr->result.faceVertexCounts.size()) +
                                   " (" + std::to_string(currentCount) + "/" + std::to_string(totalJobs) + " jobs completed globally)");
                         LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     }

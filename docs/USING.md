@@ -116,7 +116,7 @@ Multiple `-p` flags can be combined to target a set of prims simultaneously.
 
 In addition to surface meshes, step-to-usd generates curve geometry from BRep surface boundaries (the classic wireframe look) and sketch primitives. These are controlled via the `step:wireframe*` and `step:sketch*` attribute families on `StepTessellationOptions`.
 
-Both support `linear` and `cubic` curve types. Sampling strategy is either `underlying` (uses the prexisting mesh vertices) or `resampled` (resamples to a target curve independently of the mesh). Setting `step:wireframeType` or `step:sketchType` to `"none"` disables that geometry type entirely.
+Both support `linear` and `cubic` curve types. Setting `step:wireframeType` or `step:sketchType` to `"none"` disables that geometry type entirely.
 
 Tessellation quality is controlled through USD attributes on `StepTessellationOptions` prims. The most important are `step:mesh:linearDeflection` and `step:mesh:angularDeflection` — smaller values produce finer meshes at the cost of performance ( read more here). Both are expressed as a fraction of the bounding-box diagonal, so they scale automatically with model size.
 
