@@ -12,6 +12,7 @@ target_link_libraries(StepUSD PUBLIC
     autolibStepTessellation
     usd
     usdGeom
+    usdSolid
     sdf
     tf
     ${OpenCASCADE_LIBRARIES}

@@ -1,7 +1,6 @@
 #usda 1.0
 (
-    defaultPrim = "Model3"
-    doc = "An enclosure of some kind. Contains sketches."
+    defaultPrim = "Model1"
     metersPerUnit = 0.001
     upAxis = "Z"
 )
@@ -15,9 +14,9 @@ def StepTessellationOptions "DefaultOptions"
 }
 
 def StepContainer "Model3" {
-    asset step:cacheAsset = @../step/model3.xbf@
-    asset step:outputAsset = @model3/high.usdc@
-    asset step:sourceAsset = @../step/model3.STEP@
+    asset step:cacheAsset = @../step/model1.xbf@
+    asset step:outputAsset = @model1/high.usdc@
+    asset step:sourceAsset = @../step/model1.STEP@
 
     def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>

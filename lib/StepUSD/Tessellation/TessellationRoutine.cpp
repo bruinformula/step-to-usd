@@ -190,10 +190,11 @@ bool TessellationRoutine::tessellate(
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
 
 
-    bool meshSuccess = meshRoutine.tessellate(fixedShape, params, protoPath);
-    bool sketchSuccess = sketchRoutine.tessellate(fixedShape, params, protoPath);
+    bool meshSuccess = true;// meshRoutine.tessellate(fixedShape, params, protoPath);
+    bool sketchSuccess = true;// sketchRoutine.tessellate(fixedShape, params, protoPath);
+    bool brepSuccess = brepRoutine.tessellate(fixedShape, params, protoPath);
 
-    return meshSuccess && sketchSuccess;
+    return meshSuccess && sketchSuccess && brepSuccess;
 }
 
 bool TessellationRoutine::definePrim(
@@ -204,9 +205,11 @@ bool TessellationRoutine::definePrim(
     UsdPrim protoPrim = stage->GetPrimAtPath(protoPath);
     if (renderOnly) UsdGeomImageable(protoPrim).CreatePurposeAttr();
 
-    bool meshDefined = meshRoutine.definePrim(stage, protoPath, params);
-    bool sketchDefined = sketchRoutine.definePrim(stage, protoPath, params);
-    return meshDefined && sketchDefined;
+    bool meshDefined = true;// meshRoutine.definePrim(stage, protoPath, params);
+    bool sketchDefined = true;// sketchRoutine.definePrim(stage, protoPath, params);
+    bool brepDefined = brepRoutine.definePrim(stage, protoPath, params);
+
+    return meshDefined && sketchDefined && brepDefined;
 }
 
 bool TessellationRoutine::writePrim(
@@ -217,9 +220,11 @@ bool TessellationRoutine::writePrim(
     UsdPrim protoPrim = stage->GetPrimAtPath(protoPath);
     if (renderOnly) UsdGeomImageable(protoPrim).CreatePurposeAttr().Set(UsdGeomTokens->render); 
 
-    bool meshWritten = meshRoutine.writePrim(stage, protoPath, params);
-    bool sketchWritten = sketchRoutine.writePrim(stage, protoPath, params);
-    return meshWritten && sketchWritten;
+    bool meshWritten = true;// meshRoutine.writePrim(stage, protoPath, params);
+    bool sketchWritten = true;// sketchRoutine.writePrim(stage, protoPath, params);
+    bool brepWritten = brepRoutine.writePrim(stage, protoPath, params);
+    
+    return meshWritten && sketchWritten && brepWritten;
 }
 
 void TessellationRoutine::clearPrim(
@@ -228,8 +233,9 @@ void TessellationRoutine::clearPrim(
 ) const {
     meshRoutine.clearPrim(stage, protoPath);
     sketchRoutine.clearPrim(stage, protoPath);
+    brepRoutine.clearPrim(stage, protoPath);
 }
 
 size_t TessellationRoutine::size() const {
-    return meshRoutine.size() + sketchRoutine.size();
+    return meshRoutine.size() + sketchRoutine.size() + brepRoutine.size();
 }

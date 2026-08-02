@@ -1,6 +1,7 @@
 #pragma once
 
 #include <TopoDS_Shape.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 
 #pragma push_macro("Handle")
@@ -371,6 +372,129 @@ private:
 
 };
 
+struct BrepContext;
+
+struct Surf { 
+    int uo,vo,un,vn; 
+    std::vector<double> uk,vk,w; 
+    std::vector<std::array<double,3>> cp;
+};
+
+struct Crv3 { 
+    int order,n; 
+    std::vector<double> k,w; 
+    std::vector<std::array<double,3>> cp;
+};
+
+struct Crv2 { 
+    int order,n; 
+    std::vector<double> k,w; 
+    std::vector<std::array<double,2>> cp;
+};
+
+// Analytic surface (native plane/cylinder/cone/sphere/torus). kind is the
+// BrepSurface*API token; params filled per kind.
+
+enum class Kind : uint32_t {
+    None = 0,
+    Plane = 1 << 0,
+    Cylinder = 1 << 1,
+    Cone = 1 << 2,
+    Sphere = 1 << 3,
+    Torus = 1 << 4,
+    Nurb = 1 << 5,
+};
+
+inline Kind operator|(Kind a, Kind b) {
+    return static_cast<Kind>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+inline Kind operator&(Kind a, Kind b) {
+    return static_cast<Kind>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
+
+inline Kind& operator|=(Kind& a, Kind b) {
+    a = a | b;
+    return a;
+}
+
+struct AnalyticSurface {
+
+    Kind kind;
+    std::array<double,3> origin{{0,0,0}}; // plane/cyl/cone origin, sphere/torus center
+    std::array<double,3> axis{{0,0,1}};
+    std::array<double,3> refDir{{1,0,0}};
+    double radius = 0.0;                  // cyl/cone/sphere radius
+    double semiAngle = 0.0;              // cone only
+    double majorRadius = 0.0, minorRadius = 0.0; // torus only
+    bool reproject = false;              // reproject pcurves onto canonical frame
+    // FIX 2 (cone v = AXIAL distance, STEP/PRC/SMLib convention). OCCT's
+    // Geom_ConicalSurface parametrizes v as SLANT distance along the
+    // generator; the UsdSolid BrepSurfaceConeAPI schema defines
+    //   S(u,v) = origin + R(v)*(cos u * refDir + sin u * (axis x refDir)) + v*axis,
+    //   R(v)   = radius + v*tan(semiAngle),
+    // so its v is the AXIAL height (distance along the axis). Convert
+    // slant -> axial by v_axial = v_slant * cos(semiAngle). vScale carries
+    // that factor (1.0 for every non-cone surface, so their v is untouched).
+    double vScale = 1.0;
+};
+
+struct BrepRoutine : public TessellationRoutineInterface {
+    SdfPath protoPath;
+    TessParams params;
+    
+    bool tessellate(
+        const TopoDS_Shape& defShape, 
+        const TessParams& params,
+        const SdfPath& protoPath
+    ) override;
+
+    bool definePrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath,
+        const TessParams& params
+    ) const override;
+
+    bool writePrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath,
+        const TessParams& params
+    ) const override;
+
+    void clearPrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath
+    ) const override;
+
+    size_t size() const override;
+
+private:
+
+    bool isSolid = false;
+    // per face
+    VtArray<uint> faceLoopCount;
+    VtArray<std::array<double,4>> faceRange; // umin,umax,vmin,vmax per face
+    VtArray<TfToken> faceuseOrient;      // 2 per face (natural, complement)
+    // per loop
+    VtArray<uint> loopEdgeuseCount;
+    // per EDGEUSE (global order, loop/face order, CCW-forced)
+    VtArray<uint> edgeuseEdgeIndex;           // SHARED -> unique edge index
+    VtArray<TfToken> edgeuseOrient;      // "same"/"opposite"
+    VtArray<uint> edgeuseNextRadial;          // filled after all faces
+    VtArray<TfToken> edgeuseRadialEntry; // filled after all faces
+    // geometry
+    std::vector<Surf> surfaces;            // per NURBS face (packed over NURBS faces)
+    std::vector<AnalyticSurface> faceSurf;        // per face (kind + analytic params); kind=="" -> NURBS (index into surfaces in face order)
+    std::vector<Crv3> edge3d;              // per UNIQUE edge
+    std::vector<Crv2> curveUv;             // per EDGEUSE
+    std::vector<std::array<double,3>> verts; // per UNIQUE vertex
+    std::vector<std::array<int,2>> edgeVtx;  // per UNIQUE edge (vertex indices)
+    std::vector<std::array<double,2>> edgeRange; // per UNIQUE edge
+    std::vector<bool> edgeDegenerate;      // per UNIQUE edge (placeholder line)
+
+    void addFace(BrepContext& ctx, const TopoDS_Face& face);
+};
+
 struct TessellationRoutine : public TessellationRoutineInterface {
     bool tessellate(
         const TopoDS_Shape& defShape, 
@@ -402,5 +526,6 @@ private:
 
     SketchTessellationRoutine sketchRoutine;
     MeshTessellationRoutine meshRoutine;
+    BrepRoutine brepRoutine;
 
 };
