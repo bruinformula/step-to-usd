@@ -1,12 +1,21 @@
 cmake_minimum_required(VERSION 3.26)
 
-project(Livery-Shaders VERSION 0.1 LANGUAGES CXX C)
+project(step_to_usd VERSION 0.1 LANGUAGES CXX C)
+set (PROJ_NAME ${PROJECT_NAME})    # short name
+string (TOLOWER ${PROJ_NAME} PROJ_NAME_LOWER)  # short name lower case
+string (TOUPPER ${PROJ_NAME} PROJ_NAME_UPPER)  # short name upper case
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(Colors)
+include(SetUtilities)
+include(Namespace)
+include(DependencyUtilities)
+include(DependencyList)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
