@@ -1,4 +1,3 @@
-
 set_cache (pxr_BUILD_VERSION 26.08 "OpenUSD version for local builds")
 set (pxr_GIT_REPOSITORY "https://github.com/PixarAnimationStudios/OpenUSD")
 set (pxr_GIT_TAG "v${pxr_BUILD_VERSION}")

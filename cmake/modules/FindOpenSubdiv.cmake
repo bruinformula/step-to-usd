@@ -1,7 +1,4 @@
-# Copyright Contributors to the Open Image IO / OpenShadingLanguage / Pixar projects.
-# SPDX-License-Identifier: BSD-3-Clause
-
-###########################################################################
+##########################################################################
 # CMake module to find OpenSubdiv
 #
 # Inputs / Hints:

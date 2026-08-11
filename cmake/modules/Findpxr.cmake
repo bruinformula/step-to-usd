@@ -1,4 +1,3 @@
-
 ###########################################################################
 # Module to find OpenUSD (Pixar's Universal Scene Description, a.k.a. "pxr")
 #

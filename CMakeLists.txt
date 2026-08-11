@@ -7,6 +7,10 @@ string (TOUPPER ${PROJ_NAME} PROJ_NAME_UPPER)  # short name upper case
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" "${CMAKE_SOURCE_DIR}/cmake/modules")
 
+if (NOT CMAKE_BUILD_TYPE)
+    set (CMAKE_BUILD_TYPE "Release")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -20,10 +24,6 @@ include(DependencyList)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-
-if (NOT CMAKE_BUILD_TYPE)
-    set (CMAKE_BUILD_TYPE "Release")
-endif()
 
 #set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE include-what-you-use)
 #set(CMAKE_OSX_SYSROOT "$(xcrun --show-sdk-path)")
