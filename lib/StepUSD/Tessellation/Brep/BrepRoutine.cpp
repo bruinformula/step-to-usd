@@ -1,4 +1,3 @@
-#include <fstream>
 #include <sstream>
 #include <vector>
 #include <map>
@@ -7,8 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <limits>
-
 
 #include <ShapeAnalysis_Surface.hxx>
 #include <ShapeCustom_Surface.hxx>
@@ -544,17 +541,10 @@ bool BrepRoutine::tessellate(
     
     // Analyzer check
     LOG_DEBUG("ShapeUpgrade_ShapeDivideClosed completed for prototype: " + protoPath.GetString());
+
     BRepCheck_Analyzer analyzer(shape);
     if (!analyzer.IsValid()) {
         LOG_ERR("Shape invalid after ShapeUpgrade_ShapeDivideClosed");
-        // Continuing anyway to allow partial recovery
-    }
-    
-
-    // Build 3D curves
-    LOG_DEBUG("BRepCheck_Analyzer completed for prototype: " + protoPath.GetString());
-    if (!BRepLib::BuildCurves3d(shape)) {
-        LOG_ERR("Failed rebuilding curves");
     }
 
     this->isSolid = TopExp_Explorer(shape, TopAbs_SOLID).More();
@@ -593,8 +583,17 @@ bool BrepRoutine::tessellate(
         ctx.edgeVtx[i-1] = {i1, i2};
 
         Standard_Real f3,l3;
+        bool degen = BRep_Tool::Degenerated(edge);
+
         Handle(Geom_Curve) c3 = BRep_Tool::Curve(edge, f3, l3);
-        bool degen = c3.IsNull();
+
+        // If 3D curve is missing on a non-degenerate edge, build it natively for this single edge
+        if (c3.IsNull() && !degen) {
+            // TODO: Does this tolerance actually matter 
+            BRepLib::BuildCurve3d(edge, 1e-3); 
+            c3 = BRep_Tool::Curve(edge, f3, l3);
+        }
+        degen = c3.IsNull();
         if (!degen) {
             try {
                 Handle(Geom_BSplineCurve) bc3 = GeomConvert::CurveToBSplineCurve(
@@ -704,16 +703,15 @@ bool BrepRoutine::tessellate(
     }
 
     std::ostringstream text;
-    text << "wrote " << " | solid=" << (int)isSolid
+    text << "Wrote " << " | solid=" << (int)isSolid
          << " faces=" << faceLoopCount.size()
          << " authoredEdges=" << edge3d.size()
          << " edgeuses=" << edgeuseEdgeIndex.size()
          << " verts=" << verts.size()
          << " emapEdges=" << nEmap
-         << " degenerateEdges=" << degenerateCount
-         << "\n";
+         << " degenerateEdges=" << degenerateCount;
         
-    LOG_INFO(text.str());
+    LOG_DEBUG(text.str());
 
 
     return true;

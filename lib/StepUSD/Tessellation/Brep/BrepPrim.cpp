@@ -1,5 +1,4 @@
 
-#include <sstream>
 #include <stddef.h>
 
 #pragma push_macro("Handle")
@@ -44,9 +43,6 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Logger.h"
-
-#include "StepUSD/Tessellation/TessellationUtils.h"
 #include "StepUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
