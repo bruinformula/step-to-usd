@@ -160,9 +160,9 @@ private:
 
     VtArray<GfVec3f> points;
     VtArray<GfVec3f> normals;
-    VtArray<int> faceVertexCounts;
     VtArray<int> faceVertexIndices;
-
+    VtArray<int> faceVertexCounts;
+ 
     VtArray<GfVec2f> perSurfaceUVs;
     VtArray<bool> isBoundaryVertex;
     VtArray<GfVec3f> boundaryTangents;
@@ -476,6 +476,8 @@ private:
     VtArray<uint> faceLoopCount;
     VtArray<std::array<double,4>> faceRange; // umin,umax,vmin,vmax per face
     VtArray<TfToken> faceuseOrient;      // 2 per face (natural, complement)
+    VtArray<TfToken> faceTrimType;
+
     // per loop
     VtArray<uint> loopEdgeuseCount;
     // per EDGEUSE (global order, loop/face order, CCW-forced)

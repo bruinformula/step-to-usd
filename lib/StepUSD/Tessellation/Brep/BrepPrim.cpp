@@ -249,6 +249,7 @@ bool BrepRoutine::writePrim(
     }
     protoBrep.CreateFaceLoopCountAttr().Set(faceLoopCount);
     protoBrep.CreateFaceSurfaceTypeAttr().Set(faceSurfaceType);
+    protoBrep.CreateFaceTrimTypeAttr().Set(faceTrimType);
 
     VtArray<GfVec2d> patches;
     for (size_t i = 0; i < faceRange.size(); ++i){ 

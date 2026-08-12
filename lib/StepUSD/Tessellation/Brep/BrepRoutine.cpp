@@ -369,10 +369,11 @@ void BrepRoutine::addFace(BrepContext& ctx, const TopoDS_Face& face) {
             ++badFaceCount;
             return;   // nothing else about this face gets written
         }
+        anal.kind = Kind::Nurb;
+        surfaces.push_back(nurbSurf);
     }
     faceSurf.push_back(anal);
-    if (anal.kind == Kind::None) 
-        surfaces.push_back(nurbSurf);
+    faceTrimType.push_back(TfToken("general"));
     // face range (corner-point form is emitted later in emit()). FIX 2: for a
     // cone, OCCT's v is slant distance; author it as AXIAL (v*cos(semiAngle)) so
     // face:range is consistent with the schema's cone parameterization.
@@ -646,12 +647,6 @@ bool BrepRoutine::tessellate(
                 ctx.edgeCrv3[i-1] = placeholderLine3d(pa, pb);
                 ctx.edgeRng[i-1] = {0.0, 1.0};
             }
-        }
-    }
-
-    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
-        if (BRep_Tool::Surface(TopoDS::Face(fx.Current())).IsNull()) {
-            LOG_ERR("post-NurbsConvert: face has null surface");
         }
     }
 
