@@ -442,6 +442,7 @@ struct AnalyticSurface {
 struct BrepRoutine : public TessellationRoutineInterface {
     SdfPath protoPath;
     TessParams params;
+    int badFaceCount = 0;
     
     bool tessellate(
         const TopoDS_Shape& defShape, 

@@ -269,31 +269,37 @@ static Surf extractSurface(const TopoDS_Face& face) {
     Surf s{};
     TopLoc_Location loc;
     Handle(Geom_Surface) gs = BRep_Tool::Surface(face, loc);
-    if (gs.IsNull()) return s;
-
-    if (!loc.IsIdentity()) {
-        gs = Handle(Geom_Surface)::DownCast(gs->Transformed(loc.Transformation()));
+    if (gs.IsNull()) {
+        LOG_ERR("extractSurface: BRep_Tool::Surface returned null");
+        return s;
     }
+    if (!loc.IsIdentity())
+        gs = Handle(Geom_Surface)::DownCast(gs->Transformed(loc.Transformation()));
+
+    Handle(Geom_RectangularTrimmedSurface) rt =
+        Handle(Geom_RectangularTrimmedSurface)::DownCast(gs);
+    if (!rt.IsNull()) gs = rt->BasisSurface();
 
     Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(gs);
     if (bs.IsNull()) {
         try {
-            Standard_Real uMin = 0.0, uMax = 0.0, vMin = 0.0, vMax = 0.0;
+            Standard_Real uMin, uMax, vMin, vMax;
             BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
-
             if (Precision::IsInfinite(uMin) || Precision::IsInfinite(uMax)) { uMin = 0.0; uMax = 1.0; }
             if (Precision::IsInfinite(vMin) || Precision::IsInfinite(vMax)) { vMin = 0.0; vMax = 1.0; }
-
             Handle(Geom_RectangularTrimmedSurface) trimmed =
                 new Geom_RectangularTrimmedSurface(gs, uMin, uMax, vMin, vMax);
-
             bs = GeomConvert::SurfaceToBSplineSurface(trimmed);
         } catch (const Standard_Failure& e) {
-            LOG_ERR(std::string("Failed to convert surface to B-Spline: ") + e.GetMessageString());
+            LOG_ERR(std::string("extractSurface: conversion failed for surface type ")
+                     + gs->DynamicType()->Name() + ": " + e.GetMessageString());
             return s;
         }
     }
-
+    if (bs.IsNull() || bs->NbUPoles() < 2 || bs->NbVPoles() < 2) {
+        LOG_ERR("extractSurface: conversion produced a degenerate surface");
+        return Surf{};
+    }
     return extractSurface(Handle(Geom_Surface)(bs));
 }
 
@@ -353,12 +359,20 @@ struct BrepContext {
 
 // Append one face (with all its wires) to the Out arrays.
 void BrepRoutine::addFace(BrepContext& ctx, const TopoDS_Face& face) {
-    // surface: prefer the native analytic type (routes the builder through its
-    // robust analytic path); fall back to NURBS extraction otherwise.
     AnalyticSurface anal = detectAnalytic(face);
+    Surf nurbSurf;
+    if (anal.kind == Kind::None) {
+        nurbSurf = extractSurface(face);
+        if (nurbSurf.un < 2 || nurbSurf.vn < 2) {
+            LOG_ERR("addFace: surface conversion failed; omitting this face "
+                     "rather than authoring a corrupt BrepSurfaceNurbAPI entry.");
+            ++badFaceCount;
+            return;   // nothing else about this face gets written
+        }
+    }
     faceSurf.push_back(anal);
-    if (anal.kind == Kind::None)
-        surfaces.push_back(extractSurface(face));   // NURBS, packed in face order over NURBS faces
+    if (anal.kind == Kind::None) 
+        surfaces.push_back(nurbSurf);
     // face range (corner-point form is emitted later in emit()). FIX 2: for a
     // cone, OCCT's v is slant distance; author it as AXIAL (v*cos(semiAngle)) so
     // face:range is consistent with the schema's cone parameterization.
@@ -402,11 +416,18 @@ void BrepRoutine::addFace(BrepContext& ctx, const TopoDS_Face& face) {
                 if (!gIncludeDegenerateEdges &&
                     eidx >= 0 && eidx < (int)ctx.edgeDegenerate.size() &&
                     ctx.edgeDegenerate[eidx]) {
+                    LOG_ERR("addFace: dropping edgeuse — edge " + std::to_string(eidx) +
+             " is degenerate (null 3D curve)");  
                     continue;
                 }
                 Standard_Real f2,l2;
                 Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(edge, face, f2, l2);
-                if (pc.IsNull()) continue;
+                if (pc.IsNull()) {
+                    LOG_ERR("addFace: dropping edgeuse — edge " + std::to_string(eidx) +
+                    " has NO PCURVE on this face (BRep_Tool::CurveOnSurface "
+                    "returned null); this edgeuse is silently omitted from its loop.");
+                    continue;
+                }
                 // Trim to the edge's range FIRST (handles full/periodic basis
                 // curves), then convert to BSpline.
                 Handle(Geom2d_BSplineCurve) bpc = Geom2dConvert::CurveToBSplineCurve(
@@ -497,8 +518,8 @@ bool BrepRoutine::tessellate(
     shapeHealer.FixWireTool()->FixAddPCurveMode() = true;
     shapeHealer.FixWireTool()->FixSmallMode() = true;
     
-    shapeHealer.FixFaceTool()->FixSmallAreaWireMode() = true;
-    shapeHealer.FixFaceTool()->FixSplitFaceMode() = true;
+    shapeHealer.FixFaceTool()->FixSmallAreaWireMode() = false;
+    shapeHealer.FixFaceTool()->FixSplitFaceMode() = false;
     shapeHealer.FixFaceTool()->FixLoopWiresMode() = true;
 
     shapeHealer.Perform();
@@ -509,7 +530,6 @@ bool BrepRoutine::tessellate(
         return false;
     }
 
-    // Split closed/periodic surfaces (e.g. 360-deg cylinders/toruses)
     ShapeUpgrade_ShapeDivideClosed div(shape); 
     div.Perform(); 
     shape = div.Result();
@@ -517,20 +537,25 @@ bool BrepRoutine::tessellate(
         LOG_ERR("Resulting shape is null after ShapeUpgrade_ShapeDivideClosed.");
         return false;
     }
-
+    
     // Analyzer check
+    LOG_DEBUG("ShapeUpgrade_ShapeDivideClosed completed for prototype: " + protoPath.GetString());
     BRepCheck_Analyzer analyzer(shape);
     if (!analyzer.IsValid()) {
         LOG_ERR("Shape invalid after ShapeUpgrade_ShapeDivideClosed");
         // Continuing anyway to allow partial recovery
     }
+    
 
     // Build 3D curves
+    LOG_DEBUG("BRepCheck_Analyzer completed for prototype: " + protoPath.GetString());
     if (!BRepLib::BuildCurves3d(shape)) {
         LOG_ERR("Failed rebuilding curves");
     }
 
-    // BRepTools::Write(shape, "rebuilt.brep");
+    std::string name = protoPath.GetName() + ".brep";
+
+    BRepTools::Write(shape, name.c_str());
 
     this->isSolid = TopExp_Explorer(shape, TopAbs_SOLID).More();
 
@@ -625,11 +650,23 @@ bool BrepRoutine::tessellate(
         }
     }
 
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        if (BRep_Tool::Surface(TopoDS::Face(fx.Current())).IsNull()) {
+            LOG_ERR("post-NurbsConvert: face has null surface");
+        }
+    }
+
     // Faces -> edgeuses (curveUv per edgeuse). edgeuse:edgeIndex temporarily
     // holds the EMAP index; compaction below remaps it to the authored index.
     for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next())
         addFace(ctx, TopoDS::Face(fx.Current()));
 
+    if (badFaceCount > 0) {
+        LOG_ERR("tessellate: " + std::to_string(badFaceCount) +
+                " face(s) omitted due to surface conversion failure — "
+                "resulting Brep is an open shell, not exporting.");
+        return false;
+    }
     // ---- compact edges: author only emap edges actually referenced by a
     // surviving edgeuse, assign 0-based authored indices, remap. ----
     std::vector<int> emap2authored(nEmap, -1);

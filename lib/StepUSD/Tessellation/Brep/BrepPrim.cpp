@@ -135,10 +135,8 @@ void validateBrepConstruction(
         for (uint32_t l = 0; l < numLoops; ++l) {
             uint32_t numEdges = loopEdgeuseCount[loopIdx++];
             if (numEdges < 3) {
-                std::ostringstream text;
-                text << "[B-Rep ERROR] Face " << f << " Loop " << l 
-                          << " has fewer than 3 edges (" << numEdges << ")";
-                LOG_ERR(text.str());
+                LOG_ERR("Face " + std::to_string(f) + " Loop " + std::to_string(l) 
+                          + " has fewer than 3 edges (" + std::to_string(numEdges) + ")");
             }
 
             // Check Head-to-Tail Vertex Continuity
@@ -155,11 +153,10 @@ void validateBrepConstruction(
                 uint32_t currEndVtx = currFwd ? edgeVtx[currE][1] : edgeVtx[currE][0];
                 uint32_t nextStartVtx = nextFwd ? edgeVtx[nextE][0] : edgeVtx[nextE][1];
 
-                if (currEndVtx != nextStartVtx) {std::ostringstream text;
-                    text << "[B-Rep DISCONNECT] Face " << f << " Loop " << l 
-                              << " Edgeuse " << e << " EndVtx (" << currEndVtx 
-                              << ") != Next StartVtx (" << nextStartVtx << ")";
-                    LOG_ERR(text.str());
+                if (currEndVtx != nextStartVtx) {std::ostringstream text;                    
+                    LOG_ERR("Face " + std::to_string(f) + " Loop " + std::to_string(l) 
+                              + " Edgeuse " + std::to_string(e) + " EndVtx (" + std::to_string(currEndVtx) 
+                              + ") != Next StartVtx (" + std::to_string(nextStartVtx) + ")");
                 }
             }
             euIdx += numEdges;
@@ -188,11 +185,11 @@ bool BrepRoutine::writePrim(
     size_t nEdges = edge3d.size();
     size_t nVerts = verts.size();
 
-    // ---- Intersect Tolerance ----
+    // Intersect Tolerance
     VtArray<double> tolArray{1e-4};
     protoBrep.CreateBrepIntersectTol3dAttr().Set(tolArray);
 
-    // ---- Extent Calculation ----
+    // Extent Calculation
     std::array<double,3> mn{ std::numeric_limits<double>::max(),
                              std::numeric_limits<double>::max(),
                              std::numeric_limits<double>::max() };
@@ -214,7 +211,7 @@ bool BrepRoutine::writePrim(
         mn = {0,0,0}; mx = {0,0,0}; 
     }
 
-    // ---- Topology Setup ----
+    // Topology Setup
     if (isSolid) {
         VtArray<uint> brepRegionCount{2};
         VtArray<uint> shellCount{1,1};
@@ -245,7 +242,7 @@ bool BrepRoutine::writePrim(
         protoBrep.CreateShellPointTypeAttr().Set(shellPointType);
     }
 
-    // ---- Faces & Loops ----
+    // Faces & Loops
     VtArray<TfToken> faceSurfaceType;
     for (const auto& surf : faceSurf) {
         addFaceSurfaceTypes(surf, faceSurfaceType);
@@ -267,7 +264,7 @@ bool BrepRoutine::writePrim(
     protoBrep.CreateEdgeuseEdgeIndexAttr().Set(edgeuseEdgeIndex);
     protoBrep.CreateEdgeuseOrientationTypeAttr().Set(edgeuseOrient);
 
-    // ---- Faceuses ----
+    // Faceuses
     VtArray<TfToken> fo; 
     VtArray<uint> fidx;
     for (size_t fi = 0; fi < nFaces; ++fi) fo.push_back(TfToken(faceuseOrient[2*fi]));
@@ -281,7 +278,7 @@ bool BrepRoutine::writePrim(
     protoBrep.CreateEdgeuseNextRadialEUIndexAttr().Set(edgeuseNextRadial);
     protoBrep.CreateEdgeuseThisRadialEntryTypeAttr().Set(edgeuseRadialEntry);
 
-    // ---- Edges Topology ----
+    // Edges Topology
     VtArray<TfToken> ct(nEdges, TfToken("BrepCurve3dNurbAPI"));
     protoBrep.CreateEdgeCurveTypeAttr().Set(ct);
 
@@ -298,7 +295,7 @@ bool BrepRoutine::writePrim(
     }
     protoBrep.CreateEdgeVertexIndicesAttr().Set(ev);
 
-    // ---- Vertices ----
+    // Vertices
     VtArray<TfToken> vt(nVerts, TfToken("BrepPointAPI"));
     protoBrep.CreateVertexPointTypeAttr().Set(vt);
 
@@ -309,7 +306,7 @@ bool BrepRoutine::writePrim(
     UsdSolidBrepPointAPI pointPrim = UsdSolidBrepPointAPI::Apply(protoBrep.GetPrim(), TfToken("vertexPoint"));
     pointPrim.CreatePointPositionAttr().Set(vp);
 
-    // ---- 3D Edge NURBS Geometry Export ----
+    // 3D Edge NURBS Geometry Export
     if (!edge3d.empty()) {
         auto edgeNurbApi = UsdSolidBrepCurve3dNurbAPI::Apply(protoBrep.GetPrim(), TfToken("edge3dNurb"));
 
@@ -344,7 +341,7 @@ bool BrepRoutine::writePrim(
         }
     }
 
-    // ---- Surface NURBS Geometry Export ----
+    // Surface NURBS Geometry Export
     Kind overallKind = Kind::None;
     for (const auto& surf : faceSurf) {
         unionizeSurfaceKind(overallKind, surf.kind);
@@ -480,33 +477,6 @@ bool BrepRoutine::writePrim(
             api.CreateSurfaceTorusMajorRadiusAttr().Set(torusMajorRadii);
             api.CreateSurfaceTorusMinorRadiusAttr().Set(torusMinorRadii);
         }
-    }
-
-    {
-        VtArray<uint> edgeOrders;
-        VtArray<uint> edgeVertexCounts;
-        VtArray<double> edgeKnots;
-        VtArray<GfVec3d> edgeControlVertices;
-        VtArray<double> edgeWeights;
-
-        for (const auto& c : edge3d)
-        {
-            edgeOrders.push_back(c.order);
-            edgeVertexCounts.push_back(c.n);
-
-            edgeKnots.insert(edgeKnots.end(), c.k.begin(), c.k.end());
-            edgeWeights.insert(edgeWeights.end(), c.w.begin(), c.w.end());
-
-            for (const auto& p : c.cp)
-                edgeControlVertices.emplace_back(p[0], p[1], p[2]);
-        }
-
-        auto edgeApi = UsdSolidBrepCurve3dNurbAPI::Apply(protoBrep.GetPrim(), TfToken("edge3dNurb"));
-        edgeApi.CreateCurve3dOrderAttr().Set(edgeOrders);
-        edgeApi.CreateCurve3dVertexCountAttr().Set(edgeVertexCounts);
-        edgeApi.CreateCurve3dKnotsAttr().Set(edgeKnots);
-        edgeApi.CreateCurve3dControlVerticesAttr().Set(edgeControlVertices);
-        edgeApi.CreateCurve3dWeightsAttr().Set(edgeWeights);
     }
 
     {
