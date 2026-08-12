@@ -589,8 +589,9 @@ bool BrepRoutine::tessellate(
 
         // If 3D curve is missing on a non-degenerate edge, build it natively for this single edge
         if (c3.IsNull() && !degen) {
-            // TODO: Does this tolerance actually matter 
-            BRepLib::BuildCurve3d(edge, 1e-3); 
+            // TODO: Does this tolerance actually matter
+            LOG_DEBUG("BRep_Tool::Curve returned null for non-degenerate edge " + std::to_string(i-1) + ", building 3D curve");
+            BRepLib::BuildCurve3d(edge, 1e-6); 
             c3 = BRep_Tool::Curve(edge, f3, l3);
         }
         degen = c3.IsNull();

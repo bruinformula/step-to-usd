@@ -87,7 +87,7 @@ bool TessellationRoutine::tessellate(
     using Seconds = std::chrono::duration<double>;
 
     auto tessellateStart = Clock::now();
-
+    
     std::string protoName = protoPath.GetAsString();
 
     LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
@@ -106,7 +106,7 @@ bool TessellationRoutine::tessellate(
     }
     
     TopoDS_Shape fixedShape = fixer.Shape();
-
+    /*
     LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
     BRepTools::Clean(defShape); // remove previously created tessellations for this part 
 
@@ -185,6 +185,7 @@ bool TessellationRoutine::tessellate(
             break;
         }
     }
+    */
     
     auto meshEnd = Clock::now();
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");

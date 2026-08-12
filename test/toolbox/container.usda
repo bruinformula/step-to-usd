@@ -9,7 +9,7 @@
 def StepContainer "Toolbox" {
     asset step:sourceAsset = @../step/toolbox.step@
     asset step:cacheAsset = @../step/toolbox.xbf@
-    asset step:outputAsset = @toolbox/brep.usdc@
+    asset step:outputAsset = @brep-toolbox.usdc@
 
     def StepPrototypes "Prototypes" {
         rel step:defaultParams = </DefaultOptions>
