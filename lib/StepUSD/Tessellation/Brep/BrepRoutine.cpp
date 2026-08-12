@@ -553,9 +553,8 @@ bool BrepRoutine::tessellate(
         LOG_ERR("Failed rebuilding curves");
     }
 
-    std::string name = protoPath.GetName() + ".brep";
-
-    BRepTools::Write(shape, name.c_str());
+    //std::string name = protoPath.GetName() + ".brep";
+    //BRepTools::Write(shape, name.c_str());
 
     this->isSolid = TopExp_Explorer(shape, TopAbs_SOLID).More();
 

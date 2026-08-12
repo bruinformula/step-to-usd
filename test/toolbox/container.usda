@@ -1,0 +1,18 @@
+#usda 1.0
+(
+    defaultPrim = "Toolbox"
+    metersPerUnit = 0.001
+    upAxis = "Z"
+)
+
+
+def StepContainer "Toolbox" {
+    asset step:sourceAsset = @../step/toolbox.step@
+    asset step:cacheAsset = @../step/toolbox.xbf@
+    asset step:outputAsset = @toolbox/brep.usdc@
+
+    def StepPrototypes "Prototypes" {
+        rel step:defaultParams = </DefaultOptions>
+    }
+}
+
