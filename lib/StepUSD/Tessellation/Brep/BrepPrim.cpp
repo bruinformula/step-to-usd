@@ -120,50 +120,6 @@ bool BrepRoutine::definePrim(
     return true;
 }
 
-void validateBrepConstruction(
-    const VtArray<uint>& faceLoopCount,
-    const VtArray<uint>& loopEdgeuseCount,
-    const VtArray<uint>& edgeuseEdgeIndex,
-    const VtArray<TfToken>&  edgeuseOrient,
-    const std::vector<std::array<int, 2>>& edgeVtx
-) {
-    size_t euIdx = 0;
-    size_t loopIdx = 0;
-
-    for (size_t f = 0; f < faceLoopCount.size(); ++f) {
-        uint32_t numLoops = faceLoopCount[f];
-        for (uint32_t l = 0; l < numLoops; ++l) {
-            uint32_t numEdges = loopEdgeuseCount[loopIdx++];
-            if (numEdges < 3) {
-                LOG_ERR("Face " + std::to_string(f) + " Loop " + std::to_string(l) 
-                          + " has fewer than 3 edges (" + std::to_string(numEdges) + ")");
-            }
-
-            // Check Head-to-Tail Vertex Continuity
-            for (uint32_t e = 0; e < numEdges; ++e) {
-                size_t currEU = euIdx + e;
-                size_t nextEU = euIdx + ((e + 1) % numEdges);
-
-                uint32_t currE = edgeuseEdgeIndex[currEU];
-                uint32_t nextE = edgeuseEdgeIndex[nextEU];
-
-                bool currFwd = (edgeuseOrient[currEU] == TfToken("same"));
-                bool nextFwd = (edgeuseOrient[nextEU] == TfToken("same"));
-
-                uint32_t currEndVtx = currFwd ? edgeVtx[currE][1] : edgeVtx[currE][0];
-                uint32_t nextStartVtx = nextFwd ? edgeVtx[nextE][0] : edgeVtx[nextE][1];
-
-                if (currEndVtx != nextStartVtx) {std::ostringstream text;                    
-                    LOG_ERR("Face " + std::to_string(f) + " Loop " + std::to_string(l) 
-                              + " Edgeuse " + std::to_string(e) + " EndVtx (" + std::to_string(currEndVtx) 
-                              + ") != Next StartVtx (" + std::to_string(nextStartVtx) + ")");
-                }
-            }
-            euIdx += numEdges;
-        }
-    }
-}
-
 bool BrepRoutine::writePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -171,14 +127,6 @@ bool BrepRoutine::writePrim(
 ) const {
     SdfPath brepPath = protoPath.AppendChild(TfToken("Brep"));
     UsdSolidBrepArray protoBrep(stage->GetPrimAtPath(brepPath));
-
-    validateBrepConstruction(
-        faceLoopCount,
-        loopEdgeuseCount,
-        edgeuseEdgeIndex,
-        edgeuseOrient,
-        edgeVtx
-    );
 
     size_t nFaces = faceLoopCount.size();
     size_t nEU    = edgeuseEdgeIndex.size();

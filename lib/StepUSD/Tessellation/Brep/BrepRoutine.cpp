@@ -406,19 +406,22 @@ void BrepRoutine::addFace(BrepContext& ctx, const TopoDS_Face& face) {
             const TopoDS_Edge& edge = wexp.Current();
             try {
                 int eidx = ctx.emap.FindIndex(edge) - 1; // 0-based SHARED index
-                // Skip edgeuses on degenerate (null-3D-curve) seam/pole edges, as
-                // the legacy fan path did. They carry no boundary geometry the
-                // NURBS trim path needs, and authoring them as extra trim
-                // segments perturbs the tessellation. The edge itself is dropped
-                // by the post-pass compaction (so no orphan-edge error).
-                // Exception (gIncludeDegenerateEdges): the NURBS-solid gallery
-                // authors them, using their valid pcurve, to CLOSE pole/apex UV
-                // loops so MakeFace(Inside) bounds the finite region.
-                if (!gIncludeDegenerateEdges &&
+                // Skip edgeuses on degenerate (null-3D-curve) seam/pole edges,
+                // unless this face's surface is pole/apex-bearing (sphere,
+                // cone, torus, the degenerate edge's valid pcurve is
+                // required to close the UV loop at the pole/apex, or
+                // MakeFace(surface, wire, Inside=true) trims to the wrong
+                // (empty/complement) region.
+                const bool facePoleBearing =
+                    (anal.kind == Kind::Sphere || anal.kind == Kind::Cone ||
+                     anal.kind == Kind::Torus);
+                const bool dropDegenerate =
+                    !gIncludeDegenerateEdges && !facePoleBearing;
+                if (dropDegenerate &&
                     eidx >= 0 && eidx < (int)ctx.edgeDegenerate.size() &&
                     ctx.edgeDegenerate[eidx]) {
                     LOG_ERR("addFace: dropping edgeuse — edge " + std::to_string(eidx) +
-             " is degenerate (null 3D curve)");  
+                        " is degenerate (null 3D curve)");  
                     continue;
                 }
                 Standard_Real f2,l2;
@@ -554,9 +557,6 @@ bool BrepRoutine::tessellate(
         LOG_ERR("Failed rebuilding curves");
     }
 
-    //std::string name = protoPath.GetName() + ".brep";
-    //BRepTools::Write(shape, name.c_str());
-
     this->isSolid = TopExp_Explorer(shape, TopAbs_SOLID).More();
 
     BrepContext ctx;
@@ -636,17 +636,20 @@ bool BrepRoutine::tessellate(
         ctx.edgeDegenerate[i-1] = degen;
         if (degen) {
             ++degenerateCount;
-            // When the gallery authors degenerate edges, give each a placeholder
+            // When degenerate edges are authored, give each a placeholder
             // 3D line between its endpoint vertices + a unit range, so the
             // per-edge 3D arrays stay valid if a surviving edgeuse references it.
-            if (gIncludeDegenerateEdges) {
-                std::array<double,3> pa = (i1>=0 && i1<(int)verts.size())
-                    ? verts[i1] : std::array<double,3>{{0,0,0}};
-                std::array<double,3> pb = (i2>=0 && i2<(int)verts.size())
-                    ? verts[i2] : pa;
-                ctx.edgeCrv3[i-1] = placeholderLine3d(pa, pb);
-                ctx.edgeRng[i-1] = {0.0, 1.0};
+            std::array<double,3> pa = (i1>=0 && i1<(int)verts.size())
+                ? verts[i1] : std::array<double,3>{{0,0,0}};
+            std::array<double,3> pb = (i2>=0 && i2<(int)verts.size())
+                ? verts[i2] : pa;
+
+            // Add a little offset to breaks closed loops for validation
+            if (pa[0] == pb[0] && pa[1] == pb[1] && pa[2] == pb[2]) {
+                pb[0] += 1.1e-6; 
             }
+            ctx.edgeCrv3[i-1] = placeholderLine3d(pa, pb);
+            ctx.edgeRng[i-1] = {0.0, 1.0};
         }
     }
 

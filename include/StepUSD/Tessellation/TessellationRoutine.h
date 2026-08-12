@@ -381,6 +381,7 @@ struct Surf {
 };
 
 struct Crv3 { 
+    TfToken type = TfToken("nurb");
     int order,n; 
     std::vector<double> k,w; 
     std::vector<std::array<double,3>> cp;
