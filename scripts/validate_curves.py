@@ -27,7 +27,7 @@ for proto in prototypes.GetAllChildren():
 
 sorted_counts = dict(sorted(primvar_counts.items(), key=lambda x: x[1], reverse=False))
 
-disable_threshold = False
+disable_threshold = True
 #threshold = 65535
 threshold = 32768
 # RenderMan has a limit on the number of points that a curve with primvars can have, which is 65535 (16 bit int max)

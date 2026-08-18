@@ -107,6 +107,7 @@ bool TessellationRoutine::tessellate(
     
     TopoDS_Shape fixedShape = fixer.Shape();
 
+
     LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
     BRepTools::Clean(defShape); // remove previously created tessellations for this part 
 
@@ -192,7 +193,7 @@ bool TessellationRoutine::tessellate(
 
     bool meshSuccess = meshRoutine.tessellate(fixedShape, params, protoPath);
     bool sketchSuccess = sketchRoutine.tessellate(fixedShape, params, protoPath);
-
+    //return sketchSuccess;
     return meshSuccess && sketchSuccess;
 }
 

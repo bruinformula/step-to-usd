@@ -126,8 +126,6 @@ struct UVPatch;
 struct MeshTessellationContext;
 
 struct MeshTessellationRoutine : public TessellationRoutineInterface {
-
-    SdfPath protoPath;
     TessParams params;
 
     bool tessellate(
@@ -270,8 +268,6 @@ private:
 struct SketchTessellationContext;
 
 struct SketchTessellationRoutine : public TessellationRoutineInterface {
-
-    SdfPath protoPath;
     TessParams params;
     
     bool tessellate(
@@ -332,12 +328,14 @@ private:
     ) const;
 
     void tessellateSketchPlane(
-        const TopoDS_Shape& defShape, 
+        const TopoDS_Shape& defShape,
+        const SdfPath& protoPath,
         SketchTessellationContext& ctx
     );
 
     void tessellateSketch(
         const TopoDS_Shape& defShape, 
+        const SdfPath& protoPath,
         SketchTessellationContext& ctx
     );
 

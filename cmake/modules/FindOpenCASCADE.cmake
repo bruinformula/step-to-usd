@@ -137,3 +137,9 @@ else ()
 
     mark_as_advanced(OPENCASCADE_INCLUDE_DIR)
 endif()
+
+if (OpenCASCADE_FOUND AND NOT TARGET OpenCASCADE::OpenCASCADE)
+    add_library(OpenCASCADE::OpenCASCADE INTERFACE IMPORTED)
+    target_include_directories(OpenCASCADE::OpenCASCADE INTERFACE "${OpenCASCADE_INCLUDES}")
+    target_link_libraries(OpenCASCADE::OpenCASCADE INTERFACE "${OpenCASCADE_LIBRARIES}")
+endif()

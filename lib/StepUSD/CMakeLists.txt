@@ -10,11 +10,8 @@ add_library(StepUSD STATIC ${STEPUSD_SOURCES})
 
 target_link_libraries(StepUSD PUBLIC
     autolibStepTessellation
-    usd
-    usdGeom
-    sdf
-    tf
-    ${OpenCASCADE_LIBRARIES}
+    pxr::pxr
+    OpenCASCADE::OpenCASCADE
 )
 
 target_include_directories(StepUSD

@@ -954,13 +954,13 @@ bool MeshTessellationRoutine::definePrim(
     const TessParams& params
 ) const {
     bool hasPoints = !points.empty() && !faceVertexIndices.empty() && !faceVertexCounts.empty();
-    bool meshDefined = false;
+    bool meshDefined = true;
     if (hasPoints) {
         meshDefined = defineMeshPrim(stage, protoPath, params);
     }
     
     bool hasWireframe = !wireframePoints.empty() && !wireframeCounts.empty();
-    bool wireframeDefined = false;
+    bool wireframeDefined = true;
     if (hasWireframe) {
         wireframeDefined = defineWireframePrim(stage, protoPath, params);
     }
@@ -973,12 +973,12 @@ bool MeshTessellationRoutine::writePrim(
     const SdfPath& protoPath,
     const TessParams& params
 ) const {
-    bool meshWritten = false;
+    bool meshWritten = true;
     if (!points.empty() && !faceVertexIndices.empty() && !faceVertexCounts.empty()) {
         meshWritten = writeMeshPrim(stage, protoPath, params);
     }
 
-    bool wireframeWritten = false;
+    bool wireframeWritten = true;
     if (!wireframePoints.empty() && !wireframeCounts.empty()) {
         wireframeWritten = writeWireframePrim(stage, protoPath, params);
     }

@@ -25,7 +25,8 @@ include (ExternalProject)
 
 checked_find_package(OpenCASCADE REQUIRED VERSION_MIN 7.9.3 CONFIG)
 
-checked_find_package(TBB REQUIRED VERSION_MIN 2023 CONFIG)
+# disabling for now 
+# checked_find_package(TBB REQUIRED VERSION_MIN 2023 CONFIG)
 
 checked_find_package(OpenSubdiv REQUIRED 
     VERSION_MIN 3.5.1

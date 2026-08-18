@@ -29,6 +29,26 @@ install(TARGETS stepmesh
     ARCHIVE DESTINATION lib
 )
 
+# brepview 
+if(APPLE)
+add_executable(brepview "${CMAKE_CURRENT_SOURCE_DIR}/brepview.mm")
+target_link_libraries(brepview PRIVATE OpenCASCADE::OpenCASCADE)
+
+target_include_directories(brepview
+    PUBLIC "${CMAKE_SOURCE_DIR}/include"
+)
+
+target_link_libraries(brepview PRIVATE 
+    "-framework Foundation"
+    "-framework Cocoa"
+)
+
+install(TARGETS brepview
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+endif()
 
 add_executable(instmesh "${CMAKE_CURRENT_SOURCE_DIR}/InstantMeshes.cc")
 target_link_libraries(instmesh PRIVATE InstantMeshes)
