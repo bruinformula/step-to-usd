@@ -235,8 +235,8 @@ void SketchTessellationRoutine::tessellateSketchPlane(
 
     TopoDS_Shape unifiedShape = faceCompound; // safe fallback
 
-    std::string generatedShapeSavePath = protoName + ".brep";
-    BRepTools::Write(unifiedShape, generatedShapeSavePath.c_str());
+    // std::string generatedShapeSavePath = protoName + ".brep";
+    // BRepTools::Write(unifiedShape, generatedShapeSavePath.c_str());
 
     if (builtFaceCount > 1) {
         try {

@@ -47,6 +47,7 @@ TessParams StepUsdPipeline::getTessParams(
     updateIfAuthored(api.GetStepMeshMaxNumberRemeshPassesAttr(), &params.meshMaxNumberRemeshPasses);
     updateIfAuthored(api.GetStepMeshFixPrecisionAttr(), &params.meshFixPrecision);
     updateIfAuthored(api.GetStepMeshFixToleranceAttr(), &params.meshFixTolerance);
+    updateIfAuthored(api.GetStepMeshEnableRepairShapeAttr(), &params.meshEnableRepairPass);
 
     updateIfAuthored(api.GetStepMeshFixTimeoutAttr(), &params.meshFixTimeout);
     updateIfAuthored(api.GetStepMeshMeshTimeoutAttr(), &params.meshMeshTimeout);

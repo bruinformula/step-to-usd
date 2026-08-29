@@ -136,10 +136,106 @@ void StepUsdPipeline::tessellateGeometry(
         return shapeComplexity.at(a) > shapeComplexity.at(b);
     });
 
+    // Slowest-job report, printed once at the very end.
+    struct JobTiming {
+        SdfPath path;
+        int defIndex;
+        size_t sharedCount;
+        double milliseconds;
+    };
+    std::mutex timingMutex;
+    std::vector<JobTiming> jobTimings;
+
+    // Bookkeeping for the near-completion tally report. Unlike a simple
+    // "currently running" pointer, this tracks every job that hasn't
+    // completed yet -- including ones still queued behind other work --
+    // so once we're down to the last few jobs we can print exactly what's
+    // left and how long each has been running, instead of just one path.
+    struct PendingJobInfo {
+        int defIndex;
+        int complexity;              // face count of the underlying shape
+        size_t sharedCount = 1;      // filled in once its subgroup is known
+        bool active = false;
+        std::chrono::steady_clock::time_point startTime;
+    };
+    std::mutex pendingJobsMutex;
+    std::unordered_map<std::string, PendingJobInfo> pendingJobs;
+    pendingJobs.reserve(tessJobs.size());
+    for (TessellationJob& job : tessJobs) {
+        const auto& defs = job.proto->model->getDefinitionShapes();
+        const TopoDS_Shape& shape = defs[job.defIndex].second;
+        ShapeKey key{shape.TShape().get()};
+        pendingJobs[job.prototypePath.GetString()] = PendingJobInfo{
+            job.defIndex, shapeComplexity.at(key)
+        };
+    }
+
     {
         LOG_SCOPED_TIMER("Parallel Tessellation of " + std::to_string(shapeKeys.size()) + " unique shapes.");
         std::atomic<int> completedJobs{0};
         const int totalJobs = static_cast<int>(tessJobs.size());
+
+        // Once we're down to the last kNearEndThreshold jobs, periodically
+        // print a tally of exactly what's still outstanding -- running or
+        // merely queued -- so a long tail of one or two heavy shapes doesn't
+        // look like a hang.
+        constexpr int kNearEndThreshold = 10;
+        constexpr auto kMonitorInterval = std::chrono::seconds(5);
+
+        std::atomic<bool> monitorRunning{true};
+        std::thread monitorThread([&]() {
+            while (monitorRunning.load()) {
+                std::this_thread::sleep_for(kMonitorInterval);
+
+                const int remaining = totalJobs - completedJobs.load();
+                if (remaining <= 0 || remaining > kNearEndThreshold) {
+                    continue;
+                }
+
+                std::vector<std::pair<std::string, PendingJobInfo>> snapshot;
+                {
+                    std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                    snapshot.assign(pendingJobs.begin(), pendingJobs.end());
+                }
+
+                int activeCount = 0;
+                for (const auto& entry : snapshot) {
+                    if (entry.second.active) activeCount++;
+                }
+
+                // Running jobs first (longest-running first), then queued
+                // jobs (heaviest first) -- puts the likely bottleneck at
+                // the top of the list.
+                std::sort(snapshot.begin(), snapshot.end(),
+                    [](const auto& a, const auto& b) {
+                        if (a.second.active != b.second.active) return a.second.active > b.second.active;
+                        if (a.second.active) return a.second.startTime < b.second.startTime;
+                        return a.second.complexity > b.second.complexity;
+                    });
+
+                LOG_DEBUG("Tessellation tally: " + std::to_string(snapshot.size()) + " job(s) outstanding ("
+                          + std::to_string(activeCount) + " running, "
+                          + std::to_string(snapshot.size() - activeCount) + " queued):");
+
+                const auto now = std::chrono::steady_clock::now();
+                const size_t printCount = std::min(snapshot.size(), static_cast<size_t>(kNearEndThreshold));
+                for (size_t i = 0; i < printCount; ++i) {
+                    const auto& [path, info] = snapshot[i];
+                    std::string status;
+                    if (info.active) {
+                        double elapsedSec = std::chrono::duration<double>(now - info.startTime).count();
+                        status = std::to_string(elapsedSec) + "s elapsed";
+                    } else {
+                        status = "queued, not yet started";
+                    }
+                    LOG_DEBUG("  - " + path +
+                              " (def index " + std::to_string(info.defIndex) +
+                              ", " + std::to_string(info.complexity) + " faces" +
+                              ", shared by " + std::to_string(info.sharedCount) + " prototype path(s))" +
+                              " - " + status);
+                }
+            }
+        });
 
         WorkParallelForEach(shapeKeys.begin(), shapeKeys.end(), [&](const ShapeKey& key) {
             const std::vector<TessellationJob*>& jobs = jobsByShape.at(key);
@@ -157,6 +253,10 @@ void StepUsdPipeline::tessellateGeometry(
                     selectedPaths, job.prototypePath, job.proto->variantSetName, job.proto->variantName);
 
                 if (!bTessellate) {
+                    {
+                        std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                        pendingJobs.erase(job.prototypePath.GetString());
+                    }
                     int currentCount = ++completedJobs;
                     LOG_PROGRESS(currentCount, totalJobs, "Tessellating Geometry");
                     continue;
@@ -182,13 +282,43 @@ void StepUsdPipeline::tessellateGeometry(
                           " (def index " + std::to_string(primary.defIndex) +
                           ", shared by " + std::to_string(sg.jobs.size()) + " prototype path(s))");
 
+                {
+                    const auto startTime = std::chrono::steady_clock::now();
+                    std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                    for (TessellationJob* jobPtr : sg.jobs) {
+                        auto it = pendingJobs.find(jobPtr->prototypePath.GetString());
+                        if (it != pendingJobs.end()) {
+                            it->second.active = true;
+                            it->second.startTime = startTime;
+                            it->second.sharedCount = sg.jobs.size();
+                        }
+                    }
+                }
+
                 try {
+                    const auto tStart = std::chrono::steady_clock::now();
                     primary.routine.tessellate(shape, sg.params, primary.prototypePath);
+                    const auto tEnd = std::chrono::steady_clock::now();
+                    const double elapsedMs =
+                        std::chrono::duration<double, std::milli>(tEnd - tStart).count();
+
+                    {
+                        std::lock_guard<std::mutex> lock(timingMutex);
+                        jobTimings.push_back(JobTiming{
+                            primary.prototypePath, primary.defIndex, sg.jobs.size(), elapsedMs});
+                    }
 
                     // Fan the computed result out to every other job that needs
-                    // this exact (shape, params) pair.
+                    // this (shape, params) pair.
                     for (size_t i = 1; i < sg.jobs.size(); ++i) {
                         sg.jobs[i]->routine = primary.routine;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                        for (TessellationJob* jobPtr : sg.jobs) {
+                            pendingJobs.erase(jobPtr->prototypePath.GetString());
+                        }
                     }
 
                     for (TessellationJob* jobPtr : sg.jobs) {
@@ -199,6 +329,12 @@ void StepUsdPipeline::tessellateGeometry(
                     }
                 } catch (const Standard_Failure& e) {
                     LOG_PROGRESS_DONE();
+                    {
+                        std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                        for (TessellationJob* jobPtr : sg.jobs) {
+                            pendingJobs.erase(jobPtr->prototypePath.GetString());
+                        }
+                    }
                     for (TessellationJob* jobPtr : sg.jobs) {
                         LOG_ERR("OCC exception on " + jobPtr->prototypePath.GetString() +
                                 " (def index " + std::to_string(jobPtr->defIndex) + "): " + e.GetMessageString());
@@ -207,6 +343,12 @@ void StepUsdPipeline::tessellateGeometry(
                     }
                 } catch (const std::exception& e) {
                     LOG_PROGRESS_DONE();
+                    {
+                        std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                        for (TessellationJob* jobPtr : sg.jobs) {
+                            pendingJobs.erase(jobPtr->prototypePath.GetString());
+                        }
+                    }
                     for (TessellationJob* jobPtr : sg.jobs) {
                         LOG_ERR("std exception on " + jobPtr->prototypePath.GetString() +
                                 " (def index " + std::to_string(jobPtr->defIndex) + "): " + e.what());
@@ -215,6 +357,12 @@ void StepUsdPipeline::tessellateGeometry(
                     }
                 } catch (...) {
                     LOG_PROGRESS_DONE();
+                    {
+                        std::lock_guard<std::mutex> lock(pendingJobsMutex);
+                        for (TessellationJob* jobPtr : sg.jobs) {
+                            pendingJobs.erase(jobPtr->prototypePath.GetString());
+                        }
+                    }
                     for (TessellationJob* jobPtr : sg.jobs) {
                         LOG_ERR("Unknown exception on " + jobPtr->prototypePath.GetString() +
                                 " (def index " + std::to_string(jobPtr->defIndex) + ")");
@@ -225,6 +373,33 @@ void StepUsdPipeline::tessellateGeometry(
             }
         });
 
+        monitorRunning = false;
+        monitorThread.join();
+
         LOG_PROGRESS_DONE();
+    }
+
+    // Report the slowest tessellation jobs
+    {
+        constexpr size_t kTopN = 10;
+        const size_t reportCount = std::min(kTopN, jobTimings.size());
+
+        std::partial_sort(
+            jobTimings.begin(),
+            jobTimings.begin() + reportCount,
+            jobTimings.end(),
+            [](const JobTiming& a, const JobTiming& b) {
+                return a.milliseconds > b.milliseconds;
+            });
+
+        LOG_DEBUG("Top " + std::to_string(reportCount) + " slowest tessellation jobs:");
+        for (size_t i = 0; i < reportCount; ++i) {
+            const JobTiming& t = jobTimings[i];
+            LOG_DEBUG(
+                "  #" + std::to_string(i + 1) + ": " + t.path.GetString() +
+                " (def index " + std::to_string(t.defIndex) +
+                ", shared by " + std::to_string(t.sharedCount) + " prototype path(s))" +
+                " - " + std::to_string(t.milliseconds) + " ms");
+        }
     }
 }

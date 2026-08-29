@@ -110,6 +110,10 @@ class "StepTessellationAPI" (
         doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
+    bool step:mesh:enableRepairShape = true (
+        doc = "Enables a repair pass on the parameteric shape before meshing."
+        customData = { string variability = "SdfVariabilityUniform" }
+    )
 
     # Wireframe
     token step:wireframe:type = "linear" (
@@ -268,6 +272,7 @@ class "StepTessellationOptions" (
     uint64 step:mesh:fixTimeout = 7000
     uint64 step:mesh:meshTimeout = 7000
     uint64 step:mesh:remeshTimeout = 7000
+    bool step:mesh:enableRepairShape = true
 
     # Wireframe
     token step:wireframe:type = "linear"

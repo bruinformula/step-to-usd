@@ -90,23 +90,25 @@ bool TessellationRoutine::tessellate(
 
     std::string protoName = protoPath.GetAsString();
 
-    LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
-    ShapeFix_Shape fixer(defShape);
-    fixer.SetPrecision(params.meshFixPrecision);
-    fixer.SetMaxTolerance(params.meshFixTolerance);
+    TopoDS_Shape fixedShape = defShape;
+    if (params.meshEnableRepairPass) {
+        LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
+        ShapeFix_Shape fixer(defShape);
+        fixer.SetPrecision(params.meshFixPrecision);
+        fixer.SetMaxTolerance(params.meshFixTolerance);
+        
+        bool fixTimedOut = runWithDeadline(
+            std::chrono::milliseconds(params.meshFixTimeout),
+            "ShapeFix_Shape for part " + protoName + ": ",
+            fixer
+        );
     
-    bool fixTimedOut = runWithDeadline(
-        std::chrono::milliseconds(params.meshFixTimeout),
-        "ShapeFix_Shape for part " + protoName + ": ",
-        fixer
-    );
+        if (fixTimedOut) {
+            LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
+        }
 
-    if (fixTimedOut) {
-        LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
+        TopoDS_Shape fixedShape = fixer.Shape();
     }
-    
-    TopoDS_Shape fixedShape = fixer.Shape();
-
 
     LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
     BRepTools::Clean(defShape); // remove previously created tessellations for this part 
@@ -122,8 +124,10 @@ bool TessellationRoutine::tessellate(
     meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
     
     LOG_DEBUG("  -> tessellatePart: BRepMesh_IncrementalMesh");
-    BRepMesh_IncrementalMesh mesher(defShape, meshParams);
-
+    BRepMesh_IncrementalMesh mesher;
+    mesher.SetShape(defShape);
+    mesher.ChangeParameters() = meshParams;
+    
     bool meshTimedOut = runWithDeadline(
         std::chrono::milliseconds(params.meshMeshTimeout),
         "BRepMesh_IncrementalMesh for part " + protoName + ": ",
@@ -172,8 +176,9 @@ bool TessellationRoutine::tessellate(
 
         LOG_DEBUG("  -> BRepTools::Clean (repair)");
         BRepTools::Clean(defShape); 
-        LOG_DEBUG("  -> BRepMesh_IncrementalMesh (repair)");
-        BRepMesh_IncrementalMesh remesher(defShape, repairParams);
+        BRepMesh_IncrementalMesh remesher;
+        remesher.SetShape(defShape);
+        remesher.ChangeParameters() = repairParams;
         
         bool remeshTimedOut = runWithDeadline(
             std::chrono::milliseconds(params.meshRemeshTimeout),
