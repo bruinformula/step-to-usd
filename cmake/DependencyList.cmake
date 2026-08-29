@@ -34,6 +34,7 @@ checked_find_package(OpenSubdiv REQUIRED
     PREFER_CONFIG
 )
 
+checked_find_package(OpenGL REQUIRED)
 checked_find_package(pxr REQUIRED 
     VERSION_MIN 0.25.11
     RECOMMEND_MIN 0.26.03
