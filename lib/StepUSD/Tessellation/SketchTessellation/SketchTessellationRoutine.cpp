@@ -146,7 +146,7 @@ void SketchTessellationRoutine::tessellateSketchPlane(
         } else {
             std::ostringstream e;
             splitter.DumpErrors(e);
-            LOG_DEBUG("  -> Sketch plane splitter reported error:" + e.str() + ". using unsplit free edges");
+            LOG_DEBUG("  -> Sketch plane splitter reported error:" + e.str());
         }
     }
 

@@ -365,8 +365,10 @@ void StepUsdPipeline::writePrototypeGeometries(
     std::vector<ThreadResult> threadResults;
     std::mutex resultsMutex;
 
-    const int grainSize = 1;
-
+    // This MAY help resovle a data race
+    // with creating use stages in the code below
+    int grainSize = 4;
+    
     WorkParallelForN(total, [&](int startIdx, int endIdx) {
         TfErrorMark mark;
         SdfLayerRefPtr threadLayer = SdfLayer::CreateAnonymous();
@@ -435,9 +437,7 @@ void StepUsdPipeline::writePrototypeGeometries(
 
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
-                    if (Logger::activeLevel == Logger::DEBUG) {
-                        //LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Skip geometry (filtered): " + protoPath.GetString());
-                    } else {
+                    if (Logger::activeLevel != Logger::DEBUG) {
                         LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
                     }
                     continue;

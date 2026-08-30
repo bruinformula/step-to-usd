@@ -27,6 +27,9 @@ struct StageFilterInfo {
     bool hasSpecificPrototypes = false; // individual prototypes targeted
 };
 
+// Represent generated work units generated
+// after traversing the stage, getting containers
+// and flattening their variants 
 struct PrototypeContainer {
     std::shared_ptr<OpenCascadeAssembly> model;
     std::string variantSetName;
@@ -37,6 +40,7 @@ struct PrototypeContainer {
     double sourceToOutputScale;
 };
 
+// Expanded from the Prototype containers 
 struct TessellationJob {
     std::shared_ptr<PrototypeContainer> proto;
     int defIndex;
@@ -47,11 +51,11 @@ struct TessellationJob {
 
 struct StepUsdPipeline {
 
+    // A set of globals for the generated stages
     struct PathConfig {
         SdfPath containerPrimPath;
         SdfPath assemblyPath;
         SdfPath prototypesPath;
-        SdfPath prototypesInContainerPath;
     };
 
     static std::optional<StepUsdPipeline> create(

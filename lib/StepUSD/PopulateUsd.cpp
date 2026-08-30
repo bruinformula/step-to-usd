@@ -188,60 +188,94 @@ bool StepUsdPipeline::isAssemblyActiveInFilter(
     return false;
 }
 
+static void findMatchingPrefixWithoutVariants(
+    const SdfPath& path,
+    const SdfPath& targetPath,
+    SdfPath& resolvedPrefix
+) {
+    // Find the prefix whose path, after removing variant selections,
+    // matches targetPath. Return the original prefix so its variants
+    // are preserved.
+    for (const SdfPath& prefix : path.GetPrefixes()) {
+        if (prefix.StripAllVariantSelections() == targetPath) {
+            resolvedPrefix = prefix;
+            return;
+        }
+    }
+
+    if (path.StripAllVariantSelections() == targetPath) {
+        resolvedPrefix = path;
+        return;
+    }
+}
+
+enum class StageSelection {
+    None,
+    SpecificPrototype,
+    WholeStage
+};
+
+StageSelection classifySelection(
+    const SdfPath& selectedPath,
+    const SdfPath& containerPrimPath,
+    const SdfPath& prototypesPath,
+    SdfPath& stageKey)
+{
+
+    // If /Prototypes or /Prototypes/** were selected 
+    findMatchingPrefixWithoutVariants(selectedPath, prototypesPath, stageKey);
+    if (!stageKey.IsEmpty()) {
+        const SdfPath cleanPath = selectedPath.StripAllVariantSelections();
+        if (cleanPath == prototypesPath)
+            return StageSelection::WholeStage;
+
+        return StageSelection::SpecificPrototype;
+    }
+
+    // If the container was selected 
+    SdfPath containerKey = {};
+    findMatchingPrefixWithoutVariants(selectedPath, containerPrimPath, containerKey);
+
+    if (containerKey.IsEmpty())
+        return StageSelection::None;
+
+    // We should target the Prototypes
+    stageKey = containerKey.AppendChild(TfToken("Prototypes"));
+
+    return StageSelection::WholeStage;
+}
+
 void resolveStageFilterInfo(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& containerPrimPath,
     const SdfPath& prototypesPath,
-    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash>& stageFilterMap
-) {
+    std::unordered_map<SdfPath, StageFilterInfo, SdfPath::Hash>& stageFilterMap)
+{
     for (const SdfPath& selectedPath : selectedPaths) {
-        const SdfPath cleanPath = selectedPath.StripAllVariantSelections();
-
-        // Find the most specific prefix of selectedPath 
-        // whose clean form == prototypesPath.
         SdfPath stageKey;
-        for (const SdfPath& prefix : selectedPath.GetPrefixes()) {
-            if (prefix.StripAllVariantSelections() == prototypesPath)
-                stageKey = prefix; // keep updating
+        StageSelection selection = classifySelection(selectedPath, containerPrimPath, prototypesPath, stageKey);
+        
+        switch (selection) {
+            case StageSelection::SpecificPrototype:
+                stageFilterMap[stageKey].hasSpecificPrototypes = true;
+                break;
+
+            case StageSelection::WholeStage:
+                stageFilterMap[stageKey].makeFresh = true;
+                break;
+
+            case StageSelection::None:
+                break;
         }
-        if (selectedPath.StripAllVariantSelections() == prototypesPath)
-            stageKey = selectedPath;
-
-        if (stageKey.IsEmpty()) {
-            // selectedPath is at or above containerPrimPath
-            // Derive the stage key by finding the containerPrimPath-level prefix with its
-            // variant selections, then appending /Prototypes.
-            SdfPath containerLevelKey;
-            for (const SdfPath& prefix : selectedPath.GetPrefixes()) {
-                if (prefix.StripAllVariantSelections() == containerPrimPath)
-                    containerLevelKey = prefix;
-            }
-            if (selectedPath.StripAllVariantSelections() == containerPrimPath)
-                containerLevelKey = selectedPath;
-
-            if (containerLevelKey.IsEmpty()) continue; // unrelated path
-
-            stageKey = containerLevelKey.AppendChild(TfToken("Prototypes"));
-            stageFilterMap[stageKey].makeFresh = true;
-            continue;
-        }
-
-        StageFilterInfo& info = stageFilterMap[stageKey];
-        const bool isSpecificPrototype = (cleanPath.HasPrefix(prototypesPath) && (cleanPath != prototypesPath)); // Protect variant specific subsets here
-
-        if (isSpecificPrototype)
-            info.hasSpecificPrototypes = true;
-        else
-            info.makeFresh = true;
     }
 
-    // Warn when a stage is redundantly targeted 
-    // at both levels. The whole-stage wins.
     for (const auto& [stageKey, info] : stageFilterMap) {
         if (info.makeFresh && info.hasSpecificPrototypes) {
-            LOG_WARN("SelectedPaths targets both the entire prototype stage and specific "
-                    "prototypes within it for stage [" + stageKey.GetAsString() +
-                    "]. The whole stage will be rebuilt regardless.");
+            LOG_WARN(
+                "SelectedPaths targets both the entire prototype stage and "
+                "specific prototypes within it for stage [" +
+                stageKey.GetAsString() +
+                "]. The whole stage will be rebuilt regardless.");
         }
     }
 }
@@ -311,8 +345,12 @@ bool StepUsdPipeline::populatePrototypeContainers(
         return false;
     };
 
+    // The step container indicates entry for whatever model that I would like to mesh
+    // It has three members that are resolved in lambdas below which are effectivly 
+    // inputs and outputs.
     AutolibStepContainer container(containerPrim);
 
+    // Resolves the OpenCascade document for the cacheAsset and sourceAsset
     auto getOpenCascadeAssembly = [&](void) -> std::shared_ptr<OpenCascadeAssembly> {
         if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return nullptr;
         UsdAttribute sourceAttr = container.GetStepSourceAssetAttr();
@@ -344,6 +382,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
         return std::make_shared<OpenCascadeAssembly>(iter->second);
     };
 
+    // Resolves the output path for the prototypes and assembly to be written to
     auto getPrototypesStagePath = [&](void) -> std::optional<fs::path> {
         UsdAttribute pathAttr = container.GetStepOutputAssetAttr();
         if (!pathAttr.HasAuthoredValue()) {
@@ -375,17 +414,15 @@ bool StepUsdPipeline::populatePrototypeContainers(
         return anchoredPath;
     };
 
-    const char* docString = "An autogenerated layer containing the assembly and prototypes";
-
-    fs::path containerFilePath = fs::canonical(
-        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
-    );
-
+    // A given prim may contain variants. Each variant will resolve to its own stage.
+    // This is just a check to enforce output path existence and uniqueness  
     std::vector<std::pair<std::string, std::string>> prototypesInits;
 
     if (containerVariantPaths.empty()) {
         prototypesInits.push_back({"", ""});
     } else {
+        // just in case different variants point to the same output assets
+        // don't want to overwrite
         std::unordered_set<fs::path> seenOutputAssets;
         for (const SdfPath& variantPath : containerVariantPaths) {
             if (!selectedPaths.empty() && !isContainerVariantSelected(variantPath)) {
@@ -402,12 +439,16 @@ bool StepUsdPipeline::populatePrototypeContainers(
             auto prototypesStagePathOpt = getPrototypesStagePath();
             if (!prototypesStagePathOpt.has_value()) continue;
 
+            // Can't write to an empty path. Though one will be 
+            // automatically generated if it doesn't exist
             fs::path prototypesStageFilePath = prototypesStagePathOpt.value();
             if (prototypesStageFilePath.empty()) {
                 LOG_ERR("Prototypes stage file path is empty");
                 return false;
             }
 
+            // Give a warning about muliple variants that will output 
+            // the same file and overwrite each other 
             if (seenOutputAssets.count(prototypesStageFilePath)) {
                 LOG_ERR("Duplicate output asset detected: " + prototypesStageFilePath.string());
                 return false;
@@ -417,7 +458,12 @@ bool StepUsdPipeline::populatePrototypeContainers(
             prototypesInits.push_back(std::move(variantSelection));
         }
     }
-
+    
+    const char* docString = "An autogenerated layer containing the assembly and prototypes";
+    fs::path containerFilePath = fs::canonical(
+        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
+    );
+    
     for (const auto& init : prototypesInits) {
         const std::string& variantSetName = init.first;
         const std::string& variantName = init.second;
@@ -438,6 +484,8 @@ bool StepUsdPipeline::populatePrototypeContainers(
             return false;
         }
 
+        // Get the stage name if it exists 
+        // Otherwise author some based on the variant names
         fs::path prototypesStageFilePath;
         auto prototypesStagePathOpt = getPrototypesStagePath();
         if (prototypesStagePathOpt.has_value()) {
@@ -454,10 +502,11 @@ bool StepUsdPipeline::populatePrototypeContainers(
         fs::create_directories(prototypesStageFilePath.parent_path(), ec);
         if (ec) {
             LOG_ERR("Failed to create output directory " + prototypesStageFilePath.parent_path().string() + ": " + ec.message());
-            if (hasVariant) continue;   // <-- item 3: original no-variant behavior was `return false` instead
+            if (hasVariant) continue;  
             return false;
         }
 
+        // determine based on the selected paths whether the stage should be made anew
         bool makeFreshStage = getStageMakeFresh(selectedPaths, this->pathConfig.containerPrimPath,
                                                 this->pathConfig.prototypesPath, variantSetName, variantName, stageFilterMap);
         if (stageNeedsUnitReset(prototypesStageFilePath, outputMetersPerUnit)) {
@@ -467,17 +516,13 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
         UsdStageRefPtr prototypesStage = initUsdStage(prototypesStageFilePath, makeFreshStage);
 
-        const SdfPath& prototypesInContainerPath = this->pathConfig.prototypesInContainerPath;
-
-        UsdPrim existingPrototypesContainer = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
-        if (existingPrototypesContainer.IsValid() && !existingPrototypesContainer.IsActive())
-            existingPrototypesContainer.SetActive(true);
+        const SdfPath& prototypesPath = this->pathConfig.prototypesPath;
 
         UsdGeomSetStageMetersPerUnit(prototypesStage, outputMetersPerUnit);
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
-        prototypesStage->GetRootLayer()->SetDocumentation(docString); // immediately overwritten below either way
+        prototypesStage->GetRootLayer()->SetDocumentation(docString);
 
-        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesInContainerPath);
+        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
 
         UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(this->pathConfig.containerPrimPath);
         prototypesStage->SetDefaultPrim(containerPrimInPrototypes);
@@ -489,10 +534,6 @@ bool StepUsdPipeline::populatePrototypeContainers(
         std::string subLayerPath = fs::relative(containerStagePath, prototypesStageDirectory).string();
 
         addStageSubLayer(prototypesStage, subLayerPath);
-
-        UsdPrim prototypesInPrototypesStage = prototypesStage->GetPrimAtPath(prototypesInContainerPath);
-        if (prototypesInPrototypesStage.IsValid() && !prototypesInPrototypesStage.IsActive())
-            prototypesInPrototypesStage.SetActive(true);
 
         const double sourceToOutputScale = modelPtr->metersPerUnit / outputMetersPerUnit;
 
@@ -548,10 +589,8 @@ bool StepUsdPipeline::populateParamsBank(
         return false;
     }
 
-    bool wasActive = prototypesOnThrowaway.IsActive();
-    if (!wasActive) {
-        prototypesOnThrowaway.SetActive(true);
-    }
+    // Just in case the protoypes prims was set active = false 
+    prototypesOnThrowaway.SetActive(true);
 
     for (const UsdPrim& child : prototypesOnThrowaway.GetAllChildren()) {
         auto childParams = resolveParams(child, variantLevelParams);
@@ -565,9 +604,6 @@ bool StepUsdPipeline::populateParamsBank(
         }
     }
 
-    if (!wasActive) {
-        prototypesOnThrowaway.SetActive(wasActive);
-    }
 
     return true;
 }
@@ -586,7 +622,7 @@ bool StepUsdPipeline::populateTessellationJobs(
         }
 
         // We use containerStage to observe any variant opinions authored on the container file
-        UsdPrim protocontainerPrim = containerStage->GetPrimAtPath(this->pathConfig.prototypesInContainerPath);
+        UsdPrim protocontainerPrim = containerStage->GetPrimAtPath(this->pathConfig.prototypesPath);
 
         TessParams containerParams = getTessParams(containerPrim);
         TessParams variantLevelParams = getTessParams(protocontainerPrim, containerParams);
@@ -667,10 +703,10 @@ bool StepUsdPipeline::buildPrototypeStages(
             varSet.SetVariantSelection(proto.variantName);
         }
 
-        const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(this->pathConfig.prototypesInContainerPath);
+        const UsdPrim& prototypesPrim = containerStage->GetPrimAtPath(this->pathConfig.prototypesPath);
 
         if (!prototypesPrim.IsValid()) {
-            LOG_WARN("Invalid prototypes prim at: " + this->pathConfig.prototypesInContainerPath.GetString());
+            LOG_WARN("Invalid prototypes prim at: " + this->pathConfig.prototypesPath.GetString());
             return false;
         }
 
@@ -900,14 +936,13 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
 void StepUsdPipeline::populateUsd(
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
-    const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
+    const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
 ) {
     LOG_SCOPED_TIMER("StepUsdPipeline::populateUsd");
     TfErrorMark mark;
 
-    //model.debugPrintInstances();
-
-    if (!validateVariants(containerStage, containerPrim.GetPath(), selectedInContainerPaths)) {
+    // Are the variants requested real and on the stage
+    if (!validateVariants(containerStage, containerPrim.GetPath(), selectedPaths)) {
         return;
     }
     // Generated layers follow the root stage unit if authored.
@@ -920,22 +955,20 @@ void StepUsdPipeline::populateUsd(
         UsdGeomSetStageMetersPerUnit(containerStage, fallbackMetersPerUnit);
     }
 
-    containerStage->Unload();
-
     fs::path containerFilePath = fs::canonical(containerStage->GetRootLayer()->GetResolvedPath().GetPathString()).remove_filename();
 
-    this->pathConfig.prototypesInContainerPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
-
-    //SdfPath containerParentPath = .GetParentPath();
+    // These are a set of "globals" used by the program 
+    // If the container prim is /Model
+    // prototypesPath -> /Model/Prototypes
+    // assemblyPath -> /Model/Assembly
     this->pathConfig.containerPrimPath = containerPrim.GetPath();
+    this->pathConfig.prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
     this->pathConfig.assemblyPath = SdfPath("/Assembly").ReplacePrefix(SdfPath::AbsoluteRootPath(), this->pathConfig.containerPrimPath);
-    this->pathConfig.prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), this->pathConfig.containerPrimPath);
 
     // Normalize paths from container-space to raw-space
-    std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths = selectedInContainerPaths;
     std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = getVariantsOnPrim(containerPrim);
 
-    // Setup Prototype Stages for all variants
+    // Setup Prototype Stages for all variants.
     std::vector<PrototypeContainer> prototypes;
     populatePrototypeContainers(
         containerPrim,
@@ -946,7 +979,9 @@ void StepUsdPipeline::populateUsd(
         prototypes
     );
     
-    // Write Xforms
+    // Writes a bunch of Xforms but these don't contain any primvar data just 
+    // sort of a shell with just the flattened prototypes and the transformed 
+    // assembly prims with reference arcs to the prototypes 
     buildPrototypeStages(
         prototypes,
         selectedPaths,
@@ -954,7 +989,12 @@ void StepUsdPipeline::populateUsd(
         containerPrim
     );
 
-    // Tessellation Jobs
+    if (!mark.IsClean()) {
+        for (const auto& error : mark) 
+            LOG_ERR("After buildPrototypeStages: " + error.GetCommentary());
+    }
+
+    // Generates the tessellation jobs to populate the "shell" generated earlier. 
     std::vector<TessellationJob> tessJobs;
     populateTessellationJobs(
         prototypes,
@@ -963,14 +1003,16 @@ void StepUsdPipeline::populateUsd(
         tessJobs
     );
 
-    // Tessellation  
     tessellateGeometry(tessJobs, selectedPaths);
 
-    // Write Geometry
-    LOG_DEBUG("Preparing to gather geometry jobs...");
-    LOG_DEBUG("Starting geometry writing for " + std::to_string(prototypes.size()) + " prototypes.");
+    // Writing takes place at this seperate step for efficency reasons.
+    // There is both the edit routing of the variants and such
+    // There is allow the opprotunity to write in huge SdfChangeBlocks
+    // Which ensures the stage recomposition happens only once
+ 
+    LOG_DEBUG("Started writing " + std::to_string(prototypes.size()) + " prototypes.");
     for (const auto& proto : prototypes) {
-        LOG_DEBUG("Processing prototype stage: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
+        LOG_DEBUG("Starting geometry writing for: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
         std::vector<ProtoGeomJob> geomJobs;
         for (const auto& job : tessJobs) {
             if (job.proto->stage->GetRootLayer()->GetRealPath() == proto.stage->GetRootLayer()->GetRealPath()) {
@@ -983,8 +1025,6 @@ void StepUsdPipeline::populateUsd(
         LOG_DEBUG("Saving prototype stage.");
         proto.stage->Save();
     }
-
-    LOG_DEBUG("Deactivating original prototype container in container stage: " + this->pathConfig.prototypesPath.GetString());
 
     if (!mark.IsClean()) {
         for (const auto& error : mark) 

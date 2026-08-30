@@ -45,7 +45,7 @@ UsdStageRefPtr initUsdStage(
     layer->SetField(SdfPath::AbsoluteRootPath(), UsdGeomTokens->upAxis, VtValue(UsdGeomTokens->z));
 
     // Open the stage. 
-    UsdStageRefPtr stage = UsdStage::Open(layer);
+    UsdStageRefPtr stage = UsdStage::Open(layer, UsdStage::LoadNone);
 
     // stage->Save();
     return stage;
