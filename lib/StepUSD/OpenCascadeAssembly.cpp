@@ -32,6 +32,9 @@
 #include <Quantity_Color.hxx>
 #include <Standard_Handle.hxx>
 #include <TDataStd_Name.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
 
 #include "StepUSD/OpenCascadeAssembly.h"
 #include "StepUSD/UsdUtils.h"

@@ -945,6 +945,7 @@ void StepUsdPipeline::populateUsd(
     if (!validateVariants(containerStage, containerPrim.GetPath(), selectedPaths)) {
         return;
     }
+        
     // Generated layers follow the root stage unit if authored.
     // If missing, author a deterministic fallback of 1.0 meters-per-unit on the root.
     constexpr double fallbackMetersPerUnit = 1.0;
@@ -964,6 +965,9 @@ void StepUsdPipeline::populateUsd(
     this->pathConfig.containerPrimPath = containerPrim.GetPath();
     this->pathConfig.prototypesPath = SdfPath("/Prototypes").ReplacePrefix(SdfPath::AbsoluteRootPath(), containerPrim.GetPath());
     this->pathConfig.assemblyPath = SdfPath("/Assembly").ReplacePrefix(SdfPath::AbsoluteRootPath(), this->pathConfig.containerPrimPath);
+
+    // Just in case the use authors an option on this stage 
+    containerStage->GetPrimAtPath(this->pathConfig.prototypesPath).SetActive(true);
 
     // Normalize paths from container-space to raw-space
     std::unordered_set<SdfPath, SdfPath::Hash> containerVariantPaths = getVariantsOnPrim(containerPrim);

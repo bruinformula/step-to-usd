@@ -365,8 +365,10 @@ void StepUsdPipeline::writePrototypeGeometries(
     std::vector<ThreadResult> threadResults;
     std::mutex resultsMutex;
 
-    // This MAY help resovle a data race
+    // This Sort of resolves a data race
     // with creating use stages in the code below
+    // Something about creating a lota SdfLayers causes 
+    // some trouble with the global registry or something
     int grainSize = 4;
     
     WorkParallelForN(total, [&](int startIdx, int endIdx) {
