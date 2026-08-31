@@ -15,11 +15,11 @@ The short version: start with BRep (STEP), turn it into a mesh, then package it 
 ---
 # Usage
 
-`stepmesh` takes a USD file containing one or more `StepContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
+`vroom` takes a USD file containing one or more `CadContainer` prims and tessellates them into renderable geometry. All meshing parameters are read directly from the USD composed Usd Stage.
 
 ```
-$ stepmesh -h
-    stepmesh -- Meshes all StepContainer prims in a Usd scene
+$ vroom -h
+    vroom -- Meshes all CadContainer prims in a Usd scene
     Options: 
         -i, --inputUsdFile <path>        Path to the input Usd file. 
         -p, --prim <sdfPath>             Only tessellate the prim at this path including variants. Can be multiple paths.
@@ -27,12 +27,12 @@ $ stepmesh -h
         -v, --verbose                    Prints like everything.
         -h, --help                       Prints this message.
 
-        usage: stepmesh -i <path> [options] 
+        usage: vroom -i <path> [options] 
 ```
 
 #### STEP Parsing
 
-The first thing `stepmesh` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
+The first thing `vroom` does is parse the STEP file. This is the slowest part of the pipeline by a significant margin. STEP files are dense ASCII exchange files that encode full BRep topology. For large assemblies, this is parsing them is unavoidably expensive.
 
 Once parsed, step-to-usd writes an XBF file alongside the STEP file:
 
@@ -77,7 +77,7 @@ model1/
 
 #### Composition Arc Walkthrough
 
-Each `StepContainer` composes as a small stack of layers. From strongest to weakest opinion:
+Each `CadContainer` composes as a small stack of layers. From strongest to weakest opinion:
 
 ```
 your input file (container_variant.usda)
@@ -94,66 +94,66 @@ Working from the bottom up:
 
 **`model1-prototypes.usdc`** (or `model1-*-*-prototypes.usdc` in the variant case) is brought in as a payload from your input file. It contains the tessellated mesh, wireframe, and sketch geometry for every prototype in that variant.
 
-**Your input file** sits at the top of the stack. Variant selections, per-prototype overrides, and `step:defaultParams` relationships all live here and win over everything below.
+**Your input file** sits at the top of the stack. Variant selections, per-prototype overrides, and `cad:defaultParams` relationships all live here and win over everything below.
 
 ### Selective Remeshing
 
-It is generally expected that the assembly will need to be tweaked in subtle ways throughout look development. By default, `stepmesh` processes every `StepContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which avoids a full rerun.
+It is generally expected that the assembly will need to be tweaked in subtle ways throughout look development. By default, `vroom` processes every `CadContainer` in the input file. The `-p` flag narrows the scope to specific prims and specific variants, which avoids a full rerun.
 
 ```bash
-stepmesh -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
+vroom -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d # does everything
 
-stepmesh -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
+vroom -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d # remesh draft, final, and default
 
-stepmesh -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
+vroom -i scene.usd -p /World/Wonderful{LOD=high}Prototypes/rod_1__78316e9d{quality=draft}
 
-stepmesh -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
+vroom -i scene.usd -p /World/Wonderful/Prototypes/rod_1__78316e9d{quality=draft} # remeshed in both LOD=high and low
 
 ```
 Multiple `-p` flags can be combined to target a set of prims simultaneously.
 
 ### Wireframe and Sketch Geometry
 
-In addition to surface meshes, step-to-usd generates curve geometry from BRep surface boundaries (the classic wireframe look) and sketch primitives. These are controlled via the `step:wireframe*` and `step:sketch*` attribute families on `StepTessellationOptions`.
+In addition to surface meshes, step-to-usd generates curve geometry from BRep surface boundaries (the classic wireframe look) and sketch primitives. These are controlled via the `cad:wireframe*` and `cad:sketch*` attribute families on `CadTessellationOptions`.
 
-Both support `linear` and `cubic` curve types. Setting `step:wireframeType` or `step:sketchType` to `"none"` disables that geometry type entirely.
+Both support `linear` and `cubic` curve types. Setting `cad:wireframeType` or `cad:sketchType` to `"none"` disables that geometry type entirely.
 
-Tessellation quality is controlled through USD attributes on `StepTessellationOptions` prims. The most important are `step:mesh:linearDeflection` and `step:mesh:angularDeflection` — smaller values produce finer meshes at the cost of performance ( read more here). Both are expressed as a fraction of the bounding-box diagonal, so they scale automatically with model size.
+Tessellation quality is controlled through USD attributes on `CadTessellationOptions` prims. The most important are `cad:mesh:linearDeflection` and `cad:mesh:angularDeflection` — smaller values produce finer meshes at the cost of performance ( read more here). Both are expressed as a fraction of the bounding-box diagonal, so they scale automatically with model size.
 
-Parameters are inherited through a class prim, `/Part`, that also defines `Mesh`, `Sketch`, and `Wireframe` subprims. so you can set sensible defaults at the assembly level and override selectively on individual prototypes. The `step:defaultParams` relationship on `StepPrototypes` points to the `StepTessellationOptions` prim that serves as the fallback for the whole file.
+Parameters are inherited through a class prim, `/Part`, that also defines `Mesh`, `Sketch`, and `Wireframe` subprims. so you can set sensible defaults at the assembly level and override selectively on individual prototypes. The `cad:defaultParams` relationship on `CadPrototypes` points to the `CadTessellationOptions` prim that serves as the fallback for the whole file.
 
 ### Variants
 
-USD variant sets are a natural fit for LOD. A `StepContainer` can carry a `variantSet` that swaps between independently tessellated payloads, each backed by its own prototypes file and referencing a different `StepTessellationOptions` prim.
+USD variant sets are a natural fit for LOD. A `CadContainer` can carry a `variantSet` that swaps between independently tessellated payloads, each backed by its own prototypes file and referencing a different `CadTessellationOptions` prim.
 
 ```usda
-def StepTessellationOptions "HighOptions" {
-    double step:mesh:angularDeflection = 0.1
-    double step:mesh:linearDeflection = 0.1
+def CadTessellationOptions "HighOptions" {
+    double cad:mesh:angularDeflection = 0.1
+    double cad:mesh:linearDeflection = 0.1
 }
-def StepTessellationOptions "LowOptions" {
-    double step:mesh:angularDeflection = 10
-    double step:mesh:linearDeflection = 10
+def CadTessellationOptions "LowOptions" {
+    double cad:mesh:angularDeflection = 10
+    double cad:mesh:linearDeflection = 10
 }
 
-def StepContainer "Wonderful" (
+def CadContainer "Wonderful" (
     variants = { string LOD = "low" }
     prepend variantSets = "LOD"
 ) {
-    asset step:sourceAsset = @../step/model.STEP@
+    asset cad:sourceAsset = @../step/model.STEP@
     variantSet "LOD" = {
         "high" (
             prepend payload = @model/LOD/model-LOD-high-prototypes.usdc@
         ) {
-            over StepPrototypes "Prototypes" {
-                rel step:defaultParams = </HighOptions>
+            over CadPrototypes "Prototypes" {
+                rel cad:defaultParams = </HighOptions>
             }
         }
         "low" (
             prepend payload = @model/LOD/model-LOD-low-prototypes.usdc@
         ) {
-            over StepPrototypes "Prototypes" {
-                rel step:defaultParams = </LowOptions>
+            over CadPrototypes "Prototypes" {
+                rel cad:defaultParams = </LowOptions>
             }
         }
     }

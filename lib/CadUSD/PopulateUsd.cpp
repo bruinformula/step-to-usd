@@ -54,16 +54,16 @@
 
 #pragma pop_macro("Handle")
 
-#include "stepTessellationAPI.h"
-#include "stepContainerAPI.h"
-#include "stepPrototypesAPI.h"
-#include "stepContainer.h"
-#include "stepPrototypes.h"
+#include "cadTessellationAPI.h"
+#include "cadContainerAPI.h"
+#include "cadPrototypesAPI.h"
+#include "cadContainer.h"
+#include "cadPrototypes.h"
 
-#include "StepUSD/StepUsdPipeline.h"
-#include "StepUSD/OpenCascadeAssembly.h"
-#include "StepUSD/Logger.h"
-#include "StepUSD/UsdUtils.h"
+#include "CadUSD/CadUsdPipeline.h"
+#include "CadUSD/OpenCascadeAssembly.h"
+#include "CadUSD/Logger.h"
+#include "CadUSD/UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -89,7 +89,7 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
     return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
 }
 
-bool StepUsdPipeline::isPrototypeActiveInFilter(
+bool CadUsdPipeline::isPrototypeActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& prototypePath,
     const std::string& variantSetName,
@@ -161,7 +161,7 @@ bool StepUsdPipeline::isPrototypeActiveInFilter(
     return false;
 }
 
-bool StepUsdPipeline::isAssemblyActiveInFilter(
+bool CadUsdPipeline::isAssemblyActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& prototypePath
 ) {
@@ -308,7 +308,7 @@ bool getStageMakeFresh(
     return false;
 };
 
-bool StepUsdPipeline::populatePrototypeContainers(
+bool CadUsdPipeline::populatePrototypeContainers(
     const UsdPrim& containerPrim,
     const UsdStageRefPtr& containerStage,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
@@ -348,12 +348,12 @@ bool StepUsdPipeline::populatePrototypeContainers(
     // The step container indicates entry for whatever model that I would like to mesh
     // It has three members that are resolved in lambdas below which are effectivly 
     // inputs and outputs.
-    AutolibStepContainer container(containerPrim);
+    AutolibCadContainer container(containerPrim);
 
     // Resolves the OpenCascade document for the cacheAsset and sourceAsset
     auto getOpenCascadeAssembly = [&](void) -> std::shared_ptr<OpenCascadeAssembly> {
-        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return nullptr;
-        UsdAttribute sourceAttr = container.GetStepSourceAssetAttr();
+        if (!container.GetCadSourceAssetAttr().HasAuthoredValue()) return nullptr;
+        UsdAttribute sourceAttr = container.GetCadSourceAssetAttr();
         
         SdfAssetPath sourceAssetPath;
         if (!sourceAttr.Get(&sourceAssetPath)) {
@@ -361,19 +361,10 @@ bool StepUsdPipeline::populatePrototypeContainers(
             return nullptr;
         }
 
-        UsdAttribute cacheAttr = container.GetStepCacheAssetAttr();
-        
-        SdfAssetPath cacheAssetPath;
-        if (!cacheAttr.Get(&cacheAssetPath)) {
-            LOG_ERR("Failed to get asset path from UsdAttribute");
-            return nullptr;
-        }
-
         fs::path sourcePath = sourceAssetPath.GetResolvedPath();
-        fs::path cachePath = cacheAssetPath.GetResolvedPath();
 
         // Load the model, using the cache to avoid re-parsing the same STEP file.
-        StepBundleKey key{sourcePath, cachePath, containerPrim.GetPath()};
+        CADBundleKey key{sourcePath, containerPrim.GetPath()};
         auto iter = modelCache.find(key);
         if (iter == modelCache.end()) {
             LOG_ERR("Model not found in cache for asset path: " + sourcePath.string());
@@ -384,7 +375,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
     // Resolves the output path for the prototypes and assembly to be written to
     auto getPrototypesStagePath = [&](void) -> std::optional<fs::path> {
-        UsdAttribute pathAttr = container.GetStepOutputAssetAttr();
+        UsdAttribute pathAttr = container.GetCadOutputAssetAttr();
         if (!pathAttr.HasAuthoredValue()) {
             return std::nullopt;
         }
@@ -397,14 +388,14 @@ bool StepUsdPipeline::populatePrototypeContainers(
 
         const std::string& rawPath = sdfAssetPath.GetAssetPath();
         if (rawPath.empty()) {
-            LOG_WARN("step:outputAsset authored but empty for container prim at "
+            LOG_WARN("cad:outputAsset authored but empty for container prim at "
                     + containerPrim.GetPath().GetAsString());
             return std::nullopt;
         }
 
         std::vector<SdfPropertySpecHandle> propStack = pathAttr.GetPropertyStack();
         if (propStack.empty()) {
-            LOG_WARN("Could not determine anchor layer for step:outputAsset on " + containerPrim.GetPath().GetAsString());
+            LOG_WARN("Could not determine anchor layer for cad:outputAsset on " + containerPrim.GetPath().GetAsString());
             return std::nullopt;
         }
 
@@ -494,7 +485,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
             fs::path variantSubPath = containerFilePath / variantSetName;
             prototypesStageFilePath = variantSubPath / (variantSetName + "-" + variantName + "-prototypes.usdc");
         } else {
-            std::string baseName = modelPtr->stepPath.stem().string();
+            std::string baseName = modelPtr->xbfPath.stem().string();
             prototypesStageFilePath = containerFilePath / (baseName + "-prototypes.usdc");
         }
 
@@ -522,7 +513,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
         prototypesStage->SetMetadata(TfToken("metersPerUnit"), outputMetersPerUnit);
         prototypesStage->GetRootLayer()->SetDocumentation(docString);
 
-        AutolibStepPrototypes prototypesScope = AutolibStepPrototypes::Define(prototypesStage, prototypesPath);
+        AutolibCadPrototypes prototypesScope = AutolibCadPrototypes::Define(prototypesStage, prototypesPath);
 
         UsdPrim containerPrimInPrototypes = prototypesStage->OverridePrim(this->pathConfig.containerPrimPath);
         prototypesStage->SetDefaultPrim(containerPrimInPrototypes);
@@ -544,7 +535,7 @@ bool StepUsdPipeline::populatePrototypeContainers(
     return true;
 }
 
-bool StepUsdPipeline::populateParamsBank(
+bool CadUsdPipeline::populateParamsBank(
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
     const PrototypeContainer& proto,
@@ -608,7 +599,7 @@ bool StepUsdPipeline::populateParamsBank(
     return true;
 }
 
-bool StepUsdPipeline::populateTessellationJobs(
+bool CadUsdPipeline::populateTessellationJobs(
     const std::vector<PrototypeContainer>& prototypes,
     const UsdStageRefPtr& containerStage,
     const UsdPrim& containerPrim,
@@ -689,7 +680,7 @@ bool StepUsdPipeline::populateTessellationJobs(
     return true;
 }
 
-bool StepUsdPipeline::buildPrototypeStages(
+bool CadUsdPipeline::buildPrototypeStages(
     std::vector<PrototypeContainer>& prototypes,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const UsdStageRefPtr& containerStage,
@@ -783,7 +774,7 @@ static bool validateVariants(
     return true;
 }
 
-std::optional<StepUsdPipeline> StepUsdPipeline::create(
+std::optional<CadUsdPipeline> CadUsdPipeline::create(
     const fs::path& inputUsdFile
 ) {
     UsdStageRefPtr stage = UsdStage::Open(inputUsdFile, UsdStage::LoadNone);
@@ -792,20 +783,19 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         return std::nullopt;
     }
 
-    std::unordered_set<StepBundleKey, StepBundleKey::Hash> referencedAssetBundles;
+    std::unordered_set<CADBundleKey, CADBundleKey::Hash> referencedAssetBundles;
 
-    // Do a scan for all refernced Step Assets, so 
+    // Do a scan for all refernced Cad Assets, so 
     // we can load them in parallel and cache the 
     // results to avoid redundant parsing of the same STEP file.
     // Helper to extract asset paths from a prim under its current variant context
     auto collectFromPrim = [&](const UsdPrim& prim) {
-        if (!prim.HasAPI<AutolibStepContainerAPI>()) return;
+        if (!prim.HasAPI<AutolibCadContainerAPI>()) return;
 
-        AutolibStepContainer container(prim);
-        if (!container.GetStepSourceAssetAttr().HasAuthoredValue()) return;
+        AutolibCadContainer container(prim);
+        if (!container.GetCadSourceAssetAttr().HasAuthoredValue()) return;
 
-        UsdAttribute sourceAttr = container.GetStepSourceAssetAttr();
-        UsdAttribute cacheAttr = container.GetStepCacheAssetAttr();
+        UsdAttribute sourceAttr = container.GetCadSourceAssetAttr();
 
         SdfAssetPath sourceAssetPath;
         if (!sourceAttr.Get(&sourceAssetPath)) {
@@ -817,45 +807,10 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
             LOG_ERR("Resolved sourceAsset path is empty for prim: " + prim.GetPath().GetString());
             return;
         }
-        SdfAssetPath cacheAssetPath;
-        if (!cacheAttr.Get(&cacheAssetPath)) {
-            LOG_ERR("Failed to get cacheAsset path from UsdAttribute");
-            return;
-        }
 
-        if (cacheAssetPath.GetAssetPath().empty()) {
-            LOG_ERR("Resolved cacheAsset path is empty for prim: " + prim.GetPath().GetString());
-            return;
-        }
-
-        fs::path stepPath = sourceAssetPath.GetResolvedPath();
-        fs::path xbfPath = cacheAssetPath.GetResolvedPath();
-
-        if (xbfPath.empty()) {
-            xbfPath = stepPath;
-            xbfPath.replace_extension("xbf");
-            LOG_WARN("XBF path is missing for STEP file: " + prim.GetPath().GetString());
-        }
-
-        // This should probably be a part of usd validate 
-        for (const auto& bundle : referencedAssetBundles) {
-            bool xbfMissMatch = bundle.xbfPath != xbfPath;
-            bool stepMissMatch = bundle.stepPath != stepPath;
-
-            if (!stepMissMatch && xbfMissMatch) {
-                LOG_ERR("Found prim where sourceAsset points to different cacheAssets for prim: " + 
-                    prim.GetPath().GetString() + " and " + bundle.primPath.GetString());
-                return;
-            }
-
-            if (stepMissMatch && !xbfMissMatch) {
-                LOG_ERR("Found prim where cacheAsset points to different sourceAssets for prim: " + 
-                    prim.GetPath().GetString() + " and " + bundle.primPath.GetString());
-                return;
-            }
-        }
-
-        referencedAssetBundles.insert({stepPath, xbfPath, prim.GetPath()});
+        fs::path xbfPath = sourceAssetPath.GetResolvedPath();
+        
+        referencedAssetBundles.insert({xbfPath, prim.GetPath()});
     };
 
     // Recursively iterate all variant combinations for a prim
@@ -898,31 +853,20 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         }
     }
 
-    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> modelCache;
+    std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> modelCache;
 
     {
-        LOG_SCOPED_TIMER("Load and Parse STEP Models (" + std::to_string(referencedAssetBundles.size()) + " files)");
-        WorkParallelForEach( referencedAssetBundles.begin(), referencedAssetBundles.end(), [&](const StepBundleKey& bundle) {
-
-            if (bundle.stepPath.empty()) {
-                LOG_ERR("Failed to resolve path to: " + bundle.stepPath.string());
-                return;
-            }
-
-            fs::path xbfPath;
+        LOG_SCOPED_TIMER("Load and Parse XBF Models (" + std::to_string(referencedAssetBundles.size()) + " files)");
+        WorkParallelForEach( referencedAssetBundles.begin(), referencedAssetBundles.end(), [&](const CADBundleKey& bundle) {
 
             if (bundle.xbfPath.empty()) {
-                xbfPath = bundle.stepPath;
-                xbfPath.replace_extension("xbf");
-                LOG_WARN("XBF path is missing for STEP file: " + bundle.primPath.GetString());
-            } else {
-                xbfPath = bundle.xbfPath;
+                LOG_ERR("Failed to resolve path to: " + bundle.xbfPath.string());
+                return;
             }
-
-            std::optional<OpenCascadeAssembly> optModel = OpenCascadeAssembly::loadFromFile(bundle.stepPath, xbfPath);
+            std::optional<OpenCascadeAssembly> optModel = OpenCascadeAssembly::loadFromFile(bundle.xbfPath);
 
             if (!optModel.has_value()) {
-                LOG_ERR("Failed to load STEP model from " + bundle.stepPath.string());
+                LOG_ERR("Failed to load xbf model from " + bundle.xbfPath.string());
                 return;
             }
 
@@ -930,15 +874,15 @@ std::optional<StepUsdPipeline> StepUsdPipeline::create(
         });
     }
 
-    return StepUsdPipeline(stage, modelCache);
+    return CadUsdPipeline(stage, modelCache);
 }
 
-void StepUsdPipeline::populateUsd(
+void CadUsdPipeline::populateUsd(
     UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
     const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
 ) {
-    LOG_SCOPED_TIMER("StepUsdPipeline::populateUsd");
+    LOG_SCOPED_TIMER("CadUsdPipeline::populateUsd");
     TfErrorMark mark;
 
     // Are the variants requested real and on the stage

@@ -18,4 +18,4 @@ if plugin:
 else:
     print(f" Plugin '{plugin_name}' not found. Check your PXR_PLUGINPATH.")
 
-from pxr import StepTessellation
+from pxr import CadTessellation

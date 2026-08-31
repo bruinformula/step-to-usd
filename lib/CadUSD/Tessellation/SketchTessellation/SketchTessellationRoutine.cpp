@@ -76,10 +76,10 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Logger.h"
-#include "StepUSD/Tessellation/TessellationRoutine.h"
-#include "StepUSD/Tessellation/TessellationUtils.h"
-#include "StepUSD/Tessellation/DeadlineProgressIndicator.h"
+#include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
+#include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -92,7 +92,7 @@ void SketchTessellationRoutine::initializeFreeEdges(
     SketchTessellationContext& ctx
 ) const {
 
-    // sketches in Step 242 are registered as free edges 
+    // sketches in STEP 242 are registered as free edges 
     // in the defintion shape and are not guaranteed to be connected to any faces, 
     // so we have to do a separate edge walk to find them and sample 
 

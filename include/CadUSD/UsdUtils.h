@@ -11,7 +11,7 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
 
 namespace fs = std::filesystem;
 

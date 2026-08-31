@@ -2,8 +2,8 @@
 #include <chrono>
 #include <Message_ProgressIndicator.hxx>
 
-#include "StepUSD/Logger.h"
-#include "StepUSD/Tessellation/DeadlineProgressIndicator.h"
+#include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
 
 DeadlineProgressIndicator::~DeadlineProgressIndicator() {
     if (_timedOut) {

@@ -8,216 +8,212 @@
 
 over "GLOBAL" (
     customData = {
-        string libraryName = "stepTessellation"
+        string libraryName = "cadTessellation"
         string libraryPath = "."
         string libraryPrefix = "Autolib"
     }
 ) {}
 
-class "StepContainerAPI" (
+class "CadContainerAPI" (
     inherits = </APISchemaBase>
-    doc = "Container for STEP file. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
+    doc = "Container for CAD assembly file. The presence of this schema on a prim signals that it is a STEP file root and should be exported as such."
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    asset step:sourceAsset (
-        doc = "Path to the source STEP file"
+    asset cad:sourceAsset (
+        doc = "Path to the source xbf file"
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    asset step:cacheAsset (
-        doc = "Path to the parsed cache of the source STEP file. If not specified one will be automatically generated."
-        customData = { string variability = "SdfVariabilityUniform" }
-    )
-    asset step:outputAsset (
+    asset cad:outputAsset (
         doc = "Path to the output USD file. If not specified one will be automatically generated."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }
 
-class "StepAPI" (
+class "CadAPI" (
     inherits = </APISchemaBase>
-    doc = "Step file part generically defined. Contains the TDF_Label"
+    doc = "Cad file part generically defined. Contains the TDF_Label"
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    token step:label (
+    token cad:label (
         doc = "The original STEP label of this entity, if available. This is for informational purposes only and is not guaranteed to be unique."
         customData = { string variability = "SdfVariabilityUniform" }
         interpolation = "constant"
     )
 }
 
-class "StepPrototypesAPI" (
+class "CadPrototypesAPI" (
     inherits = </APISchemaBase>
-    doc = "Container for StepContainer Prototypes metadata and tessellation options. "
+    doc = "Container for CadContainer Prototypes metadata and tessellation options. "
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
-    rel step:defaultParams (
-        doc = "Relationship to a prim that carries the default tessellation parameters for this STEP file. This is intended to point to a StepTessellationOptions prim. If not specified, defaults will be used."
+    rel cad:defaultParams (
+        doc = "Relationship to a prim that carries the default tessellation parameters for this STEP file. This is intended to point to a CadTessellationOptions prim. If not specified, defaults will be used."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 }
 
-class "StepTessellationAPI" (
+class "CadTessellationAPI" (
     inherits = </APISchemaBase>
-    doc = "Step tessellation quality parameters."
+    doc = "Cad tessellation quality parameters."
     customData = {
         token apiSchemaType = "singleApply"
     }
 ) {
     # Meshing
-    double step:mesh:fixPrecision = 1e-7 (
+    double cad:mesh:fixPrecision = 1e-7 (
         doc = "Tolerance for shape fixing operations. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:mesh:fixTolerance = 1e-7 (
+    double cad:mesh:fixTolerance = 1e-7 (
         doc = "Tolerance for meshing operations. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:mesh:linearDeflection = 1.0 (
+    double cad:mesh:linearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:mesh:angularDeflection = 0.5 (
+    double cad:mesh:angularDeflection = 0.5 (
         doc = "Angular deflection in radians."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:mesh:minSize = 0.0 (
+    double cad:mesh:minSize = 0.0 (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:mesh:selfIntersectionThreshold = 1e-3 (
+    double cad:mesh:selfIntersectionThreshold = 1e-3 (
         doc = "Threshold for detecting self-intersecting triangles during meshing."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    int step:mesh:maxNumberRemeshPasses = 1 (
+    int cad:mesh:maxNumberRemeshPasses = 1 (
         doc = "Maximum number of remeshing passes to attempt if self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:mesh:fixTimeout = 3000 (
+    uint64 cad:mesh:fixTimeout = 3000 (
         doc = "Timeout in milliseconds for the shape fixing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:mesh:meshTimeout = 3000 (
+    uint64 cad:mesh:meshTimeout = 3000 (
         doc = "Timeout in milliseconds for the initial meshing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:mesh:remeshTimeout = 3000 (
+    uint64 cad:mesh:remeshTimeout = 3000 (
         doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:mesh:enableRepairShape = true (
+    bool cad:mesh:enableRepairShape = true (
         doc = "Enables a repair pass on the parameteric shape before meshing."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
     # Wireframe
-    token step:wireframe:type = "linear" (
+    token cad:wireframe:type = "linear" (
         doc = "Curve type used for wireframe edges."
         allowedTokens = ["none", "linear", "cubic"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    token step:wireframe:sampling = "underlying" (
+    token cad:wireframe:sampling = "underlying" (
         doc = "Sampling strategy for wireframe edge curves."
         allowedTokens = ["underlying", "resampled"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:wireframe:deflection = 10 (
+    double cad:wireframe:deflection = 10 (
         doc = "Deflection tolerance for wireframe edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:wireframe:combineCurves = 1 (
+    bool cad:wireframe:combineCurves = 1 (
         doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:wireframe:embedSurfaceNormals = 1 (
+    bool cad:wireframe:embedSurfaceNormals = 1 (
         doc = "Whether to embed the surface normals of the underlying mesh as primvars on wireframe curve prims."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:wireframe:pointLimit = 65535 (
+    uint64 cad:wireframe:pointLimit = 65535 (
         doc = "Maximum number of points to allow on a wireframe curve before automatically adding another curve prim"
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
     # Sketch
-    token step:sketch:type = "linear" (
+    token cad:sketch:type = "linear" (
         doc = "Curve type used for sketch and free-edge curves."
         allowedTokens = ["none", "linear", "cubic"]
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketch:deflection = 10 (
+    double cad:sketch:deflection = 10 (
         doc = "Deflection tolerance for sketch/free-edge curve sampling."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:sketch:combineCurves = 1 (
+    bool cad:sketch:combineCurves = 1 (
         doc = "Whether to export every TopoDS_Edge as a separate curve prim, or to combine them into one curve."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:sketch:embedSurfaceNormals = 1 (
+    bool cad:sketch:embedSurfaceNormals = 1 (
         doc = "Whether to embed the surface normals of the underlying sketch as primvars on sketch curve prims."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:sketch:pointLimit = 65535 (
+    uint64 cad:sketch:pointLimit = 65535 (
         doc = "Maximum number of points to allow on a wireframe curve before automatically adding another curve prim"
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
     # Sketch Plane
-    double step:sketchPlane:linearDeflection = 1.0 (
+    double cad:sketchPlane:linearDeflection = 1.0 (
         doc = "Linear deflection as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlane:angularDeflection = 0.5 (
+    double cad:sketchPlane:angularDeflection = 0.5 (
         doc = "Angular deflection in radians."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlane:minSize = 0.01 (
+    double cad:sketchPlane:minSize = 0.01 (
         doc = "Minimum triangle edge length as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlane:combineTolerance = 1 (
+    double cad:sketchPlane:combineTolerance = 1 (
         doc = "Tolerance for combining coplanar faces into a single plane during meshing. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlane:fixPrecision = 1e-4 (
+    double cad:sketchPlane:fixPrecision = 1e-4 (
         doc = "Tolerance for shape fixing operations on sketch planes. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    double step:sketchPlane:fixTolerance = 1e-4 (
+    double cad:sketchPlane:fixTolerance = 1e-4 (
         doc = "Tolerance for meshing operations on sketch planes. Expressed as a fraction of the bounding-box diagonal."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:sketchPlane:fixTimeout = 3000 (
+    uint64 cad:sketchPlane:fixTimeout = 3000 (
         doc = "Timeout in milliseconds for the shape fixing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    uint64 step:sketchPlane:meshTimeout = 3000 (
+    uint64 cad:sketchPlane:meshTimeout = 3000 (
         doc = "Timeout in milliseconds for the initial meshing pass."
         customData = { string variability = "SdfVariabilityUniform" }
     )
 
     # Other
-    double step:renderPurposeThreshold = 0.0 (
+    double cad:renderPurposeThreshold = 0.0 (
         doc = "Parts with a render-purpose weight below this threshold are suppressed. 0 disables the filter."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:mesh:enableSurfaceSubsets = 0 (
+    bool cad:mesh:enableSurfaceSubsets = 0 (
         doc = "Whether to create USD subsets for each unique surface ID in the STEP file. This can be handy for material binding."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:mesh:enableUVs = 1 (
+    bool cad:mesh:enableUVs = 1 (
         doc = "Whether to export UVs when available. Disabling this can speed up exports when UVs are not needed."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:mesh:enableSurfaceID = 0 (
+    bool cad:mesh:enableSurfaceID = 0 (
         doc = "Whether to export the TopoDS_Face surface ID as a primvar."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool step:mesh:enableIsBoundaryVertex = 0 (
+    bool cad:mesh:enableIsBoundaryVertex = 0 (
         doc = "Whether to export marked vertices that are on the boundary of TopoDS_Faces (i.e. the wireframe) as a primvar."
         customData = { string variability = "SdfVariabilityUniform" }
     )  
@@ -225,26 +221,25 @@ class "StepTessellationAPI" (
 
 # Concrete Types
 
-class "StepContainer" (
+class "CadContainer" (
     inherits = </Xform>
-    typeName = "StepContainer"
+    typeName = "CadContainer"
     doc = """Concrete prim that identifies a STEP file root. Provides 
              the target asset path."""
-    prepend apiSchemas = ["StepContainerAPI"]
+    prepend apiSchemas = ["CadContainerAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }
 ) {
-    asset step:sourceAsset = @@ 
-    asset step:cacheAsset = @@
-    asset step:outputAsset = @@
+    asset cad:sourceAsset = @@ 
+    asset cad:outputAsset = @@
 }
 
-class "StepPrototypes" (
+class "CadPrototypes" (
     inherits = </Scope>
-    typeName = "StepPrototypes"
-    doc = """Concrete Scope prim that indicates a StepContainer's Prototypes"""
-    prepend apiSchemas = ["StepPrototypesAPI"]
+    typeName = "CadPrototypes"
+    doc = """Concrete Scope prim that indicates a CadContainer's Prototypes"""
+    prepend apiSchemas = ["CadPrototypesAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }
@@ -252,55 +247,55 @@ class "StepPrototypes" (
     
 }
 
-class "StepTessellationOptions" (
+class "CadTessellationOptions" (
     inherits = </Typed>
-    typeName = "StepTessellationOptions"
-    doc = "Concrete prim class that carries a complete authored set of StepTessellationAPI values."
-    prepend apiSchemas = ["StepTessellationAPI"]
+    typeName = "CadTessellationOptions"
+    doc = "Concrete prim class that carries a complete authored set of CadTessellationAPI values."
+    prepend apiSchemas = ["CadTessellationAPI"]
     customData = {
         token schemaKind = "concreteTyped"
     }
 ) {
     # Meshing
-    double step:mesh:fixPrecision = 1e-7
-    double step:mesh:fixTolerance = 1e-7
-    double step:mesh:linearDeflection = 1.0
-    double step:mesh:angularDeflection = 0.5
-    double step:mesh:minSize = 0.0
-    double step:mesh:selfIntersectionThreshold = 1e-3
-    int step:mesh:maxNumberRemeshPasses = 1
-    uint64 step:mesh:fixTimeout = 7000
-    uint64 step:mesh:meshTimeout = 7000
-    uint64 step:mesh:remeshTimeout = 7000
-    bool step:mesh:enableRepairShape = true
+    double cad:mesh:fixPrecision = 1e-7
+    double cad:mesh:fixTolerance = 1e-7
+    double cad:mesh:linearDeflection = 1.0
+    double cad:mesh:angularDeflection = 0.5
+    double cad:mesh:minSize = 0.0
+    double cad:mesh:selfIntersectionThreshold = 1e-3
+    int cad:mesh:maxNumberRemeshPasses = 1
+    uint64 cad:mesh:fixTimeout = 7000
+    uint64 cad:mesh:meshTimeout = 7000
+    uint64 cad:mesh:remeshTimeout = 7000
+    bool cad:mesh:enableRepairShape = true
 
     # Wireframe
-    token step:wireframe:type = "linear"
-    token step:wireframe:sampling = "underlying"
-    double step:wireframe:deflection = 1
-    bool step:wireframe:combineCurves = 1
-    bool step:wireframe:embedSurfaceNormals = 0
+    token cad:wireframe:type = "linear"
+    token cad:wireframe:sampling = "underlying"
+    double cad:wireframe:deflection = 1
+    bool cad:wireframe:combineCurves = 1
+    bool cad:wireframe:embedSurfaceNormals = 0
 
     # Sketch
-    token step:sketch:type = "linear"
-    double step:sketch:deflection = 1
-    bool step:sketch:combineCurves = 1
-    bool step:sketch:embedSurfaceNormals = 1
+    token cad:sketch:type = "linear"
+    double cad:sketch:deflection = 1
+    bool cad:sketch:combineCurves = 1
+    bool cad:sketch:embedSurfaceNormals = 1
 
     # Sketch Planes
-    double step:sketchPlane:linearDeflection = 1.0
-    double step:sketchPlane:angularDeflection = 0.5
-    double step:sketchPlane:minSize = 0.01
-    double step:sketchPlane:combineTolerance = 1
-    double step:sketchPlane:fixPrecision = 1e-4
-    double step:sketchPlane:fixTolerance = 1e-4
-    uint64 step:sketchPlane:fixTimeout = 7000
-    uint64 step:sketchPlane:meshTimeout = 7000
+    double cad:sketchPlane:linearDeflection = 1.0
+    double cad:sketchPlane:angularDeflection = 0.5
+    double cad:sketchPlane:minSize = 0.01
+    double cad:sketchPlane:combineTolerance = 1
+    double cad:sketchPlane:fixPrecision = 1e-4
+    double cad:sketchPlane:fixTolerance = 1e-4
+    uint64 cad:sketchPlane:fixTimeout = 7000
+    uint64 cad:sketchPlane:meshTimeout = 7000
 
     # Other
-    double step:renderPurposeThreshold = 0.0
-    bool step:mesh:enableSurfaceSubsets = 0
-    bool step:mesh:enableUVs = 1
-    bool step:mesh:enableSurfaceID = 0
-    bool step:mesh:enableIsBoundaryVertex = 0
+    double cad:renderPurposeThreshold = 0.0
+    bool cad:mesh:enableSurfaceSubsets = 0
+    bool cad:mesh:enableUVs = 1
+    bool cad:mesh:enableSurfaceID = 0
+    bool cad:mesh:enableIsBoundaryVertex = 0
 }

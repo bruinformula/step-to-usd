@@ -16,8 +16,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Tessellation/TessellationUtils.h"
-#include "StepUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
+#include "CadUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

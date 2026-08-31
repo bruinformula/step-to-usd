@@ -6,20 +6,20 @@
     upAxis = "Z"
 )
 
-def StepTessellationOptions "DefaultOptions"
+def CadTessellationOptions "DefaultOptions"
 {
-    double step:mesh:angularDeflection = 0.1
-    double step:mesh:linearDeflection = 0.1
+    double cad:mesh:angularDeflection = 0.1
+    double cad:mesh:linearDeflection = 0.1
 }
 
-def StepContainer "Model4" {
-    asset step:sourceAsset = @../step/model4.STEP@
+def CadContainer "Model4" {
+    asset cad:sourceAsset = @../step/model4.xbf@
 
-    def StepPrototypes "Prototypes" (
+    def CadPrototypes "Prototypes" (
         active = false
     )
     {
-        rel step:defaultParams = </DefaultOptions>
+        rel cad:defaultParams = </DefaultOptions>
     }
 }
 

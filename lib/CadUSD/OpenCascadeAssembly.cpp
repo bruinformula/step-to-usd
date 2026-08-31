@@ -36,9 +36,9 @@
 #include <BRepBndLib.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 
-#include "StepUSD/OpenCascadeAssembly.h"
-#include "StepUSD/UsdUtils.h"
-#include "StepUSD/Logger.h"
+#include "CadUSD/OpenCascadeAssembly.h"
+#include "CadUSD/UsdUtils.h"
+#include "CadUSD/Logger.h"
 
 std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;
@@ -75,7 +75,6 @@ std::string stableLabelSuffix(const TDF_Label& label) {
 }
 
 std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
-    const fs::path& stepPath, 
     const fs::path& xbfPath
 ) {
     try {        
@@ -84,31 +83,11 @@ std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
         BinXCAFDrivers::DefineFormat(app);
         occt::handle<TDocStd_Document> doc;
         app->NewDocument("BinXCAF", doc);
-        
-        constexpr double kOcctWorkingMetersPerUnit = 0.001;
-        double metersPerUnit = kOcctWorkingMetersPerUnit;
-        if (!fs::exists(xbfPath) || fs::last_write_time(xbfPath) < fs::last_write_time(stepPath)) {
-            LOG_INFO("XBF doesn't exist or is out of date. Building from Step...");
-            LOG_SCOPED_TIMER("Build XBF Document from STEP file");
-            STEPCAFControl_Reader reader;
-            if (reader.ReadFile(stepPath.c_str()) != IFSelect_RetDone) {
-                LOG_ERR("Error reading Step file");
-                return std::nullopt;
-            }
-            if (!reader.Transfer(doc)) {
-                LOG_ERR("Error transferring Step data");
-                return std::nullopt;
-            }
-            LOG_INFO("Saving XBF to " + xbfPath.string());
-            doc->ChangeStorageFormat("BinXCAF");
-            if (app->SaveAs(doc, xbfPath.c_str()) != PCDM_SS_OK)
-                LOG_ERR("Warning: failed to save XBF cache");
-        } else {
-            LOG_INFO("Loading cached XBF from " + xbfPath.string());
-            if (app->Open(xbfPath.c_str(), doc) != PCDM_RS_OK) {
-                LOG_ERR("Error opening XBF");
-                return std::nullopt;
-            }
+
+        const double metersPerUnit = 0.001;
+        if (app->Open(xbfPath.c_str(), doc) != PCDM_RS_OK) {
+            LOG_ERR("Error opening XBF");
+            return std::nullopt;
         }
         LOG_INFO("Working OCC length unit: " + std::to_string(metersPerUnit) + " m");
 
@@ -117,7 +96,7 @@ std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
         auto materialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
         auto layerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
 
-        OpenCascadeAssembly model(stepPath, app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
+        OpenCascadeAssembly model(xbfPath, app, doc, shapeTool, colorTool, materialTool, layerTool, metersPerUnit);
         model.buildInstanceTree();
         return model;
     } catch (const Standard_Failure& e) {

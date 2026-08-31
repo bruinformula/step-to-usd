@@ -25,17 +25,17 @@
  
 #pragma pop_macro("Handle")
 
-#include "stepAPI.h"
+#include "cadAPI.h"
  
-#include "StepUSD/Logger.h"
+#include "CadUSD/Logger.h"
  
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace fs = std::filesystem;
 
-static std::string getStepLabel(const UsdPrim& prim) {
+static std::string getCadLabel(const UsdPrim& prim) {
     TfToken value;
-    AutolibStepAPI(prim).CreateStepLabelAttr().Get(&value);
+    AutolibCadAPI(prim).CreateCadLabelAttr().Get(&value);
     return value.GetString();
 }
 
@@ -82,7 +82,7 @@ static std::unordered_map<std::string, std::vector<OldPrimInfo>> buildCanonicalI
         if (path == SdfPath::AbsoluteRootPath()) continue;
 
         std::string cPath = canonicalPath(path);
-        std::string label = getStepLabel(prim); // Cache the label for fallback
+        std::string label = getCadLabel(prim); // Cache the label for fallback
         
         index[cPath].push_back({path, label});
     }
@@ -125,13 +125,13 @@ static PathMapping buildPathMapping(
         SdfPath matchedOldPath;
 
         // If there is only one match for the root name, use it.
-        // There are multiple prims with the same root name, disambiguate with step:label
+        // There are multiple prims with the same root name, disambiguate with cad:label
         if (it->second.size() == 1) {
             matchedOldPath = it->second.front().path;
         } else {
-            const std::string newLabel = getStepLabel(newPrim);
+            const std::string newLabel = getCadLabel(newPrim);
             if (newLabel.empty()) {
-                LOG_DEBUG("Collision for '" + cPath + "', but new prim has no step:label to disambiguate. Skipping.");
+                LOG_DEBUG("Collision for '" + cPath + "', but new prim has no cad:label to disambiguate. Skipping.");
                 continue;
             }
 
@@ -145,7 +145,7 @@ static PathMapping buildPathMapping(
             }
 
             if (!foundMatch) {
-                LOG_DEBUG("Collision for '" + cPath + "', and no matching step:label found for '" + newLabel + "'. Skipping.");
+                LOG_DEBUG("Collision for '" + cPath + "', and no matching cad:label found for '" + newLabel + "'. Skipping.");
                 continue;
             }
         }
@@ -167,7 +167,7 @@ static PathMapping buildPathMapping(
 
         if (matchedOldPath != newPath) {
             assemblyRemap[matchedOldPath] = newPath;
-            LOG_DEBUG("Assembly remap matched via " + std::string(it->second.size() > 1 ? "step:label fallback" : "canonical path") + ":\n  " + matchedOldPath.GetString() + "\n  -> " + newPath.GetString());
+            LOG_DEBUG("Assembly remap matched via " + std::string(it->second.size() > 1 ? "cad:label fallback" : "canonical path") + ":\n  " + matchedOldPath.GetString() + "\n  -> " + newPath.GetString());
         }
     }
 
@@ -388,7 +388,7 @@ static void applyPathMapping(const SdfLayerRefPtr& targetLayer, const PathMappin
 const std::string kArgOptions =
     " StagePathRemapper -- Renames prims in a target USD stage to match\n"
     "                      the names found in a reference USD stage,\n"
-    "                      matching on the step:label (OCCT TDF label path) primvar.\n"
+    "                      matching on the cad:label (OCCT TDF label path) primvar.\n"
     " Options:\n"
     "    -r, --oldAssembly       <path>   Path to the old assembly USD stage (old names).\n"
     "    -n, --newAssembly       <path>   Path to the new assembly USD stage (new names).\n"

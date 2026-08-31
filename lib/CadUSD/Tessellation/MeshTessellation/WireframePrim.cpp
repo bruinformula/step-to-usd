@@ -29,10 +29,10 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Logger.h"
+#include "CadUSD/Logger.h"
 
-#include "StepUSD/Tessellation/TessellationUtils.h"
-#include "StepUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -131,8 +131,8 @@ bool MeshTessellationRoutine::writeWireframePrim(
             }
         }
         
-        //curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
-        //UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
+        curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
+        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
         
         curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
 

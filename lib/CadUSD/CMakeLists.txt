@@ -6,19 +6,19 @@ file(GLOB_RECURSE STEPUSD_SOURCES CONFIGURE_DEPENDS
 )
 
 # step-to-usd
-add_library(StepUSD STATIC ${STEPUSD_SOURCES})
+add_library(CadUSD STATIC ${STEPUSD_SOURCES})
 
-target_link_libraries(StepUSD PUBLIC
-    autolibStepTessellation
+target_link_libraries(CadUSD PUBLIC
+    autolibCadTessellation
     pxr::pxr
     OpenCASCADE::OpenCASCADE
 )
 
-target_include_directories(StepUSD
+target_include_directories(CadUSD
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
 )
 
-install(TARGETS StepUSD
+install(TARGETS CadUSD
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

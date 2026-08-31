@@ -49,7 +49,7 @@ struct TessellationJob {
     TessellationRoutine routine;
 };
 
-struct StepUsdPipeline {
+struct CadUsdPipeline {
 
     // A set of globals for the generated stages
     struct PathConfig {
@@ -58,7 +58,7 @@ struct StepUsdPipeline {
         SdfPath prototypesPath;
     };
 
-    static std::optional<StepUsdPipeline> create(
+    static std::optional<CadUsdPipeline> create(
         const fs::path& inputUsdFile
     );
 
@@ -68,14 +68,14 @@ struct StepUsdPipeline {
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
     );
 
-    StepUsdPipeline(
+    CadUsdPipeline(
         UsdStageRefPtr cs, 
-        std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> mc
+        std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> mc
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
     PathConfig pathConfig;
     UsdStageRefPtr containerStage;
-    std::unordered_map<StepBundleKey, OpenCascadeAssembly, StepBundleKey::Hash> modelCache;
+    std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> modelCache;
 
 private:
 

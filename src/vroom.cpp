@@ -28,26 +28,26 @@
 
 #pragma pop_macro("Handle")
 
-#include "stepContainerAPI.h"
-#include "stepContainer.h"
+#include "cadContainerAPI.h"
+#include "cadContainer.h"
 
-#include "StepUSD/StepUsdPipeline.h"
-#include "StepUSD/OpenCascadeAssembly.h"
-#include "StepUSD/Logger.h"
+#include "CadUSD/CadUsdPipeline.h"
+#include "CadUSD/OpenCascadeAssembly.h"
+#include "CadUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
-    " StepUsdTesselate -- Meshes all StepContainer prims in a Usd scene\n"
+    " CadUsdTesselate -- Meshes all CadContainer prims in a Usd scene\n"
     " Options: \n"
     "    -i, --input <path>               Path to the input Usd file. \n"
     "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
-    "    usage: StepUsdTesselate -i <path> [options] \n";
+    "    usage: CadUsdTesselate -i <path> [options] \n";
 
-struct StepUsdTesselateArgs {
+struct CadUsdTesselateArgs {
 
     enum ParseResult {
         SUCCESS,
@@ -146,21 +146,21 @@ int main(int argc, char** argv) {
         tokens.emplace_back(argv[i]);
     }
     
-    StepUsdTesselateArgs inputArgs;
+    CadUsdTesselateArgs inputArgs;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
         
-        StepUsdTesselateArgs::ParseResult parseResult = inputArgs.parse(token, nextToken);
+        CadUsdTesselateArgs::ParseResult parseResult = inputArgs.parse(token, nextToken);
         switch (parseResult) {
-            case StepUsdTesselateArgs::SUCCESS:
+            case CadUsdTesselateArgs::SUCCESS:
                 break;
-            case StepUsdTesselateArgs::SUCCESS_CONSUME_NEXT:
+            case CadUsdTesselateArgs::SUCCESS_CONSUME_NEXT:
                 i++;
                 break;
-            case StepUsdTesselateArgs::FAILURE:
+            case CadUsdTesselateArgs::FAILURE:
                 return 1;
-            case StepUsdTesselateArgs::EXIT:
+            case CadUsdTesselateArgs::EXIT:
                 return 0;
         }
     }
@@ -172,20 +172,20 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    std::optional<StepUsdPipeline> optionalStepExporter = StepUsdPipeline::create(inputArgs.inputUsdFile);
+    std::optional<CadUsdPipeline> optionalCadExporter = CadUsdPipeline::create(inputArgs.inputUsdFile);
 
-    if (!optionalStepExporter.has_value()) {
-        std::cerr << "Failed to initialize StepUsdPipeline." << std::endl;
+    if (!optionalCadExporter.has_value()) {
+        std::cerr << "Failed to initialize CadUsdPipeline." << std::endl;
         return 1;
     }
 
-    StepUsdPipeline stepExporter = std::move(*optionalStepExporter);
+    CadUsdPipeline stepExporter = std::move(*optionalCadExporter);
 
     const UsdStageRefPtr& stage = stepExporter.containerStage;
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : stage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibStepContainerAPI>()) continue;
+        if (!prim.HasAPI<AutolibCadContainerAPI>()) continue;
 
         stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
     }

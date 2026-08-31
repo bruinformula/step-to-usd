@@ -24,7 +24,7 @@ step-to-usd is a system for meshing STEP files into renderable USD assets. The g
 
 ### Basic Example
 
-Create a scene like the one below and run `stepmesh -i your_scene.usd`. Example models can be found in `test/`. See [USING.md](docs/USING.md) for more.
+Create a scene like the one below and run `vroom -i your_scene.usd`. Example models can be found in `test/`. See [USING.md](docs/USING.md) for more.
 
 ```usda
 #usda 1.0
@@ -33,22 +33,22 @@ Create a scene like the one below and run `stepmesh -i your_scene.usd`. Example 
     metersPerUnit = 0.001
     upAxis = "Z"
 )
-def StepTessellationOptions "DefaultOptions" {
-    double step:mesh:angularDeflection = 0.1
-    double step:mesh:linearDeflection = 0.1
+def CadTessellationOptions "DefaultOptions" {
+    double cad:mesh:angularDeflection = 0.1
+    double cad:mesh:linearDeflection = 0.1
     # other options...
 }
-def StepContainer "WonderfulModel" {
-    asset step:sourceAsset = @../step/model.STEP@
-    def StepPrototypes "Prototypes" {
-        rel step:defaultParams = </DefaultOptions>
+def CadContainer "WonderfulModel" {
+    asset cad:sourceAsset = @../step/model.STEP@
+    def CadPrototypes "Prototypes" {
+        rel cad:defaultParams = </DefaultOptions>
     }
 }
 ```
 ## Future Directions
 
 - By default the generated meshes have poor topology so an alternate meshing scheme could go a long way in reducing potential rendering artifacts and triangle counts. Instant meshes would be a great starting point [(Jakob et al., 2015).](https://dl.acm.org/doi/epdf/10.1145/2816795.2818078) There is potentially a path towards a 'BRep guided' solution where the the smoothness energy and tangent fields are guided by sampling BRep topology instead of relying exclusively on one extracted from the mesh.
-- Have a system for propagating `StepTesselationOptions` using USD collections.
+- Have a system for propagating `CadTesselationOptions` using USD collections.
 - The tool enforces an asset structure that is quite rigid. There may be some wiggle room to not only provide more options, but have some sort of plugin system for the meshing routine incase users would like to extract their own information from the brep representation (eg a curvature texture map). It could sort of be like writing a vertex shader.
 - Some diff tooling for handling assembly changes. Right now the prototypes use a name and a hashed ID based on the prototype they point to and the their location in the assembly. There is a world inwhich a part is relocated or renamed and updates are propagated to other USD assets.
 - Adding python bindings would open doors for faster iteration and dcc integration. Some of options are enabled by default (to reduce prim counts) but might need to be enabled later in very ad hawk manner (eg. GeomSubsets). In addition, the OpenCascade assembly document could be kept in memory during the 'setup' phase.

@@ -75,9 +75,9 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/Logger.h"
-#include "StepUSD/Tessellation/TessellationRoutine.h"
-#include "StepUSD/Tessellation/TessellationUtils.h"
+#include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
 
 class Geom_Surface;
 

@@ -19,8 +19,8 @@
 
 #include "tokens.h"
 
-#include "StepUSD/Tessellation/TessellationRoutine.h"
-#include "StepUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Logger.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

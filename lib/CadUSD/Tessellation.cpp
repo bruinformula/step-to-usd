@@ -72,9 +72,9 @@
 
 #pragma pop_macro("Handle")
 
-#include "StepUSD/StepUsdPipeline.h"
-#include "StepUSD/Logger.h"
-#include "StepUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/CadUsdPipeline.h"
+#include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
 
 class Geom_Surface;
 
@@ -102,7 +102,7 @@ struct ParamSubgroup {
     std::vector<TessellationJob*> jobs;
 };
 
-void StepUsdPipeline::tessellateGeometry(
+void CadUsdPipeline::tessellateGeometry(
     std::vector<TessellationJob>& tessJobs,
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
 ) {
