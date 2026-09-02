@@ -58,6 +58,20 @@ std::string getLabelName(const TDF_Label& label) {
 
     return result;
 }
+/*
+std::string stableContentHash(const TDF_Label& defLabel,
+                               const XCAFDoc_ShapeTool* shapeTool) {
+    std::ostringstream brep;
+    BRepTools::Write(shapeTool->GetShape(defLabel), brep);
+    std::string data = getLabelName(defLabel) + "|" + brep.str();
+
+    uint32_t h = 2166136261u;
+    for (unsigned char c : data) { h ^= c; h *= 16777619u; }
+    char buf[9];
+    snprintf(buf, sizeof(buf), "%08x", h);
+    return std::string(buf);
+}
+*/
 
 std::string stableLabelSuffix(const TDF_Label& label) {
     std::ostringstream oss;
@@ -164,6 +178,33 @@ const std::vector<SdfPath> OpenCascadeAssembly::getNodePaths(const SdfPath& asse
         }
     }
     return nodePaths;
+}
+
+const std::vector<OpenCascadeAssembly::ExportablePart>
+OpenCascadeAssembly::getExportableLeaves(const SdfPath& assemblyRoot) const {
+    std::vector<SdfPath> paths = getNodePaths(assemblyRoot);
+
+    // partNodes is stored pre-order, so every
+    // parentIdx has already been resolved.
+    std::vector<gp_Trsf> worldTransforms(partNodes.size());
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        const PartNode& node = partNodes[i];
+        gp_Trsf parentWorld = (node.parentIdx >= 0) ? worldTransforms[node.parentIdx] : gp_Trsf();
+        worldTransforms[i] = parentWorld * node.localTransform;
+    }
+ 
+    std::vector<ExportablePart> result;
+    result.reserve(partNodes.size());
+    for (size_t i = 0; i < partNodes.size(); i++) {
+        if (partNodes[i].type != PartNodeType::Leaf) continue;
+        result.push_back(ExportablePart{
+            paths[i],
+            partNodes[i].definitionLabel,
+            shapeTool->GetShape(partNodes[i].definitionLabel),
+            worldTransforms[i]
+        });
+    }
+    return result;
 }
 
 void OpenCascadeAssembly::buildInstanceTree() {

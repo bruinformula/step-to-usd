@@ -38,14 +38,14 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 const std::string argOptions =
-    " CadUsdTesselate -- Meshes all CadContainer prims in a Usd scene\n"
+    " frack -- Meshes all CadContainer prims in a Usd scene\n"
     " Options: \n"
     "    -i, --input <path>               Path to the input Usd file. \n"
     "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
     "    -q, --quiet                      Suppress all output.\n"
     "    -v, --verbose                    Prints like everything.\n"
     "    -h, --help                       Prints this message.\n\n"
-    "    usage: CadUsdTesselate -i <path> [options] \n";
+    "    usage: frack -i <path> [options] \n";
 
 struct CadUsdTesselateArgs {
 
@@ -57,7 +57,6 @@ struct CadUsdTesselateArgs {
     };
 
     std::filesystem::path inputUsdFile;
-    std::filesystem::path outputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths;
 
     ParseResult parse(const std::string& token, const std::string& nextToken) {
@@ -71,19 +70,6 @@ struct CadUsdTesselateArgs {
                 return FAILURE;
             }
             inputUsdFile = nextToken;
-            return SUCCESS_CONSUME_NEXT;
-        }
-
-       if (token == "-o" || token == "--output") {
-            if (nextToken.empty()) {
-                std::cerr << "Expected another token following command-line option: " << token << std::endl;
-                return FAILURE;
-            }
-            if (!outputUsdFile.empty()) {
-                std::cerr << token << " is already set!" << std::endl;
-                return FAILURE;
-            }
-            outputUsdFile = nextToken;
             return SUCCESS_CONSUME_NEXT;
         }
 

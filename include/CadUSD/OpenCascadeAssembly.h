@@ -105,6 +105,13 @@ struct OpenCascadeAssembly {
         std::optional<Quantity_Color> color;
     };
 
+    struct ExportablePart {
+        SdfPath      path;       // unix-esc path, same as getNodePaths() produces
+        TDF_Label    definitionLabel;  // the underlying shape's label
+        TopoDS_Shape localShape;    // shape in local/object space, untransformed
+        gp_Trsf      worldTransform;   // this instance's accumulated placement
+    };
+
     OpenCascadeAssembly(
         fs::path xbfPath,
         occt::handle<TDocStd_Application> a,
@@ -121,7 +128,8 @@ struct OpenCascadeAssembly {
     );
 
     const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& getDefinitionShapes();
-    const std::vector<SdfPath> getNodePaths(const SdfPath& assemblyRoot) const;
+    const std::vector<SdfPath> getNodePaths(const SdfPath &assemblyRoot) const;
+    const std::vector<ExportablePart> getExportableLeaves(const SdfPath& assemblyRoot) const;
 
     void buildInstanceTree();
 
