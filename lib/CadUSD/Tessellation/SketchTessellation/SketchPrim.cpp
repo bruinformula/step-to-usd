@@ -175,3 +175,17 @@ bool SketchTessellationRoutine::writeSketchPrim(
 
     return true;
 }
+
+void SketchTessellationRoutine::clearPrim(
+    UsdStageRefPtr stage,
+    const SdfPath& protoPath
+) const {
+    stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
+    stage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlane")));
+}
+
+size_t SketchTessellationRoutine::size() const {
+    size_t sketchSize = sketchPoints.size();
+    size_t sketchPlaneSize = sketchPlanePoints.size();
+    return sketchSize + sketchPlaneSize;
+}

@@ -196,10 +196,11 @@ bool TessellationRoutine::tessellate(
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
 
 
+    bool instSuccess = instRoutine.tessellate(fixedShape, params, protoPath);
     bool meshSuccess = meshRoutine.tessellate(fixedShape, params, protoPath);
     bool sketchSuccess = sketchRoutine.tessellate(fixedShape, params, protoPath);
-    //return sketchSuccess;
-    return meshSuccess && sketchSuccess;
+    
+    return instSuccess && meshSuccess && sketchSuccess;
 }
 
 bool TessellationRoutine::definePrim(
@@ -210,9 +211,10 @@ bool TessellationRoutine::definePrim(
     UsdPrim protoPrim = stage->GetPrimAtPath(protoPath);
     if (renderOnly) UsdGeomImageable(protoPrim).CreatePurposeAttr();
 
+    bool instDefined = instRoutine.definePrim(stage, protoPath, params);
     bool meshDefined = meshRoutine.definePrim(stage, protoPath, params);
     bool sketchDefined = sketchRoutine.definePrim(stage, protoPath, params);
-    return meshDefined && sketchDefined;
+    return instDefined && meshDefined && sketchDefined;
 }
 
 bool TessellationRoutine::writePrim(
@@ -223,15 +225,17 @@ bool TessellationRoutine::writePrim(
     UsdPrim protoPrim = stage->GetPrimAtPath(protoPath);
     if (renderOnly) UsdGeomImageable(protoPrim).CreatePurposeAttr().Set(UsdGeomTokens->render); 
 
+    bool instWritten = instRoutine.writePrim(stage, protoPath, params);
     bool meshWritten = meshRoutine.writePrim(stage, protoPath, params);
     bool sketchWritten = sketchRoutine.writePrim(stage, protoPath, params);
-    return meshWritten && sketchWritten;
+    return instWritten && meshWritten && sketchWritten;
 }
 
 void TessellationRoutine::clearPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath
 ) const {
+    instRoutine.clearPrim(stage, protoPath);
     meshRoutine.clearPrim(stage, protoPath);
     sketchRoutine.clearPrim(stage, protoPath);
 }

@@ -370,6 +370,42 @@ private:
 
 };
 
+struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {
+    TessParams params;
+
+    bool tessellate(
+        const TopoDS_Shape& defShape, 
+        const TessParams& params,
+        const SdfPath& protoPath
+    ) override;
+
+    bool definePrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath,
+        const TessParams& params
+    ) const override;
+
+    bool writePrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath,
+        const TessParams& params
+    ) const override;
+
+    void clearPrim(
+        UsdStageRefPtr stage,
+        const SdfPath& protoPath
+    ) const override;
+
+    size_t size() const override;
+
+private:
+
+    VtArray<GfVec3f> points;
+    VtArray<GfVec3f> normals;
+    VtArray<int> faceVertexCounts;
+    VtArray<int> faceVertexIndices;
+};
+
 struct TessellationRoutine : public TessellationRoutineInterface {
     bool tessellate(
         const TopoDS_Shape& defShape, 
@@ -401,5 +437,7 @@ private:
 
     SketchTessellationRoutine sketchRoutine;
     MeshTessellationRoutine meshRoutine;
+    InstantMeshesTessellationRoutine instRoutine;
+    
 
 };

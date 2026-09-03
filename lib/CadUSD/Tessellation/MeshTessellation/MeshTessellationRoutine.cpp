@@ -985,17 +985,3 @@ bool MeshTessellationRoutine::writePrim(
 
     return meshWritten && wireframeWritten;
 }
-
-void MeshTessellationRoutine::clearPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath
-) const {
-    stage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
-    stage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
-}
-
-size_t MeshTessellationRoutine::size() const {
-    size_t meshSize = points.size();
-    size_t wireframeSize = wireframePoints.size();
-    return meshSize + wireframeSize;
-}
