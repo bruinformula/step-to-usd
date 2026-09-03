@@ -35,6 +35,7 @@ bool InstantMeshesTessellationRoutine::definePrim(
     const SdfPath& protoPath,
     const TessParams& params
 ) const {
+    if (points.empty()) return true;
     UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("InstantMesh")));
     return true;
 }
@@ -44,7 +45,9 @@ bool InstantMeshesTessellationRoutine::writePrim(
     const SdfPath& protoPath,
     const TessParams& params
 ) const {
-    UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
+    if (points.empty()) return true;
+    
+    UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("InstantMesh"))));
 
     protoMesh.GetPointsAttr().Set(points);
     protoMesh.GetFaceVertexCountsAttr().Set(faceVertexCounts);

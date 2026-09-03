@@ -227,6 +227,11 @@ struct DeferredCurve {
     int continuity;
 };
 
+struct TangentAccum {
+    GfVec3f sum{0.f, 0.f, 0.f};
+    int count = 0;
+};
+
 // Everything that gets built up in one phase and consumed in a later one,
 // bundled so helper functions don't need a dozen out-parameters apiece.
 struct MeshTessellationContext {
@@ -239,8 +244,8 @@ struct MeshTessellationContext {
     std::unordered_map<TriNodeKey, TriNodeKey, TriNodeKey::Hash> nodeAlias;
 
     std::vector<DeferredCurve> deferredCurves;
-    std::unordered_map<TriNodeKey, GfVec3f, TriNodeKey::Hash> tangentAccum;
-    std::unordered_map<TriNodeKey, int, TriNodeKey::Hash> tangentCount;
+    
+    std::unordered_map<TriNodeKey, TangentAccum, TriNodeKey::Hash> tangentAccum;
 
     std::vector<UVPatch> uvPatches;
     std::vector<GfVec3f> pointNormalAccum;
@@ -477,8 +482,9 @@ void MeshTessellationRoutine::buildEdgeWalk(
                 // accumulate contributions from every edge that shares them.
                 int canonicalNode = canonical.poly->Node(k);
                 TriNodeKey canonKey = resolveAlias(ctx.nodeAlias, {canonical.tri.get(), canonicalNode});
-                ctx.tangentAccum[canonKey] += tan;
-                ctx.tangentCount [canonKey]++;
+                TangentAccum& t = ctx.tangentAccum[canonKey];
+                t.sum += tan;
+                t.count++;
             }
         }
 
@@ -730,16 +736,16 @@ void MeshTessellationRoutine::finalizeBoundaryData(MeshTessellationContext& ctx)
         isBoundaryVertex[idx] = true;
 
     boundaryTangents.assign(points.size(), GfVec3f(0.0f, 0.f, 0.f));
-    for (auto& [key, accum] : ctx.tangentAccum) {
+    for (auto& [key, tangent] : ctx.tangentAccum) {
         auto it = ctx.nodeToCanonical.find(resolveAlias(ctx.nodeAlias, key));
         if (it == ctx.nodeToCanonical.end()) continue;
 
         const int idx = it->second;
         if (idx < 0 || idx >= (int)points.size()) continue;
 
-        const float len = accum.GetLength();
+        const float len = tangent.sum.GetLength();
         if (len > 1e-10f) {
-            boundaryTangents[idx] = accum / len;
+            boundaryTangents[idx] = tangent.sum / len;
         } else {
             boundaryTangents[idx] = GfVec3f(0.0f, 0.0f, 0.0f);
         }

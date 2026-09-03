@@ -136,7 +136,7 @@ const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& OpenCascadeAssembly::getD
         defs.begin(), 
         defs.end(), 
         [this](const std::pair<TDF_Label, TopoDS_Shape>& a, const std::pair<TDF_Label, TopoDS_Shape>& b) {
-            return stableLabelSuffix(a.first) < stableLabelSuffix(b.first);
+            return definitionLabelSuffixes.at(a.first) < definitionLabelSuffixes.at(b.first);
         }
     );
     return defs;
@@ -404,6 +404,9 @@ void OpenCascadeAssembly::fillLeaf(
     }
     if (definitionNames.find(defLabel) == definitionNames.end()) {
         definitionNames[defLabel] = partNodes[myIdx].name;
+    }
+    if (definitionLabelSuffixes.find(defLabel) == definitionLabelSuffixes.end()) {
+        definitionLabelSuffixes[defLabel] = stableLabelSuffix(defLabel);
     }
 }
 

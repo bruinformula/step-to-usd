@@ -44,9 +44,9 @@ struct PrototypeContainer {
 struct TessellationJob {
     std::shared_ptr<PrototypeContainer> proto;
     int defIndex;
-    SdfPath prototypePath;
+    SdfPath protoPath;
     TessParams params;
-    TessellationRoutine routine;
+    std::shared_ptr<TessellationRoutine> routine;
 };
 
 struct CadUsdPipeline {
@@ -63,7 +63,6 @@ struct CadUsdPipeline {
     );
 
     void populateUsd(
-        UsdStageRefPtr containerStage,
         UsdPrim& containerPrim,
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
     );
@@ -89,12 +88,12 @@ private:
 
     bool isAssemblyActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& prototypePath
+        const SdfPath& protoPath
     );
 
     bool isPrototypeActiveInFilter(
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const SdfPath& prototypePath,
+        const SdfPath& protoPath,
         const std::string& variantSetName,
         const std::string& variantName
     );
@@ -153,7 +152,7 @@ private:
 
     void writePrototypeGeometries(
         UsdStageRefPtr stage,
-        const std::vector<ProtoGeomJob>& jobs,
+        std::vector<const TessellationJob*>& jobs,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const std::string& variantSetName,
         const std::string& variantName
@@ -174,7 +173,7 @@ private:
 
     void writeGeometry(
         const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& defs,
-        const LabelMap<SdfPath>& prototypePaths,
+        const LabelMap<SdfPath>& protoPaths,
         UsdStageRefPtr targetStage,
         const std::string& logLabel,
         const TessParams& containerParams,

@@ -2,7 +2,7 @@ find_package(pxr REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 
 # frack
-add_executable(frack "${CMAKE_CURRENT_SOURCE_DIR}/frick.cpp")
+add_executable(frack "${CMAKE_CURRENT_SOURCE_DIR}/frack.cpp")
 target_link_libraries(frack PRIVATE CadUSD)
 
 target_include_directories(frack

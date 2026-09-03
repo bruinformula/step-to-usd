@@ -147,7 +147,8 @@ struct OpenCascadeAssembly {
     LabelMap<TDF_Label> canonicalLabelMap;
     LabelMap<TopoDS_Shape> definitionShapes; // definition label -> geometry
     LabelMap<std::string> definitionNames;  // definition label -> name
-    LabelMap<SdfPath> prototypePaths;
+    LabelMap<std::string> definitionLabelSuffixes;  // definition label -> clean name
+    LabelMap<SdfPath> protoPaths;
     
     fs::path xbfPath;
     

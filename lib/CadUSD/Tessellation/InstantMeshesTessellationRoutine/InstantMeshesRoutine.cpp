@@ -1,14 +1,6 @@
 #include <chrono>
-#include <utility>
-#include <algorithm>
-#include <cmath>
-#include <functional>
-#include <initializer_list>
-#include <unordered_map>
-#include <unordered_set>
-#include <limits>
 #include <string>
-#include <vector>
+#include <random>
 
 #include <TDF_Label.hxx>
 #include <TopLoc_Location.hxx>
@@ -95,10 +87,49 @@ bool InstantMeshesTessellationRoutine::tessellate(
     auto tessellateStart = Clock::now();
 
     LOG_DEBUG("  -> tessellatePart: Edge walk preparation");
-
-
-
     
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // This is just a test. We're just generating random 
+    // surface positions unformally atop each one of the 
+    // faces of the part 
+    
+    for (TopExp_Explorer faceExp(defShape, TopAbs_FACE);
+         faceExp.More();
+         faceExp.Next())
+    {
+        const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
+    
+        BRepAdaptor_Surface adapter(face);
+    
+        const double uMin = adapter.FirstUParameter();
+        const double uMax = adapter.LastUParameter();
+        const double vMin = adapter.FirstVParameter();
+        const double vMax = adapter.LastVParameter();
+    
+        std::uniform_real_distribution<double> uDist(uMin, uMax);
+        std::uniform_real_distribution<double> vDist(vMin, vMax);
+        
+        const int samplesPerFace = 1; 
+        for (int sample = 0; sample < samplesPerFace; ++sample) {
+            // Random UV coordinate
+            const double u = uDist(gen);
+            const double v = vDist(gen);
+    
+            // Evaluate surface at UV
+            gp_Pnt position = adapter.Value(u, v);
+    
+            std::cout
+                << "UV: "
+                << u << ", " << v
+                << "  XYZ: "
+                << position.X() << ", "
+                << position.Y() << ", "
+                << position.Z()
+                << std::endl;
+        }
+    }
     
 
     auto tessellateEnd = Clock::now();

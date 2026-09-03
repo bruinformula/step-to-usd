@@ -4,6 +4,7 @@ build/
 .cache/
 **/*.xbf
 
+test/box/box
 test/model1/model1
 test/model2/model2
 test/model3/model3

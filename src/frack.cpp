@@ -158,22 +158,20 @@ int main(int argc, char** argv) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    std::optional<CadUsdPipeline> optionalCadExporter = CadUsdPipeline::create(inputArgs.inputUsdFile);
+    std::optional<CadUsdPipeline> optionalCadPipeline = CadUsdPipeline::create(inputArgs.inputUsdFile);
 
-    if (!optionalCadExporter.has_value()) {
+    if (!optionalCadPipeline.has_value()) {
         std::cerr << "Failed to initialize CadUsdPipeline." << std::endl;
         return 1;
     }
 
-    CadUsdPipeline stepExporter = std::move(*optionalCadExporter);
-
-    const UsdStageRefPtr& stage = stepExporter.containerStage;
+    CadUsdPipeline cadPipeline = std::move(*optionalCadPipeline);
 
     // Search for step container prims and run populateUsd on each `containerPrim`
-    for (UsdPrim prim : stage->TraverseAll()) {
+    for (UsdPrim prim : cadPipeline.containerStage->TraverseAll()) {
         if (!prim.HasAPI<AutolibCadContainerAPI>()) continue;
 
-        stepExporter.populateUsd(stage, prim, inputArgs.selectedPaths);
+        cadPipeline.populateUsd(prim, inputArgs.selectedPaths);
     }
 
     if (Logger::activeLevel == Logger::Level::INFO) {

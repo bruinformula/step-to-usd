@@ -17,8 +17,8 @@ def CadTessellationOptions "DefaultOptions"
 
 def CadContainer "Model3"
 {
-    asset cad:outputAsset = @model3/geom.usdc@
-    asset cad:sourceAsset = @../assemblies/model3.xbf@
+    asset cad:outputAsset = @box/geom.usdc@
+    asset cad:sourceAsset = @../primitives/box.xbf@
 
     def CadPrototypes "Prototypes" (
         active = true

@@ -91,7 +91,7 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
 
 bool CadUsdPipeline::isPrototypeActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& prototypePath,
+    const SdfPath& protoPath,
     const std::string& variantSetName,
     const std::string& variantName
 ) {
@@ -108,12 +108,12 @@ bool CadUsdPipeline::isPrototypeActiveInFilter(
         prototypesKey = basePrototypesKey.AppendVariantSelection(variantSetName, variantName);
     }
 
-    // Project prototypePath onto this container
+    // Project protoPath onto this container
     SdfPath absoluteProtoPath;
-    if (prototypePath.HasPrefix(basePrototypesKey)) {
-        absoluteProtoPath = prototypePath.ReplacePrefix(basePrototypesKey, prototypesKey);
+    if (protoPath.HasPrefix(basePrototypesKey)) {
+        absoluteProtoPath = protoPath.ReplacePrefix(basePrototypesKey, prototypesKey);
     } else {
-        absoluteProtoPath = prototypePath.ReplacePrefix(
+        absoluteProtoPath = protoPath.ReplacePrefix(
             SdfPath::AbsoluteRootPath().AppendChild(TfToken("Prototypes")),
             prototypesKey
         );
@@ -163,12 +163,12 @@ bool CadUsdPipeline::isPrototypeActiveInFilter(
 
 bool CadUsdPipeline::isAssemblyActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const SdfPath& prototypePath
+    const SdfPath& protoPath
 ) {
     if (selectedPaths.empty()) return true;
 
     // remove all {Variant=Selection}
-    SdfPath cleanProto = prototypePath.StripAllVariantSelections();
+    SdfPath cleanProto = protoPath.StripAllVariantSelections();
     SdfPath cleanContainer = this->pathConfig.containerPrimPath.StripAllVariantSelections();
     SdfPath assemblyBase = cleanContainer.AppendChild(TfToken("Assembly"));
 
@@ -636,8 +636,8 @@ bool CadUsdPipeline::populateTessellationJobs(
         const auto& defs = proto.model->getDefinitionShapes();
 
         for (size_t i = 0; i < defs.size(); ++i) {
-            auto it = proto.model->prototypePaths.find(defs[i].first);
-            if (it == proto.model->prototypePaths.end()) {
+            auto it = proto.model->protoPaths.find(defs[i].first);
+            if (it == proto.model->protoPaths.end()) {
                 std::cerr << "Warning: No prototype path found for definition label: " << defs[i].first << std::endl;
                 continue;
             }
@@ -658,7 +658,7 @@ bool CadUsdPipeline::populateTessellationJobs(
                     params = kv.second;
                     params.unitScale = proto.sourceToOutputScale;
                     
-                    // We need the prototypePath to include the variant
+                    // We need the protoPath to include the variant
                     // selections so writer knows where to author
                     SdfPath jobProtoPath = protoPath;
                     auto variantSelection = kv.first.GetVariantSelection();
@@ -667,13 +667,13 @@ bool CadUsdPipeline::populateTessellationJobs(
                     }
                     
                     //std::cout << "DEBUG: Queueing job for " << jobProtoPath.GetString() << " (defIndex " << i << ")\n";
-                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, TessellationRoutine()});
+                    tessJobs.push_back({protoPtr, (int)i, jobProtoPath, params, std::make_shared<TessellationRoutine>()});
                 }
             }
             
             if (!foundVariantForProto) {
                 params.unitScale = proto.sourceToOutputScale;
-                tessJobs.push_back({protoPtr, (int)i, protoPath, params, TessellationRoutine()});
+                tessJobs.push_back({protoPtr, (int)i, protoPath, params, std::make_shared<TessellationRoutine>()});
             }
         }
     }
@@ -708,7 +708,7 @@ bool CadUsdPipeline::buildPrototypeStages(
             proto,
             variantPrototypePaths
         );
-        proto.model->prototypePaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
+        proto.model->protoPaths.insert(variantPrototypePaths.begin(), variantPrototypePaths.end());
         
         bool isAssemblyInFilter = isAssemblyActiveInFilter(selectedPaths, this->pathConfig.containerPrimPath);
         if (!isAssemblyInFilter) {
@@ -878,7 +878,6 @@ std::optional<CadUsdPipeline> CadUsdPipeline::create(
 }
 
 void CadUsdPipeline::populateUsd(
-    UsdStageRefPtr containerStage,
     UsdPrim& containerPrim,
     const std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths
 ) {
@@ -959,14 +958,18 @@ void CadUsdPipeline::populateUsd(
     // Which ensures the stage recomposition happens only once
  
     LOG_DEBUG("Started writing " + std::to_string(prototypes.size()) + " prototypes.");
+    std::unordered_map<std::string, std::vector<const TessellationJob*>> jobsByStagePath;
+    jobsByStagePath.reserve(prototypes.size());
+    for (const TessellationJob& job : tessJobs) {
+        jobsByStagePath[job.proto->stage->GetRootLayer()->GetRealPath()].push_back(&job);
+    }
+      
     for (const auto& proto : prototypes) {
-        LOG_DEBUG("Starting geometry writing for: " + proto.stage->GetRootLayer()->GetIdentifier() + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
-        std::vector<ProtoGeomJob> geomJobs;
-        for (const auto& job : tessJobs) {
-            if (job.proto->stage->GetRootLayer()->GetRealPath() == proto.stage->GetRootLayer()->GetRealPath()) {
-                geomJobs.push_back({job.prototypePath, job.params, job.routine});
-            }
-        }
+        const std::string stagePath = proto.stage->GetRootLayer()->GetRealPath();
+        LOG_DEBUG("Starting geometry writing for: " + stagePath + " (variant: " + proto.variantSetName + "=" + proto.variantName + ")");
+        static const std::vector<const TessellationJob*> kEmptyJobs;
+        
+        std::vector<const TessellationJob*>& geomJobs = jobsByStagePath[stagePath];
         
         LOG_DEBUG("Writing " + std::to_string(geomJobs.size()) + " geometry jobs to prototype stage.");
         writePrototypeGeometries(proto.stage, geomJobs, selectedPaths, proto.variantSetName, proto.variantName);
