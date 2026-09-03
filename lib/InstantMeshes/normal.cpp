@@ -14,6 +14,8 @@
 #include "InstantMeshes/normal.h"
 #include "InstantMeshes/dedge.h"
 
+namespace InstantMeshes {
+
 extern void
 generate_smooth_normals(const MatrixXu &F, const MatrixXf &V, MatrixXf &N,
                         bool deterministic,
@@ -440,4 +442,6 @@ void generate_crease_normals(const MatrixXu &F, const MatrixXf &V,
     if (!creases.empty())
         cout << creases.size() << " crease vertices, ";
     cout << "took " << timeString(timer.value()) << ")" << endl;
+}
+
 }

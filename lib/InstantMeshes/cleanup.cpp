@@ -15,6 +15,8 @@
 #include "InstantMeshes/field.h"
 #include <set>
 
+namespace InstantMeshes {
+
 void remove_nonmanifold(MatrixXu &F, MatrixXf &V, MatrixXf &Nf) {
     typedef std::pair<uint32_t, uint32_t> Edge;
 
@@ -187,3 +189,4 @@ void remove_nonmanifold(MatrixXu &F, MatrixXf &V, MatrixXf &Nf) {
     }
 }
 
+}

@@ -15,10 +15,10 @@
 
 #pragma once
 
-
 #include "InstantMeshes/hierarchy.h"
 #include <map>
 
+namespace InstantMeshes {
 /* Rotation helper functions */
 extern Vector3f rotate60(const Vector3f &d, const Vector3f &n);
 extern Vector3f rotate90(const Vector3f &d, const Vector3f &n);
@@ -220,3 +220,4 @@ protected:
 #endif
     Timer<> mTimer;
 };
+}

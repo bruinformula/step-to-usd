@@ -15,6 +15,8 @@
 
 #include "InstantMeshes/common.h"
 
+namespace InstantMeshes {
+
 struct Ray {
     Vector3f o, d;
     Float mint, maxt;
@@ -122,3 +124,4 @@ struct AABB {
         return AABB(aabb1.min.cwiseMin(aabb2.min), aabb1.max.cwiseMax(aabb2.max));
     }
 };
+}

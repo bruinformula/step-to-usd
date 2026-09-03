@@ -20,6 +20,8 @@
 #include "InstantMeshes/dset.h"
 #include <map>
 
+namespace InstantMeshes {
+
 AdjacencyMatrix generate_adjacency_matrix_uniform(
     const MatrixXu &F, const VectorXu &V2E, const VectorXu &E2E,
     const VectorXb &nonManifold, const ProgressCallback &progress) {
@@ -336,4 +338,6 @@ AdjacencyMatrix generate_adjacency_matrix_pointcloud(
 
     cout << "done. (took " << timeString(timer.value()) << ")" << endl;
     return adj;
+}
+
 }

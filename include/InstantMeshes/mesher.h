@@ -20,6 +20,8 @@
 #include "InstantMeshes/bvh.h"
 #include "InstantMeshes/meshstats.h"
 
+namespace InstantMeshes {
+
 struct MeshParams {
     std::filesystem::path inputPath;
     std::filesystem::path outputPath;
@@ -47,6 +49,7 @@ public:
     ~Mesher();
 
     void loadInput();
+    void loadInput(MatrixXf V, MatrixXf N);
     void solveOrientation();
     void solvePosition();
     void extractMesh();
@@ -58,7 +61,7 @@ public:
 protected:
     void buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale);
 
-private:
+public:
     MeshParams mParams;
 
     MultiResolutionHierarchy mRes;
@@ -79,3 +82,5 @@ private:
 
     ProgressCallback mProgress;
 };
+
+}

@@ -15,6 +15,7 @@
 
 #include "InstantMeshes/aabb.h"
 
+namespace InstantMeshes {
 /* BVH node in 32 bytes */
 struct BVHNode {
     union {
@@ -105,3 +106,4 @@ struct BVH {
     ProgressCallback mProgress;
     Float mDiskRadius;
 };
+}

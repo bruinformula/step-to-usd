@@ -16,6 +16,8 @@
 
 #include "InstantMeshes/aabb.h"
 
+namespace InstantMeshes {
+
 struct MeshStats {
     AABB mAABB;
     Vector3f mWeightedCenter;
@@ -39,3 +41,4 @@ void compute_dual_vertex_areas(
     const MatrixXu &F, const MatrixXf &V, const VectorXu &V2E,
     const VectorXu &E2E, const VectorXb &nonManifold, VectorXf &A,
     const ProgressCallback &progress = ProgressCallback());
+}

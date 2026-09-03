@@ -22,6 +22,8 @@
 #include "InstantMeshes/extract.h"
 #include "InstantMeshes/bvh.h"
 
+namespace InstantMeshes {
+
 void batch_process(const std::string &input, const std::string &output,
                    int rosy, int posy, Float scale, int face_count,
                    int vertex_count, Float creaseAngle, bool extrinsic,
@@ -211,4 +213,6 @@ void batch_process(const std::string &input, const std::string &output,
     write_mesh(output, F_extr, O_extr, MatrixXf(), Nf_extr);
     if (bvh)
         delete bvh;
+}
+
 }

@@ -33,6 +33,7 @@
 #define SINGLE_PRECISION
 #define GRAIN_SIZE 1024
 
+namespace InstantMeshes {
 namespace parallel {
     constexpr inline bool serial = false;
     //inline void set_serial(bool s) { serial = s; }
@@ -509,4 +510,5 @@ inline Vector3f hsv_to_rgb(Float h, Float s, Float v) {
         case 4:  return Vector3f(t, p, v); break;
         default: return Vector3f(v, p, q); break;
     }
+}
 }

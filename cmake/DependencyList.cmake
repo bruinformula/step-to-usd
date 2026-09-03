@@ -23,6 +23,9 @@ endif ()
 
 include (ExternalProject)
 
+# TODO: Make this optional
+checked_find_package(Eigen3 REQUIRED)
+
 checked_find_package(OpenCASCADE REQUIRED VERSION_MIN 7.9.3 CONFIG)
 
 # disabling for now 
@@ -35,6 +38,7 @@ checked_find_package(OpenSubdiv REQUIRED
 )
 
 checked_find_package(OpenGL REQUIRED)
+
 checked_find_package(pxr REQUIRED 
     VERSION_MIN 0.25.11
     RECOMMEND_MIN 0.26.03

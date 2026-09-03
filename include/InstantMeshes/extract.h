@@ -16,6 +16,8 @@
 #include "InstantMeshes/hierarchy.h"
 #include <set>
 
+namespace InstantMeshes {
+
 struct TaggedLink {
     uint32_t id;
     uint8_t flag;
@@ -41,3 +43,4 @@ extern void extract_faces(std::vector<std::vector<TaggedLink> > &adj,
                           int posy, Float scale, std::set<uint32_t> &crease,
                           bool fill_holes = true, bool pure_quad = true,
                           BVH *bvh = nullptr, int smooth_iterations = 2);
+}

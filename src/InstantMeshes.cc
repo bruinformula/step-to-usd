@@ -20,6 +20,8 @@
 #include "InstantMeshes/mesher.h"
 #include "InstantMeshes/common.h"
 
+using namespace InstantMeshes;
+
 int nprocs = -1;
 
 const std::string argOptions =

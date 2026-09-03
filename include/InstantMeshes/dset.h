@@ -20,6 +20,8 @@
  *
  * \author Wenzel Jakob
  */
+
+namespace InstantMeshes {
 class DisjointSets {
 public:
     DisjointSets(uint32_t size) : mData(size) {
@@ -157,3 +159,5 @@ public:
 };
 
 #endif /* __UNIONFIND_H */
+
+}

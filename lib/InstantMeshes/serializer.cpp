@@ -17,6 +17,7 @@
 extern "C" {
     #include "InstantMeshes/rply.h"
 }
+namespace InstantMeshes {
 
 Serializer::Serializer() : mCompatibilityMode(false) { mPrefixStack.push(""); }
 
@@ -463,4 +464,5 @@ std::ostream &operator<<(std::ostream &os, const Serializer &state) {
     }
     os << endl << "]";
     return os;
+}
 }

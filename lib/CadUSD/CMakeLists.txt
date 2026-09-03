@@ -12,6 +12,8 @@ target_link_libraries(CadUSD PUBLIC
     autolibCadTessellation
     pxr::pxr
     OpenCASCADE::OpenCASCADE
+    Eigen3::Eigen
+    InstantMeshes
 )
 
 target_include_directories(CadUSD

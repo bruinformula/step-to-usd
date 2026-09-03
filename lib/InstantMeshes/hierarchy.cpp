@@ -19,6 +19,8 @@
 #include "InstantMeshes/pcg32.h"
 #include <algorithm>
 
+namespace InstantMeshes {
+
 AdjacencyMatrix downsample_graph(const AdjacencyMatrix adj, const MatrixXf &V,
                                  const MatrixXf &N, const VectorXf &A,
                                  MatrixXf &V_p, MatrixXf &N_p, VectorXf &A_p,
@@ -874,4 +876,5 @@ void MultiResolutionHierarchy::printStatistics() const {
     cout << "    Parallel phases     : " << memString(phases_s) << endl;
     cout << "    Total               : "
          << memString(field_s + V_s + N_s + A_s + adj_s + tree_s + cedge_s + cvertex_s + phases_s) << endl;
+}
 }
