@@ -13,7 +13,7 @@ def CadTessellationOptions "DefaultOptions"
 }
 
 def CadContainer "Model4" {
-    asset cad:sourceAsset = @../step/model4.xbf@
+    asset cad:sourceAsset = @../assemblies/model4.xbf@
 
     def CadPrototypes "Prototypes" (
         active = false

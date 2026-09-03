@@ -16,7 +16,7 @@ def CadContainer "Model1" (
     prepend payload = @model1/model1-prototypes.usdc@
 )
 {
-    asset cad:sourceAsset = @../step/model1.STEP@
+    asset cad:sourceAsset = @../assemblies/model1.STEP@
 
     def CadPrototypes "Prototypes" (
         active = false

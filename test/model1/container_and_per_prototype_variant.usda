@@ -37,7 +37,7 @@ def "World"
         prepend variantSets = "LOD"
     )
     {
-        asset cad:sourceAsset = @../step/model1.xbf@
+        asset cad:sourceAsset = @../assemblies/model1.xbf@
 
         over "Prototypes"
         {

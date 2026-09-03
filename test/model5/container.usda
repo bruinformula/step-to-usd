@@ -14,7 +14,7 @@ def CadTessellationOptions "DefaultOptions"
 
 def CadContainer "Model5" {
 
-    asset cad:sourceAsset = @../step/model5.xbf@
+    asset cad:sourceAsset = @../assemblies/model5.xbf@
     asset cad:outputAsset = @model5/geom.usdc@
 
     def CadPrototypes "Prototypes" {

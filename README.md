@@ -39,7 +39,7 @@ def CadTessellationOptions "DefaultOptions" {
     # other options...
 }
 def CadContainer "WonderfulModel" {
-    asset cad:sourceAsset = @../step/model.STEP@
+    asset cad:sourceAsset = @../assemblies/model.STEP@
     def CadPrototypes "Prototypes" {
         rel cad:defaultParams = </DefaultOptions>
     }

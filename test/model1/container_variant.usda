@@ -32,7 +32,7 @@ def CadContainer "Wonderful" (
     variantSet "LOD" = {
         "high" {
             asset cad:outputAsset = @model1/high.usdc@
-            asset cad:sourceAsset = @../step/model1.xbf@
+            asset cad:sourceAsset = @../assemblies/model1.xbf@
 
             over CadPrototypes "Prototypes"
             {
@@ -48,7 +48,7 @@ def CadContainer "Wonderful" (
         }
         "low" {
             asset cad:outputAsset = @model1/low.usdc@
-            asset cad:sourceAsset = @../step/model2.xbf@
+            asset cad:sourceAsset = @../assemblies/model2.xbf@
 
             over CadPrototypes "Prototypes"
             {

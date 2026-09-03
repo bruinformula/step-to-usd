@@ -140,7 +140,7 @@ def CadContainer "Wonderful" (
     variants = { string LOD = "low" }
     prepend variantSets = "LOD"
 ) {
-    asset cad:sourceAsset = @../step/model.STEP@
+    asset cad:sourceAsset = @../assemblies/model.STEP@
     variantSet "LOD" = {
         "high" (
             prepend payload = @model/LOD/model-LOD-high-prototypes.usdc@

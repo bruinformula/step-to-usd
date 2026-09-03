@@ -18,7 +18,7 @@ def CadTessellationOptions "OptionsB"
 }
 
 def CadContainer "Model1" {
-    asset cad:sourceAsset = @../step/model1.xbf@
+    asset cad:sourceAsset = @../assemblies/model1.xbf@
     asset cad:outputAsset = @model1/test.usdc@
 
     over CadPrototypes "Prototypes" (
