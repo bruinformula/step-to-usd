@@ -308,13 +308,11 @@ BVH::BVH(
     mDiskRadius(0.f) 
 {
     if (mF->size() > 0) {
-        mNodes.resize(2*mF->cols());
-        memset(mNodes.data(), 0, sizeof(BVHNode) * mNodes.size());
+        mNodes.assign(2 * mF->cols(), BVHNode{}); 
         mNodes[0].aabb = aabb;
         mIndices = new uint32_t[mF->cols()];
     } else if (mV->size() > 0) {
-        mNodes.resize(2*mV->cols());
-        memset(mNodes.data(), 0, sizeof(BVHNode) * mNodes.size());
+        mNodes.assign(2 * mV->cols(), BVHNode{});
         mNodes[0].aabb = aabb;
         mIndices = new uint32_t[mV->cols()];
     }
