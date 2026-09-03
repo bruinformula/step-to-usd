@@ -1,0 +1,234 @@
+/*
+    Original work:
+        Instant Field-Aligned Meshes
+        Wenzel Jakob, Daniele Panozzo, Marco Tarini, and Olga Sorkine-Hornung
+        In ACM Transactions on Graphics (Proc. SIGGRAPH Asia 2015)
+
+    All rights reserved. Use of this source code is governed by a
+    BSD-style license that can be found in the LICENSE.txt file.
+*/
+
+#include <ostream>
+#include <cstring>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <string>
+
+#include <tbb/tbb.h>
+
+#include "InstantMeshes/mesher.h"
+#include "InstantMeshes/common.h"
+
+int nprocs = -1;
+
+const std::string argOptions =
+    " Instant Meshes -- Field-aligned mesh remesher\n"
+    " Options:\n"
+    "   Required:\n"
+    "      --input <file>               Input PLY or OBJ path\n"
+    "      --output <file>              Output PLY or OBJ path\n"
+    "\n"
+    "   Sizing (pick at most one):\n"
+    "      --scale <length>             Target world-space edge length\n"
+    "      --faces <count>              Target face count\n"
+    "      --vertices <count>           Target vertex count\n"
+    "\n"
+    "   Field options:\n"
+    "      --rosy <2|4|6>               Orientation symmetry type (default: 4)\n"
+    "      --posy <4|6>                 Position symmetry type    (default: 4)\n"
+    "      --intrinsic                  Use intrinsic smoothness energy\n"
+    "      --boundaries                 Align output edges to mesh boundaries\n"
+    "      --dominant                   Dominant (mixed) mesh instead of pure tri/quad\n"
+    "\n"
+    "   Pre-processing:\n"
+    "      --crease <degrees>           Dihedral angle threshold for sharp creases\n"
+    "      --smooth <iter>              Post-process smoothing iterations (default: 2)\n"
+    "      --knn <count>                Point-cloud: neighbours to consider (default: 10)\n"
+    "\n"
+    "   Misc:\n"
+    "      --threads <count>            Worker thread count (default: automatic)\n"
+    "      --deterministic              Prefer slower but deterministic algorithms\n"
+    "      --help                       Show this message\n";
+
+struct MeshArgumentHandler {
+
+    MeshParams params;
+
+    enum ParseResult { SUCCESS, SUCCESS_CONSUME_NEXT, FAILURE, EXIT };
+
+    ParseResult parse(const std::string &token, const std::string &nextToken) {
+
+        if (token =="--input" || token == "-i") {
+            if (nextToken.empty()) goto expectOption;
+            params.inputPath = nextToken;
+            return SUCCESS_CONSUME_NEXT;
+        } if (token == "--help" || token == "-h") {
+            std::cout << argOptions;
+            return EXIT;
+        } else if (token == "--deterministic" || token == "-d") {
+            params.deterministic = true;
+            return SUCCESS;
+        } else if (token == "--intrinsic" || token == "-i") {
+            params.extrinsic = false;
+            return SUCCESS;
+        } else if (token == "--boundaries" || token == "-b") {
+            params.alignToBoundaries = true;
+            return SUCCESS;
+        } else if (token == "--dominant" || token == "-D") {
+            params.dominant = true;
+            return SUCCESS;
+        } else if (token == "--threads" || token == "-t") {
+            if (nextToken.empty()) goto expectOption;
+            nprocs = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--smooth" || token == "-S") {
+            if (nextToken.empty()) goto expectOption;
+            params.smoothIter = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--knn" || token == "-k") {
+            if (nextToken.empty()) goto expectOption;
+            params.knnPoints = str_to_uint32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--crease" || token == "-c") {
+            if (nextToken.empty()) goto expectOption;
+            params.creaseAngle = str_to_float(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--rosy" || token == "-r") {
+            if (nextToken.empty()) goto expectOption;
+            params.rosy = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--posy" || token == "-p") {
+            if (nextToken.empty()) goto expectOption;
+            params.posy = str_to_int32_t(nextToken);
+            if (params.posy == 6) params.posy = 3;
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--scale" || token == "-s") {
+            if (nextToken.empty()) goto expectOption;
+            params.scale = str_to_float(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--faces" || token == "-f") {
+            if (nextToken.empty()) goto expectOption;
+            params.faceCount = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--vertices" || token == "-v") {
+            if (nextToken.empty()) goto expectOption;
+            params.vertexCount = str_to_int32_t(nextToken);
+            return SUCCESS_CONSUME_NEXT;
+        } else if (token == "--output" || token == "-o") {
+            if (nextToken.empty()) goto expectOption;
+            if (!params.outputPath.empty()) goto alreadySet;
+            params.outputPath = nextToken;
+            return SUCCESS_CONSUME_NEXT;
+        } else {
+            if (!token.empty() && token[0] != '-') {
+                if (!params.inputPath.empty()) {
+                    std::cerr << "Unexpected positional argument: " << token << "\n";
+                    return FAILURE;
+                }
+                params.inputPath = token;
+                return SUCCESS;
+            }
+            std::cerr << "Unrecognized command-line option: " << token << "\n";
+            return FAILURE;
+        }
+
+    alreadySet:
+        std::cerr << token << " is already set!\n";
+        return FAILURE;
+        
+    expectOption:
+        std::cerr << "Expected another token following command-line option: " << token << "\n";
+        return FAILURE;
+    }
+
+    bool verify() const {
+        if (params.inputPath.empty()) {
+            std::cerr << "No input file specified.\n";
+            return false;
+        }
+        if (params.outputPath.empty()) {
+            std::cerr << "No output file specified (--output).\n";
+            return false;
+        }
+        if ((params.posy != 3 && params.posy != 4) ||
+            (params.rosy != 2 && params.rosy != 4 && params.rosy != 6)) {
+            std::cerr << "Invalid symmetry type.\n";
+            return false;
+        }
+        int nSizeConstraints = (params.scale       > 0 ? 1 : 0)
+                             + (params.faceCount   > 0 ? 1 : 0)
+                             + (params.vertexCount > 0 ? 1 : 0);
+        if (nSizeConstraints > 1) {
+            std::cerr << "Specify at most one of --scale, --faces, --vertices.\n";
+            return false;
+        }
+        return true;
+    }
+};
+
+
+int main(int argc, char **argv) {
+    std::vector<std::string> tokens;
+    for (int i = 1; i < argc; ++i)
+        tokens.emplace_back(argv[i]);
+
+    MeshArgumentHandler handler;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const std::string &token     = tokens[i];
+        const std::string &nextToken = (i + 1 < tokens.size()) ? tokens[i + 1] : "";
+
+        switch (handler.parse(token, nextToken)) {
+            case MeshArgumentHandler::SUCCESS:
+                break;
+            case MeshArgumentHandler::SUCCESS_CONSUME_NEXT:
+                ++i;
+                break;
+            case MeshArgumentHandler::FAILURE:
+                std::cerr << "Run with --help for usage.\n";
+                return -1;
+            case MeshArgumentHandler::EXIT:
+                return 0;
+        }
+    }
+
+    if (!handler.verify()) {
+        std::cerr << "Run with --help for usage.\n";
+        return -1;
+    }
+
+    tbb::global_control gc(tbb::global_control::max_allowed_parallelism,
+                            nprocs == -1 ? tbb::info::default_concurrency() : nprocs);
+    try {
+        Mesher mesher(handler.params);
+
+        mesher.setProgressCallback([](const std::string &caption, Float value) {
+            if (value >= 0.f)
+                std::cout << "\r  " << caption << " .. "
+                          << int(value * 100) << "%   " << std::flush;
+            else
+                std::cout << "\r  " << caption << "         " << std::flush;
+        });
+
+        std::cout << "\nLoading input: " << handler.params.inputPath << "\n";
+        mesher.loadInput();
+
+        std::cout << "Solving orientation field ...\n";
+        mesher.solveOrientation();
+
+        std::cout << "Solving position field ...\n";
+        mesher.solvePosition();
+
+        std::cout << "Extracting mesh ...\n";
+        mesher.extractMesh();
+        mesher.saveOutput();
+        std::cout << "Done.\n";
+
+    } catch (const std::exception &e) {
+        std::cerr << "\nFatal error: " << e.what() << "\n";
+        return -1;
+    }
+
+    return EXIT_SUCCESS;
+}
