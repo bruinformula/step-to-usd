@@ -1,6 +1,7 @@
 
 
 #include <chrono>
+#include <exception>
 #include <limits>
 #include <string>
 
@@ -195,8 +196,12 @@ bool TessellationRoutine::tessellate(
     auto meshEnd = Clock::now();
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
 
-
-    bool instSuccess = instRoutine.tessellate(fixedShape, params, protoPath);
+     bool instSuccess = false;
+    try {
+        instSuccess = instRoutine.tessellate(fixedShape, params, protoPath);
+    } catch (std::exception& e) {
+        LOG_ERR(e.what());
+    }
     bool meshSuccess = meshRoutine.tessellate(fixedShape, params, protoPath);
     bool sketchSuccess = sketchRoutine.tessellate(fixedShape, params, protoPath);
     

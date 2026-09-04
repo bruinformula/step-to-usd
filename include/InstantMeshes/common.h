@@ -35,7 +35,7 @@
 
 namespace InstantMeshes {
 namespace parallel {
-    constexpr inline bool serial = false;
+    constexpr inline bool serial = true;
     //inline void set_serial(bool s) { serial = s; }
 
     template<typename Range, typename Func>

@@ -131,10 +131,10 @@ bool MeshTessellationRoutine::writeWireframePrim(
             }
         }
         
-        curve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
-        UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
+        curve.CreateWidthsAttr().Set(VtArray{0.005f});
+        curve.SetWidthsInterpolation(UsdGeomTokens->constant);
         
-        curve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.8f, 0.8f, 0.8f}});
+        curve.GetDisplayColorAttr().Set(VtArray{GfVec3f{0.8f, 0.8f, 0.8f}});
 
         if (!wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI api(curve);

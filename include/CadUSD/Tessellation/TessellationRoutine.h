@@ -404,6 +404,9 @@ private:
     VtArray<GfVec3f> normals;
     VtArray<int> faceVertexCounts;
     VtArray<int> faceVertexIndices;
+
+    VtArray<GfVec3f> samplePoints;
+    VtArray<GfVec3f> sampleNormals;
 };
 
 struct TessellationRoutine : public TessellationRoutineInterface {

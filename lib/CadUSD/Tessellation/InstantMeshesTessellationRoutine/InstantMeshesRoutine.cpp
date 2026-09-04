@@ -122,61 +122,63 @@ bool InstantMeshesTessellationRoutine::tessellate(
         std::uniform_real_distribution<double> uDist(uMin, uMax);
         std::uniform_real_distribution<double> vDist(vMin, vMax);
         
-        const int samplesPerFace = 1000; 
-        for (TopExp_Explorer faceExp(defShape, TopAbs_FACE); faceExp.More(); faceExp.Next()) {
-            const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
-        
-            BRepAdaptor_Surface adapter(face);
-        
-            const double uMin = adapter.FirstUParameter();
-            const double uMax = adapter.LastUParameter();
-            const double vMin = adapter.FirstVParameter();
-            const double vMax = adapter.LastVParameter();
-        
-            std::uniform_real_distribution<double> uDist(uMin, uMax);
-            std::uniform_real_distribution<double> vDist(vMin, vMax);
-        
-            BRepClass_FaceClassifier classifier;
+        const int samplesPerFace = 500; 
+        BRepClass_FaceClassifier classifier;
 
-            // Because of trim samples aren't guranteed 
-            // to be inside the UV bounds given 
-            int samples = 0;
-            while (samples < samplesPerFace) {
-                const double u = uDist(gen);
-                const double v = vDist(gen);
-        
-                // Is the given coordinate
-                // inside the face boundary.
-                classifier.Perform(
-                    face,
-                    gp_Pnt2d(u, v),
-                    Precision::Confusion()
-                );
-        
-                const TopAbs_State state = classifier.State();
-                if (state != TopAbs_IN && state != TopAbs_ON) {
-                    continue; // outside throw out
-                }
-
-                gp_Pnt position;
-                gp_Vec dU;
-                gp_Vec dV;
+        // Because of trim samples aren't guranteed 
+        // to be inside the UV bounds given 
+        int samples = 0;
+        while (samples < samplesPerFace) {
+            const double u = uDist(gen);
+            const double v = vDist(gen);
     
-                adapter.D1(u, v, position, dU, dV);
-                gp_Vec normal = dU.Crossed(dV);
-
-                if (face.Orientation() == TopAbs_REVERSED)
-                    normal.Reverse();
-        
-                inputPoints.push_back(position);
-                inputNormals.push_back(normal.Normalized());
-                ++samples;
+            // Is the given coordinate
+            // inside the face boundary.
+            classifier.Perform(
+                face,
+                gp_Pnt2d(u, v),
+                Precision::Confusion()
+            );
+    
+            const TopAbs_State state = classifier.State();
+            if (state != TopAbs_IN && state != TopAbs_ON) {
+                continue; // outside throw out
             }
+
+            gp_Pnt position;
+            gp_Vec dU;
+            gp_Vec dV;
+
+            adapter.D1(u, v, position, dU, dV);
+            gp_Vec normal = dU.Crossed(dV);
+
+            if (face.Orientation() == TopAbs_REVERSED)
+                normal.Reverse();
+    
+            inputPoints.push_back(position);
+            inputNormals.push_back(normal.Normalized());
+            ++samples;
         }
     }
 
-    std::cout << "points: " << inputPoints.size()
-              << std::endl;
+    samplePoints.reserve(inputPoints.size());
+    sampleNormals.reserve(inputNormals.size());
+
+    for (int i = 0; i < inputPoints.size(); ++i) {
+        float px = static_cast<float>(inputPoints[i].X());
+        float py = static_cast<float>(inputPoints[i].Y());
+        float pz = static_cast<float>(inputPoints[i].Z());
+        samplePoints.emplace_back(px, py, pz);
+
+        float nx = static_cast<float>(inputPoints[i].X());
+        float ny = static_cast<float>(inputPoints[i].Y());
+        float nz = static_cast<float>(inputPoints[i].Z());
+        samplePoints.emplace_back(nx, ny, nz);        
+    }
+
+    if (inputPoints.empty() || inputNormals.empty()) {
+        return false;
+    }
     
     MatrixXf P;
     MatrixXf N;
@@ -219,7 +221,7 @@ bool InstantMeshesTessellationRoutine::tessellate(
         << " vertexCount=" << mesherParams.vertexCount
         << '\n';
     
-    mesherParams.scale = 2.0f;
+    mesherParams.scale = 0.01f;
     mesherParams.vertexCount = -1;
     mesherParams.faceCount = -1;
     InstantMeshes::Mesher mesher(mesherParams);

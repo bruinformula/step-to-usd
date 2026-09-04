@@ -122,7 +122,6 @@ void SketchTessellationRoutine::tessellateSketchPlane(
     // convert closed wires into planar faces, then triangulate those faces.
 
     std::string protoName = protoPath.GetName();
-    
     // TODO: Support Muliplanar sketches
     
     // Assemble free edges into a compound and connect them into wires
@@ -220,6 +219,9 @@ void SketchTessellationRoutine::tessellateSketchPlane(
         }
         const TopoDS_Face f = makeFace.Face();
         if (f.IsNull()) { ++makeFaceFailedCount; continue; }
+        
+        builder.Add(faceCompound, f);
+        ++builtFaceCount;
 
     }
 
@@ -467,6 +469,12 @@ bool SketchTessellationRoutine::tessellate(
     try {
         SketchTessellationContext ctx;
         initializeFreeEdges(defShape, ctx);
+
+        if (ctx.freeEdges.empty()) {
+            LOG_DEBUG("  -> Sketch plane: no free edges for part " + protoPath.GetString() + ", skipping");
+            return true;
+        }
+
         tessellateSketchPlane(defShape, protoPath, ctx);
         tessellateSketch(defShape, protoPath, ctx);
 

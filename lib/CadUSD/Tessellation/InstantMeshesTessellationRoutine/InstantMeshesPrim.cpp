@@ -1,3 +1,4 @@
+#include <pxr/base/vt/value.h>
 #include <string>
 #include <numeric>
 
@@ -9,18 +10,23 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/attribute.h>
+
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/path.h>
+
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdGeom/primvar.h>
+#include <pxr/usd/usdGeom/points.h>
+
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
+
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/usd/usdGeom/pointBased.h>
+
 
 #pragma pop_macro("Handle")
 
@@ -37,6 +43,7 @@ bool InstantMeshesTessellationRoutine::definePrim(
 ) const {
     if (points.empty()) return true;
     UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("InstantMesh")));
+    UsdGeomPoints protoPoints = UsdGeomPoints::Define(stage, protoPath.AppendChild(TfToken("Points")));
     return true;
 }
 
@@ -46,6 +53,13 @@ bool InstantMeshesTessellationRoutine::writePrim(
     const TessParams& params
 ) const {
     if (points.empty()) return true;
+
+    // Just for viewing sample points
+    UsdGeomPoints protoPoints(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Points"))));
+    protoPoints.GetPointsAttr().Set(samplePoints);
+    protoPoints.GetNormalsAttr().Set(sampleNormals);
+    protoPoints.GetWidthsAttr().Set(VtArray{0.05f});
+    protoPoints.SetWidthsInterpolation(UsdGeomTokens->constant);
     
     UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("InstantMesh"))));
 
@@ -74,6 +88,7 @@ void InstantMeshesTessellationRoutine::clearPrim(
     const SdfPath& protoPath
 ) const {
     stage->RemovePrim(protoPath.AppendChild(TfToken("InstantMesh")));
+    stage->RemovePrim(protoPath.AppendChild(TfToken("Points")));
 }
 
 size_t InstantMeshesTessellationRoutine::size() const {

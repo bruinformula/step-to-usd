@@ -126,8 +126,8 @@ bool SketchTessellationRoutine::writeSketchPrim(
                 p.Set(sketchArcValues);
         }
 
-        sketchCurve.CreateWidthsAttr().Set(VtArray<float>{0.005f});
-        UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("widths"), SdfValueTypeNames->FloatArray, UsdGeomTokens->constant).Set(VtArray<float>{0.005f});
+        sketchCurve.CreateWidthsAttr().Set(VtArray{0.005f});
+        sketchCurve.SetWidthsInterpolation(UsdGeomTokens->constant);
         
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
