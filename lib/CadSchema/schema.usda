@@ -108,8 +108,13 @@ class "CadTessellationAPI" (
     )
     bool cad:mesh:enableRepairShape = true (
         doc = "Enables a repair pass on the parameteric shape before meshing."
-        customData = { string variability = "SdfVariabilityUniform" }
+        customdata = { string variability = "SdfVariabilityUniform" }
     )
+
+    bool cad:mesh:enableInstantMeshes = false (
+        doc = "Enables InstantMeshed parts."
+        customdata = { string variability = "SdfVariabilityUniform" }
+    ) 
 
     # Wireframe
     token cad:wireframe:type = "linear" (
@@ -268,6 +273,7 @@ class "CadTessellationOptions" (
     uint64 cad:mesh:meshTimeout = 7000
     uint64 cad:mesh:remeshTimeout = 7000
     bool cad:mesh:enableRepairShape = true
+    bool cad:mesh:enableInstantMeshes = false
 
     # Wireframe
     token cad:wireframe:type = "linear"

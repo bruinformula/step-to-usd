@@ -48,6 +48,7 @@ TessParams CadUsdPipeline::getTessParams(
     updateIfAuthored(api.GetCadMeshFixPrecisionAttr(), &params.meshFixPrecision);
     updateIfAuthored(api.GetCadMeshFixToleranceAttr(), &params.meshFixTolerance);
     updateIfAuthored(api.GetCadMeshEnableRepairShapeAttr(), &params.meshEnableRepairPass);
+    updateIfAuthored(api.GetCadMeshEnableInstantMeshesAttr(), &params.meshEnableInstantMeshes);
 
     updateIfAuthored(api.GetCadMeshFixTimeoutAttr(), &params.meshFixTimeout);
     updateIfAuthored(api.GetCadMeshMeshTimeoutAttr(), &params.meshMeshTimeout);

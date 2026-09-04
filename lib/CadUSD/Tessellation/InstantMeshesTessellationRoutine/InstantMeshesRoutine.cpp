@@ -92,6 +92,10 @@ bool InstantMeshesTessellationRoutine::tessellate(
     const TessParams& params,
     const SdfPath& protoPath
 ) {
+
+    if (!params.meshEnableInstantMeshes)
+        return true;
+    
     auto tessellateStart = Clock::now();
 
     LOG_DEBUG("  -> tessellatePart: Edge walk preparation");

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <string>
 #include <vector>
+#include <condition_variable>
 
 #include <TDF_Label.hxx>
 #include <TopLoc_Location.hxx>

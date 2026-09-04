@@ -34,7 +34,8 @@ struct TessParams {
     int meshMaxNumberRemeshPasses = 1;           // Maximum remesh passes
     double meshFixPrecision = 1e-7;          // Tolerance for shape fixing
     double meshFixTolerance = 1e-7;       // Tolerance for meshing operations
-    bool meshEnableRepairPass = true;    // Enables a repair pass before meshing 
+    bool meshEnableRepairPass = true;    // Enables a repair pass before meshing
+    bool meshEnableInstantMeshes = false; // Enables InstantMeshes routine
 
     // Timeout in milliseconds
     uint64_t meshFixTimeout = 3000;            
