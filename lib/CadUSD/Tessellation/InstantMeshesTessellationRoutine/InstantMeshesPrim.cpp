@@ -66,8 +66,8 @@ bool InstantMeshesTessellationRoutine::writePrim(
     protoMesh.GetPointsAttr().Set(points);
     protoMesh.GetFaceVertexCountsAttr().Set(faceVertexCounts);
     protoMesh.GetFaceVertexIndicesAttr().Set(faceVertexIndices);
-    protoMesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->none);
-    protoMesh.SetNormalsInterpolation(UsdGeomTokens->faceVarying);
+    protoMesh.GetSubdivisionSchemeAttr().Set(UsdGeomTokens->catmullClark);
+    protoMesh.SetNormalsInterpolation(UsdGeomTokens->vertex);
     protoMesh.GetNormalsAttr().Set(normals);
 
     {

@@ -108,26 +108,26 @@ public:
     void setFrozenQ(bool frozen) { mFrozenQ = frozen; }
     void setFrozenO(bool frozen) { mFrozenO = frozen; }
 public:
-    MatrixXu mF;
-    VectorXu mE2E;
-    std::vector<std::vector<std::vector<uint32_t>>> mPhases;
-    std::vector<AdjacencyMatrix> mAdj;
-    std::vector<MatrixXf> mV;
-    std::vector<MatrixXf> mN;
-    std::vector<VectorXf> mA;
-    std::vector<VectorXu> mToLower;
-    std::vector<MatrixXu> mToUpper;
-    std::vector<MatrixXf> mO;
-    std::vector<MatrixXf> mQ;
-    std::vector<MatrixXf> mCQ;
-    std::vector<MatrixXf> mCO;
-    std::vector<VectorXf> mCQw;
-    std::vector<VectorXf> mCOw;
-    bool mFrozenQ, mFrozenO;
-    ordered_lock mMutex;
-    Float mScale;
-    int mIterationsQ;
-    int mIterationsO;
-    uint32_t mTotalSize;
+    MatrixXu mF;                                      // Face vertex indices
+    VectorXu mE2E;                                    // Edge-to-edge adjacency
+    std::vector<std::vector<std::vector<uint32_t>>> mPhases; // Parallel processing phases
+    std::vector<AdjacencyMatrix> mAdj;                // Vertex adjacency graphs
+    std::vector<MatrixXf> mV;                         // Vertex positions, per hierarchy level
+    std::vector<MatrixXf> mN;                         // Vertex normals, per hierarchy level
+    std::vector<VectorXf> mA;                         // Vertex areas, per hierarchy level
+    std::vector<VectorXu> mToLower;                   // Mapping from upper level to lower level
+    std::vector<MatrixXu> mToUpper;                   // Mapping from lower level to upper level
+    std::vector<MatrixXf> mO;                         // Position field, per hierarchy level
+    std::vector<MatrixXf> mQ;                         // Orientation field, per hierarchy level
+    std::vector<MatrixXf> mCQ;                        // Constrained orientation field
+    std::vector<MatrixXf> mCO;                        // Constrained position field
+    std::vector<VectorXf> mCQw;                       // Orientation constraint weights
+    std::vector<VectorXf> mCOw;                       // Position constraint weights
+    bool mFrozenQ, mFrozenO;                          // Whether orientation/position fields are frozen
+    ordered_lock mMutex;                              // Thread synchronization lock
+    Float mScale;                                     // Mesh scale
+    int mIterationsQ;                                 // Number of orientation optimization iterations
+    int mIterationsO;                                 // Number of position optimization iterations
+    uint32_t mTotalSize;                              // Total number of vertices across hierarchy
 };
 }

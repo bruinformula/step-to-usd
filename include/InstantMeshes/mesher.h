@@ -48,8 +48,9 @@ public:
     explicit Mesher(const MeshParams &params);
     ~Mesher();
 
-    void loadInput();
-    void loadInput(MatrixXf V, MatrixXf N);
+    void loadInput(MatrixXf V, MatrixXf N,
+            const MatrixXf &Qc = MatrixXf(),
+            const VectorXf &Qcw = VectorXf());
     void solveOrientation();
     void solvePosition();
     void extractMesh();

@@ -159,91 +159,12 @@ void Mesher::buildHierarchy(MatrixXu &F, MatrixXf &V, MatrixXf &N, Float scale) 
     }
 }
 
-void Mesher::loadInput() {
+void Mesher::loadInput(
+    MatrixXf V, MatrixXf N,
+    const MatrixXf &Qc,
+    const VectorXf &Qcw
+) {
     MatrixXu F;
-    MatrixXf V, N;
-
-    load_mesh_or_pointcloud(mParams.inputPath.string(), F, V, N, mProgress);
-
-    bool pointcloud = (F.size() == 0);
-
-    {
-        std::lock_guard<ordered_lock> lock(mRes.mutex());
-        mOptimizer.stop();
-    }
-    
-    delete mBVH;
-    mBVH = nullptr;
-
-    mMeshStats = compute_mesh_stats(F, V, mParams.deterministic, mProgress);
-
-    if (pointcloud) {
-        mBVH = new BVH(&F, &V, &N, mMeshStats.mAABB);
-        mBVH->build(mProgress);
-    }
-
-    // Resolve target scale from whichever sizing option was set
-    Float scale = mParams.scale;
-    int face_count  = mParams.faceCount;
-    int vertex_count = mParams.vertexCount;
-    int posy = mParams.posy;
-
-    if (scale < 0 && vertex_count < 0 && face_count < 0) {
-        std::cout << "No target specified; defaulting to 1/16 of input vertex count.\n";
-        vertex_count = (int)(V.cols() / 16);
-    }
-
-    if (scale > 0) {
-        Float face_area = (posy == 4)
-            ? (scale * scale)
-            : (std::sqrt(3.f) / 4.f * scale * scale);
-        face_count = (int)(mMeshStats.mSurfaceArea / face_area);
-        vertex_count = (posy == 4) ? face_count : (face_count / 2);
-    } else if (face_count > 0) {
-        Float face_area = mMeshStats.mSurfaceArea / face_count;
-        vertex_count = (posy == 4) ? face_count : (face_count / 2);
-        scale = (posy == 4)
-            ? std::sqrt(face_area)
-            : (2.f * std::sqrt(face_area * std::sqrt(1.f / 3.f)));
-    } else if (vertex_count > 0) {
-        face_count= (posy == 4) ? vertex_count : (vertex_count * 2);
-        Float face_area = mMeshStats.mSurfaceArea / face_count;
-        scale = (posy == 4)
-            ? std::sqrt(face_area)
-            : (2.f * std::sqrt(face_area * std::sqrt(1.f / 3.f)));
-    }
-
-    std::cout << "Output mesh goals (approximate)\n"
-              << "   Vertex count   = " << vertex_count  << "\n"
-              << "   Face count     = " << face_count    << "\n"
-              << "   Edge length    = " << scale         << "\n";
-
-    if (!((mParams.rosy == 6 && posy == 3) ||
-          (mParams.rosy == 2 && posy == 4) ||
-          (mParams.rosy == 4 && posy == 4)))
-        throw std::runtime_error("Unsupported RoSy/PoSy combination");
-
-    mOptimizer.setRoSy(mParams.rosy);
-    mOptimizer.setPoSy(posy);
-    mOptimizer.setExtrinsic(mParams.extrinsic);
-
-    mRes.free();
-    buildHierarchy(F, V, N, scale);
-
-    if (!mBVH) {
-        mBVH = new BVH(&mRes.F(), &mRes.V(), &mRes.N(), mMeshStats.mAABB);
-        mBVH->build(mProgress);
-    } else {
-        mBVH->setData(&mRes.F(), &mRes.V(), &mRes.N());
-    }
-
-    mRes.printStatistics();
-    mBVH->printStatistics();
-}
-
-void Mesher::loadInput(MatrixXf V, MatrixXf N) {
-    MatrixXu F;
-    bool pointcloud = true;
 
     {
         std::lock_guard<ordered_lock> lock(mRes.mutex());
@@ -256,16 +177,14 @@ void Mesher::loadInput(MatrixXf V, MatrixXf N) {
     mMeshStats = compute_mesh_stats(F, V, mParams.deterministic, mProgress);
 
     std::cout
-        << "[pointcloud stats]"
         << " surfaceArea=" << mMeshStats.mSurfaceArea
         << " avgEdge=" << mMeshStats.mAverageEdgeLength
         << " maxEdge=" << mMeshStats.mMaximumEdgeLength
         << std::endl;
 
-    if (pointcloud) {
-        mBVH = new BVH(&F, &V, &N, mMeshStats.mAABB);
-        mBVH->build(mProgress);
-    }
+    mBVH = new BVH(&F, &V, &N, mMeshStats.mAABB);
+    mBVH->build(mProgress);
+    
 
     // Resolve target scale from whichever sizing option was set
     Float scale = mParams.scale;
@@ -278,6 +197,7 @@ void Mesher::loadInput(MatrixXf V, MatrixXf N) {
         vertex_count = (int)(V.cols() / 16);
     }
 
+    // Given 1 parameter, solve for the other 2
     if (scale > 0) {
         Float face_area = (posy == 4)
             ? (scale * scale)
@@ -314,6 +234,21 @@ void Mesher::loadInput(MatrixXf V, MatrixXf N) {
 
     mRes.free();
     buildHierarchy(F, V, N, scale);
+
+    if (Qc.size() > 0) {
+        if (Qc.cols() != mRes.V().cols())
+            throw std::runtime_error(
+                "Mesher::loadInput: orientation constraint count (" + std::to_string(Qc.cols()) +
+                ") does not match vertex count (" + std::to_string(mRes.V().cols()) + ")");
+
+        std::lock_guard<ordered_lock> lock(mRes.mutex());
+        mRes.clearConstraints();
+        mRes.CQ()  = Qc;
+        mRes.CQw() = (Qcw.size() == Qc.cols())
+            ? Qcw
+            : VectorXf::Constant(Qc.cols(), 1.0f);
+        mRes.propagateConstraints(mOptimizer.rosy(), mOptimizer.posy());
+    }
 
     if (!mBVH) {
         mBVH = new BVH(&mRes.F(), &mRes.V(), &mRes.N(), mMeshStats.mAABB);

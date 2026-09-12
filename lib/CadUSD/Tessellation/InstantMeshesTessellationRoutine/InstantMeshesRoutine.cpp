@@ -107,9 +107,11 @@ bool InstantMeshesTessellationRoutine::tessellate(
          faceExp.More();
          faceExp.Next())
     {
-
+        
         std::vector<gp_Pnt> inputPoints;
         std::vector<gp_Vec> inputNormals;
+        std::vector<gp_Vec> inputTangents;
+        std::vector<float>  inputTangentWeights;
     
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
     
@@ -123,7 +125,7 @@ bool InstantMeshesTessellationRoutine::tessellate(
         std::uniform_real_distribution<double> uDist(uMin, uMax);
         std::uniform_real_distribution<double> vDist(vMin, vMax);
         
-        const int samplesPerFace = 100000; 
+        const int samplesPerFace = 200000; 
         BRepClass_FaceClassifier classifier;
 
         // Because of trim samples aren't guranteed 
@@ -155,9 +157,28 @@ bool InstantMeshesTessellationRoutine::tessellate(
 
             if (face.Orientation() == TopAbs_REVERSED)
                 normal.Reverse();
-    
+            
+            gp_Vec unitNormal = normal.Normalized();
+            
+            // Use the U-parametric tangent as the guide direction, re-orthogonalized
+            // against the normal to remove numerical drift.
+            // This is subject to change 
+            gp_Vec tangent = dU - unitNormal * unitNormal.Dot(dU);
+            double tangentLen = tangent.Magnitude();
+            
+            bool tangentValid = tangentLen > Precision::Confusion()
+                              && normal.Magnitude() > Precision::Confusion();
+            
+            if (tangentValid) {
+                tangent.Normalize();
+            } else {
+                tangent = gp_Vec(0.0, 0.0, 0.0);
+            }
+            
             inputPoints.push_back(position);
-            inputNormals.push_back(normal.Normalized());
+            inputNormals.push_back(unitNormal);
+            inputTangents.push_back(tangent);
+            inputTangentWeights.push_back(tangentValid ? 1.0f : 0.0f);
             ++samples;
         }
 
@@ -180,11 +201,13 @@ bool InstantMeshesTessellationRoutine::tessellate(
             return false;
         }
         
-        MatrixXf P;
-        MatrixXf N;
+        MatrixXf P, N, Tt;
+        VectorXf Wt;
         
         P.resize(3, inputPoints.size());
         N.resize(3, inputNormals.size());
+        Tt.resize(3, inputTangents.size());
+        Wt.resize(inputTangents.size());
         
         for (size_t i = 0; i < inputPoints.size(); ++i) {
             P(0, i) = static_cast<float>(inputPoints[i].X());
@@ -194,11 +217,17 @@ bool InstantMeshesTessellationRoutine::tessellate(
             N(0, i) = static_cast<float>(inputNormals[i].X());
             N(1, i) = static_cast<float>(inputNormals[i].Y());
             N(2, i) = static_cast<float>(inputNormals[i].Z());
-        } 
+        
+            Tt(0, i) = static_cast<float>(inputTangents[i].X());
+            Tt(1, i) = static_cast<float>(inputTangents[i].Y());
+            Tt(2, i) = static_cast<float>(inputTangents[i].Z());
+        
+            Wt(i) = inputTangentWeights[i];
+        }
     
         InstantMeshes::MeshParams mesherParams;
 
-        mesherParams.scale = 0.4f;
+        mesherParams.scale = 1.5f;
         mesherParams.vertexCount = -1;
         mesherParams.faceCount = -1;
         mesherParams.alignToBoundaries = true;
@@ -215,7 +244,7 @@ bool InstantMeshesTessellationRoutine::tessellate(
         
         InstantMeshes::Mesher mesher(mesherParams);
         
-        mesher.loadInput(P, N);
+        mesher.loadInput(P, N, Tt, Wt);
     
         std::cout << "Instant Meshes input: "
                 << P.cols() << " points, "
