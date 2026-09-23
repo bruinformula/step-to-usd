@@ -13,7 +13,7 @@ target_link_libraries(CadUSD PUBLIC
     pxr::pxr
     OpenCASCADE::OpenCASCADE
     Eigen3::Eigen
-    InstantMeshes
+    quadriflow
 )
 
 target_include_directories(CadUSD

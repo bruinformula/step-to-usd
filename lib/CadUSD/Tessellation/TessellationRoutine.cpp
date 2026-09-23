@@ -196,7 +196,7 @@ bool TessellationRoutine::tessellate(
     auto meshEnd = Clock::now();
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
 
-     bool instSuccess = false;
+    bool instSuccess = false;
     try {
         instSuccess = instRoutine.tessellate(fixedShape, params, protoPath);
     } catch (std::exception& e) {

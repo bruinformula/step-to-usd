@@ -26,6 +26,13 @@ include (ExternalProject)
 # TODO: Make this optional
 checked_find_package(Eigen3 REQUIRED)
 
+# TODO: Add COMPONENETS option
+# This is temporary change for testing 
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 NEW)
+endif()
+find_package(Boost REQUIRED)
+
 checked_find_package(OpenCASCADE REQUIRED VERSION_MIN 7.9.3 CONFIG)
 
 # disabling for now 
