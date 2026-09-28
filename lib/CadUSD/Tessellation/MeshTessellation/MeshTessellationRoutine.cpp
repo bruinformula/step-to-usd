@@ -380,11 +380,10 @@ void MeshTessellationRoutine::buildEdgeWalk(
         for (NCollection_List<TopoDS_Shape>::Iterator iter(adjFaces); iter.More(); iter.Next()) {
             const TopoDS_Face& face = TopoDS::Face(iter.Value());
             TopLoc_Location loc;
-            occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
+            const occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
             if (tri.IsNull()) continue;
 
-            TopLoc_Location edgeLoc;
-            occt::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, edgeLoc);
+            occt::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, loc);
             if (poly.IsNull()) continue;
 
             int surfaceIndex = ctx.faceMap.FindIndex(face);
@@ -662,7 +661,7 @@ void MeshTessellationRoutine::tessellateFaces(
         const TopoDS_Face& face = TopoDS::Face(faceExp.Current());
         int surfaceIndex = ctx.faceMap.FindIndex(face);
         TopLoc_Location loc;
-        occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
+        const occt::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
 
         SurfaceIDBounds surfaceBounds = { surfaceBoundIdx, surfaceBoundIdx + tri->NbTriangles(), surfaceIndex };

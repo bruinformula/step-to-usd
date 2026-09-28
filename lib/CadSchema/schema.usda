@@ -106,7 +106,7 @@ class "CadTessellationAPI" (
         doc = "Timeout in milliseconds for each remeshing pass when self-intersections are detected."
         customData = { string variability = "SdfVariabilityUniform" }
     )
-    bool cad:mesh:enableRepairShape = true (
+    bool cad:mesh:enableRepairShape = false (
         doc = "Enables a repair pass on the parameteric shape before meshing."
         customData = { string variability = "SdfVariabilityUniform" }
     )
@@ -267,7 +267,7 @@ class "CadTessellationOptions" (
     uint64 cad:mesh:fixTimeout = 7000
     uint64 cad:mesh:meshTimeout = 7000
     uint64 cad:mesh:remeshTimeout = 7000
-    bool cad:mesh:enableRepairShape = true
+    bool cad:mesh:enableRepairShape = false
 
     # Wireframe
     token cad:wireframe:type = "linear"

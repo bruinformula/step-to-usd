@@ -1,5 +1,4 @@
 
-
 #include <chrono>
 #include <exception>
 #include <limits>
@@ -108,13 +107,13 @@ bool TessellationRoutine::tessellate(
             LOG_DEBUG("  -> ShapeFix_Shape timed out, proceeding with partial repair");
         }
 
-        TopoDS_Shape fixedShape = fixer.Shape();
+        fixedShape = fixer.Shape();
     }
 
     LOG_DEBUG("  -> tessellatePart: BRepTools::Clean");
-    BRepTools::Clean(defShape); // remove previously created tessellations for this part 
+    BRepTools::Clean(fixedShape); // remove previously created tessellations for this part 
 
-    double diagonal = computeBoundingBoxDiagonal(defShape);
+    double diagonal = computeBoundingBoxDiagonal(fixedShape);
 
     bool renderOnly = params.renderPurposeThreshold != std::numeric_limits<double>::infinity() && diagonal < params.renderPurposeThreshold;
 
@@ -126,7 +125,7 @@ bool TessellationRoutine::tessellate(
     
     LOG_DEBUG("  -> tessellatePart: BRepMesh_IncrementalMesh");
     BRepMesh_IncrementalMesh mesher;
-    mesher.SetShape(defShape);
+    mesher.SetShape(fixedShape);
     mesher.ChangeParameters() = meshParams;
     
     bool meshTimedOut = runWithDeadline(
@@ -153,7 +152,7 @@ bool TessellationRoutine::tessellate(
     LOG_DEBUG("  -> tessellatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
         LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
-        BRepExtrema_SelfIntersection checker(defShape, params.meshSelfIntersectionThreshold);
+        BRepExtrema_SelfIntersection checker(fixedShape, params.meshSelfIntersectionThreshold);
         LOG_DEBUG("  -> checker.Perform()");
         checker.Perform();
 
@@ -176,9 +175,9 @@ bool TessellationRoutine::tessellate(
         repairParams.Angle *= 0.5;
 
         LOG_DEBUG("  -> BRepTools::Clean (repair)");
-        BRepTools::Clean(defShape); 
+        BRepTools::Clean(fixedShape); 
         BRepMesh_IncrementalMesh remesher;
-        remesher.SetShape(defShape);
+        remesher.SetShape(fixedShape);
         remesher.ChangeParameters() = repairParams;
         
         bool remeshTimedOut = runWithDeadline(
@@ -196,7 +195,7 @@ bool TessellationRoutine::tessellate(
     auto meshEnd = Clock::now();
     LOG_DEBUG("  Mesh time: " + std::to_string(Seconds(meshEnd - tessellateStart).count()) + " s");
 
-    bool instSuccess = false;
+    bool instSuccess = true;
     try {
         instSuccess = instRoutine.tessellate(fixedShape, params, protoPath);
     } catch (std::exception& e) {
