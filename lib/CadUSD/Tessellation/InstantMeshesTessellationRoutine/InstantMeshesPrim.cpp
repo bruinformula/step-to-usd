@@ -36,6 +36,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+#ifdef WITH_QUADRIFLOW
+
 bool InstantMeshesTessellationRoutine::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -95,3 +97,5 @@ size_t InstantMeshesTessellationRoutine::size() const {
     size_t meshSize = points.size();
     return meshSize;
 }
+
+#endif

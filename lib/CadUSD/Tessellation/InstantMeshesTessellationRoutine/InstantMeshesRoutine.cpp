@@ -46,11 +46,14 @@
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 #include "CadUSD/Tessellation/TessellationUtils.h"
 
+#ifdef WITH_QUADRIFLOW
+
 #include "Quadriflow/hierarchy.hpp"
 #include "Quadriflow/optimizer.hpp"
 #include "Quadriflow/parametrizer.hpp"
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
 
 struct TriNodeKey {
     const Poly_Triangulation* first;
@@ -416,3 +419,5 @@ bool InstantMeshesTessellationRoutine::tessellate(
 
     return true;
 }
+
+#endif

@@ -443,7 +443,8 @@ private:
 
     SketchTessellationRoutine sketchRoutine;
     MeshTessellationRoutine meshRoutine;
+    #ifdef WITH_QUADRIFLOW
     InstantMeshesTessellationRoutine instRoutine;
-    
+    #endif 
 
 };

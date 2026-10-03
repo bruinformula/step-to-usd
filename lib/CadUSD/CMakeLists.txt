@@ -13,8 +13,12 @@ target_link_libraries(CadUSD PUBLIC
     pxr::pxr
     OpenCASCADE::OpenCASCADE
     Eigen3::Eigen
-    quadriflow
 )
+
+if (${WITH_QUADRIFLOW})
+    target_link_libraries(CadUSD PUBLIC quadriflow)
+    add_definitions(-DWITH_QUADRIFLOW)
+endif()
 
 target_include_directories(CadUSD
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
