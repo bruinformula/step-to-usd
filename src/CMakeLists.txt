@@ -16,7 +16,11 @@ install(TARGETS frack
 )
 
 # frick 
-add_executable(frick "${CMAKE_CURRENT_SOURCE_DIR}/frick.cpp")
+add_executable(frick 
+    "${CMAKE_CURRENT_SOURCE_DIR}/frick.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/convert.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp" 
+)
 target_link_libraries(frick PRIVATE CadUSD)
 
 target_include_directories(frick

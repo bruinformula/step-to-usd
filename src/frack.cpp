@@ -127,57 +127,7 @@ struct CadUsdTesselateArgs {
 };
 
 int main(int argc, char** argv) {    
-    std::vector<std::string> tokens;
-    for (int i = 1; i < argc; i++) {
-        tokens.emplace_back(argv[i]);
-    }
-    
-    CadUsdTesselateArgs inputArgs;
-    for (size_t i = 0; i < tokens.size(); i++) {
-        const std::string& token = tokens[i];
-        const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
-        
-        CadUsdTesselateArgs::ParseResult parseResult = inputArgs.parse(token, nextToken);
-        switch (parseResult) {
-            case CadUsdTesselateArgs::SUCCESS:
-                break;
-            case CadUsdTesselateArgs::SUCCESS_CONSUME_NEXT:
-                i++;
-                break;
-            case CadUsdTesselateArgs::FAILURE:
-                return 1;
-            case CadUsdTesselateArgs::EXIT:
-                return 0;
-        }
-    }
-    
-    if (!inputArgs.verify()) {
-        std::cerr << "Input argument verification failed." << std::endl;
-        return 1;
-    }
 
-    auto start = std::chrono::high_resolution_clock::now();
-
-    std::optional<CadUsdPipeline> optionalCadPipeline = CadUsdPipeline::create(inputArgs.inputUsdFile);
-
-    if (!optionalCadPipeline.has_value()) {
-        std::cerr << "Failed to initialize CadUsdPipeline." << std::endl;
-        return 1;
-    }
-
-    CadUsdPipeline cadPipeline = std::move(*optionalCadPipeline);
-
-    // Search for step container prims and run populateUsd on each `containerPrim`
-    for (UsdPrim prim : cadPipeline.containerStage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibCadContainerAPI>()) continue;
-
-        cadPipeline.populateUsd(prim, inputArgs.selectedPaths);
-    }
-
-    if (Logger::activeLevel == Logger::Level::INFO) {
-        auto end = std::chrono::high_resolution_clock::now();
-        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
-    }
 
     return 0;
 }
