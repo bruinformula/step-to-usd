@@ -37,15 +37,21 @@ enum class ConversionKind {
 
 struct ConvertArgs {
 
+    enum ParseResult {
+        SUCCESS,
+        SUCCESS_CONSUME_NEXT,
+        FAILURE,
+        EXIT
+    };
+
     ConversionKind kind;
     fs::path inputPath;
     fs::path outputPath;
 
     std::vector<std::string> primPaths;
-    bool verbose = false;
     bool bakeWorldTransform = true;
 
-    bool parse(const std::string& token, const std::string& nextToken, bool& consumeNext); 
+    ParseResult parse(const std::string& token, const std::string& nextToken); 
     bool verify();
 };
 

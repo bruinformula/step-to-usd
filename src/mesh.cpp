@@ -29,7 +29,7 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-const std::string argOptions =
+const std::string usageText =
     " frack -- Meshes all CadContainer prims in a Usd scene\n"
     " Options: \n"
     "    -i, --input <path>               Path to the input Usd file. \n"
@@ -39,59 +39,56 @@ const std::string argOptions =
     "    -h, --help                       Prints this message.\n\n"
     "    usage: frack -i <path> [options] \n";
 
-bool CadUsdTesselateArgs::parse(const std::string& token, const std::string& nextToken, bool& consumeNext) {
+CadUsdTesselateArgs::ParseResult CadUsdTesselateArgs::parse(const std::string& token, const std::string& nextToken) {
     if (token == "-i" || token == "--input") {
         if (nextToken.empty()) {
             std::cerr << "Expected another token following command-line option: " << token << std::endl;
-            return false;
+        return ParseResult::FAILURE;
         }
         if (!inputUsdFile.empty()) {
             std::cerr << token << " is already set!" << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         inputUsdFile = nextToken;
-        consumeNext = true;
-        return true;
+        return ParseResult::SUCCESS_CONSUME_NEXT;
     }
 
     if (token == "-p" || token == "--prim") {
         if (nextToken.empty()) {
             std::cerr << "Expected another token following command-line option: " << token << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         selectedPaths.insert(SdfPath(nextToken));
-        consumeNext = true;
-        return true;
+        return ParseResult::SUCCESS_CONSUME_NEXT;
     }
 
     if (token == "-q" || token == "--quiet") {
         Logger::activeLevel = Logger::NONE;
-        return true;
+        return ParseResult::SUCCESS;
     }
 
     if (token == "-v" || token == "--verbose") {
         Logger::activeLevel = Logger::DEBUG;
-        return true;
+        return ParseResult::SUCCESS;
     }
 
     if (token == "-h" || token == "--help") {
-        std::cout << argOptions << std::endl;
-        return false;
+        std::cout << usageText << std::endl;
+        return ParseResult::EXIT;
     }
 
     // Not a recognized flag -- treat as an implicit positional input file,
     if (!token.empty() && token[0] != '-') {
         if (!inputUsdFile.empty()) {
             std::cerr << "inputUsdFile is already set! Unexpected extra argument: " << token << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         inputUsdFile = token;
-        return true;
+        return ParseResult::SUCCESS;
     }
 
     std::cout << "Unrecognized command-line option: " << token << std::endl;
-    std::cout << argOptions << std::endl;
-    return false;
+    return ParseResult::FAILURE;
 }
 
 bool CadUsdTesselateArgs::verify() {

@@ -21,7 +21,7 @@
 #include <Quantity_Color.hxx>
 #include <Quantity_NameOfColor.hxx>
 
-const std::string argOptions =
+const std::string usageText =
     " brepview -- View a .brep file\n"
     " Options: \n"
     "    -i, --input <path>               Path to the input brep file. \n"
@@ -63,7 +63,7 @@ struct BRepViewArgs {
         }
 
         if (token == "-h" || token == "--help") {
-            std::cout << argOptions << std::endl;
+            std::cout << usageText << std::endl;
             return EXIT;
         }
         
@@ -77,7 +77,7 @@ struct BRepViewArgs {
         }
 
         std::cout << "Unrecognized command-line option: " << token << std::endl;
-        std::cout << argOptions << std::endl;
+        std::cout << usageText << std::endl;
         return FAILURE;
     }
 

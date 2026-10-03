@@ -43,6 +43,27 @@
 namespace occt = opencascade;
 namespace fs = std::filesystem;
 
+const std::string usageText =
+    "vroom <convert|mesh> [options]\n"
+    "\n"
+    "convert: STEP/BREP <-> XBF\n"
+    "  -i, --input <path>       Input\n"
+    "  -o, --output <path>      Output\n"
+    "  -p, --prim <path>        BREP export prim (repeatable)\n"
+    "  -v, --verbose            Debug\n"
+    "\n"
+    "mesh: Tessellate USD\n"
+    "  -i, --input <path>       Input\n"
+    "  -p, --prim <path>        Prim (repeatable)\n"
+    "  -q, --quiet              Suppress output\n"
+    "  -v, --verbose            Verbose\n"
+    "  -h, --help               Help\n"
+    "\n"
+    "Examples:\n"
+    "  vroom convert -i part.step\n"
+    "  vroom convert -i assembly.xbf -p /Bracket\n"
+    "  vroom mesh -i container.usd\n";
+
 std::string lowerExtension(const fs::path& p) {
     std::string ext = p.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -50,16 +71,15 @@ std::string lowerExtension(const fs::path& p) {
     return ext;
 }
 
-bool ConvertArgs::parse(const std::string& token, const std::string& nextToken, bool& consumeNext) {
-    consumeNext = false;
+ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token, const std::string& nextToken) {
     if (token == "-i" || token == "--input") {
         if (nextToken.empty()) {
             std::cerr << "Expected a path after " << token << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         if (!inputPath.empty()) {
             std::cerr << token << " is already set!" << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         inputPath = nextToken;
         std::string ext = lowerExtension(inputPath);
@@ -74,44 +94,54 @@ bool ConvertArgs::parse(const std::string& token, const std::string& nextToken, 
             kind = ConversionKind::Unknown;
         }
 
-        consumeNext = true;
-        return true;
+        return ParseResult::SUCCESS_CONSUME_NEXT;
     }
     if (token == "-o" || token == "--output") {
         if (nextToken.empty()) {
             std::cerr << "Expected a path after " << token << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         if (!outputPath.empty()) {
             std::cerr << token << " is already set!" << std::endl;
-            return false;
+            return ParseResult::FAILURE;
         }
         outputPath = nextToken;
-        consumeNext = true;
-        return true;
+        return ParseResult::SUCCESS_CONSUME_NEXT;
     }
     if (!token.empty() && token[0] != '-') {
         if (!inputPath.empty()) {
             LOG_ERR("Input is already set! Unexpected extra argument: " + token);
-            return false;
+            return ParseResult::FAILURE;
         }
         inputPath = token;
-        return true;
+        return ParseResult::SUCCESS;
     }
     if (token == "-p" || token == "--prim") {
         if (nextToken.empty()) {
             LOG_ERR("Expected a prim path after " + token);
-            return false;
+            return ParseResult::FAILURE;
         }
         primPaths.push_back(nextToken);
-        consumeNext = true;
-        return true;
+        return ParseResult::SUCCESS_CONSUME_NEXT;
     }
+
+    if (token == "-h" || token == "--help") {
+        std::cout << usageText << std::endl;
+        return ParseResult::EXIT;
+    }
+
+    if (token == "-q" || token == "--quiet") {
+        Logger::activeLevel = Logger::NONE;
+        return ParseResult::SUCCESS;
+    }
+
     if (token == "-v" || token == "--verbose") {
-        verbose = true;
-        return true;
-    }
-    return false;
+        Logger::activeLevel = Logger::DEBUG;
+        return ParseResult::SUCCESS;
+    } 
+
+    std::cout << "Unrecognized command-line option: " << token << std::endl;
+    return ParseResult::FAILURE;
 }
 
 bool ConvertArgs::verify() {
@@ -254,7 +284,7 @@ int convertXbfToBrep(const ConvertArgs& args) {
         LOG_ERR("No leaf geometry found under root: " + assemblyRoot.GetString());
         return 1;
     }
-    if (args.verbose) {
+    if (Logger::activeLevel == Logger::Level::DEBUG) {
         for (const auto& p : parts) {
             LOG_DEBUG(p.path.GetString());
         }

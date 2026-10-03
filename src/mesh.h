@@ -27,10 +27,17 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 struct CadUsdTesselateArgs {
 
+    enum ParseResult {
+        SUCCESS,
+        SUCCESS_CONSUME_NEXT,
+        FAILURE,
+        EXIT
+    };
+
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths;
 
-    bool parse(const std::string& token, const std::string& nextToken, bool& consumeNext);
+    ParseResult parse(const std::string& token, const std::string& nextToken);
 
     bool verify();
 };

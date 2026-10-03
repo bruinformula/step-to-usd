@@ -67,27 +67,26 @@ const std::string usageText =
     "    vroom convert -i part.step\n"
     "    vroom convert -i part.brep -o part.xbf\n"
     "    vroom convert -i assem.xbf\n"
-    "    vroom convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n"
-    " usage: vroom mesh -i <path> [options] \n"
-    " Meshes all CadContainer prims in a Usd scene\n"
-    " Options: \n"
-    "    -i, --input <path>               Path to the input Usd file. \n"
-    "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
-    "    -q, --quiet                      Suppress all output.\n"
-    "    -v, --verbose                    Prints like everything.\n"
-    "    -h, --help                       Prints this message.\n\n";
+    "    vroom convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n\n";
+
 int runMeshMode(const std::vector<std::string>& tokens) {
     CadUsdTesselateArgs args;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
-        bool consumeNext = false;
-        if (!args.parse(token, nextToken, consumeNext)) {
-            LOG_ERR("Unrecognized option for 'convert' mode: " + token);
-            std::cerr << usageText << std::endl;
-            return 1;
+        
+        CadUsdTesselateArgs::ParseResult parseResult = args.parse(token, nextToken);
+        switch (parseResult) {
+            case CadUsdTesselateArgs::SUCCESS:
+                break;
+            case CadUsdTesselateArgs::SUCCESS_CONSUME_NEXT:
+                i++;
+                break;
+            case CadUsdTesselateArgs::FAILURE:
+                return 1;
+            case CadUsdTesselateArgs::EXIT:
+                return 0;
         }
-        if (consumeNext) i++;
     }
     
     if (!args.verify()) {
@@ -125,20 +124,24 @@ int runConvertMode(const std::vector<std::string>& tokens) {
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
-        bool consumeNext = false;
-        if (!args.parse(token, nextToken, consumeNext)) {
-            LOG_ERR("Unrecognized option for 'convert' mode: " + token);
-            std::cerr << usageText << std::endl;
-            return 1;
+        
+        ConvertArgs::ParseResult parseResult = args.parse(token, nextToken);
+        switch (parseResult) {
+            case ConvertArgs::SUCCESS:
+                break;
+            case ConvertArgs::SUCCESS_CONSUME_NEXT:
+                i++;
+                break;
+            case ConvertArgs::FAILURE:
+                return 1;
+            case ConvertArgs::EXIT:
+                return 0;
         }
-        if (consumeNext) i++;
     }
 
     if (!args.verify()) return 1;
 
-    if (args.verbose) {
-        Logger::activeLevel = Logger::Level::DEBUG;
-    }
+    auto start = std::chrono::high_resolution_clock::now();
 
     try {
         switch (args.kind) {
@@ -159,6 +162,12 @@ int runConvertMode(const std::vector<std::string>& tokens) {
         LOG_ERR("std exception: " + std::string(e.what()));
         return 1;
     }
+
+    if (Logger::activeLevel == Logger::Level::INFO) {
+        auto end = std::chrono::high_resolution_clock::now();
+        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
+    }
+
 }
 
 int main(int argc, char** argv) {
@@ -168,21 +177,17 @@ int main(int argc, char** argv) {
     }
     std::string modeToken = argv[1];
 
-    auto start = std::chrono::high_resolution_clock::now();
-
-    int success = 0;
-    if (modeToken == "convert") {
-        success = runConvertMode(std::vector<std::string>(argv + 2, argv + argc));
+    if (modeToken == "-h" || modeToken == "--help") {
+        std::cout << usageText << std::endl;
+        return 0;
+    } else if (modeToken == "convert") {
+        return runConvertMode(std::vector<std::string>(argv + 2, argv + argc));
     } else if (modeToken == "mesh") {
-        success = runMeshMode(std::vector<std::string>(argv + 2, argv + argc));
+        return runMeshMode(std::vector<std::string>(argv + 2, argv + argc));
     } else {
-        success = 1;
         LOG_ERR("Unrecognized mode: " + modeToken);
         std::cerr << usageText << std::endl;
         return 1;
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
-    return success;
 }
