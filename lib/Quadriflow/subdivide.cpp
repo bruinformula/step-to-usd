@@ -498,9 +498,35 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
     E2E.conservativeResize(nF * 3);
     for (int i = 0; i < F.cols(); ++i) {
         for (int j = 0; j < 3; ++j) {
-            auto diff = edge_diff[face_edgeIds[i][j]];
+            auto eid = face_edgeIds[i][j];
+            auto diff = edge_diff[eid];
             if (abs(diff[0]) > 1 || abs(diff[1]) > 1) {
-                printf("wrong init %d %d!\n", face_edgeIds[i][j], i * 3 + j);
+                printf(
+                    "wrong init: face=%d corner=%d eid=%d diff=(%d,%d)\n",
+                    i, j, eid, diff[0], diff[1]);
+            
+                printf(
+                    "F=(%d,%d,%d)\n",
+                    F(0,i), F(1,i), F(2,i));
+            
+                printf(
+                    "face_edgeOrients=(%d,%d,%d)\n",
+                    face_edgeOrients[i][0],
+                    face_edgeOrients[i][1],
+                    face_edgeOrients[i][2]);
+            
+                for (int k = 0; k < 3; ++k) {
+                    int v = F(k,i);
+            
+                    printf(
+                        "  v%d=%d  N=(%.6f, %.6f, %.6f) "
+                        "Q=(%.6f, %.6f, %.6f, %.6f)\n",
+                        k,
+                        v,
+                        N(0,v), N(1,v), N(2,v),
+                        Q(0,v), Q(1,v), Q(2,v), Q(3,v));
+                }
+            
                 exit(0);
             }
         }

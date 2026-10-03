@@ -8,8 +8,8 @@
 
 def CadTessellationOptions "DefaultOptions"
 {
-    double cad:mesh:angularDeflection = 0.1
-    double cad:mesh:linearDeflection = 0.05
+    double cad:mesh:angularDeflection = 0.25
+    double cad:mesh:linearDeflection = 0.25
     bool cad:sketch:combineCurves = 0
     bool cad:wireframe:embedSurfaceNormals = 1
     token cad:wireframe:sampling = "underlying"

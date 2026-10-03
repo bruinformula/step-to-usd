@@ -74,10 +74,7 @@ set(LEMON_INCLUDE_DIRS
     "${LEMON_GENERATED_DIR}"
 )
 
-# ---------------------------------------------------------------------------
 # Quadriflow sources
-# ---------------------------------------------------------------------------
-
 set(
     quadriflow_SRC
     adjacent-matrix.cpp
@@ -134,6 +131,8 @@ if (WITH_CUDA)
     find_package(CUDAToolkit REQUIRED)
     add_definitions(-DWITH_CUDA)
 endif()
+
+add_definitions(-DLOG_OUTPUT)
 
 target_link_libraries(
     quadriflow

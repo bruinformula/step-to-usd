@@ -301,10 +301,11 @@ bool InstantMeshesTessellationRoutine::tessellate(
 
     // Hand it to Quadriflow.
     qflow::Parametrizer field;
-    field.scale = 0.001;
-    field.flag_preserve_sharp = 1;
+    //field.scale = 0.001;
+    //field.average_edge_length = 0.001;
+    //field.flag_preserve_sharp = 1;
     //field.flag_preserve_boundary = 1;
-    field.flag_adaptive_scale = 1;
+    //field.flag_adaptive_scale = 1;
     //field.flag_minimum_cost_flow = 1;
     //field.flag_aggresive_sat = 1;
     //field.hierarchy.rng_seed = 1234;
@@ -319,7 +320,7 @@ bool InstantMeshesTessellationRoutine::tessellate(
 
     try {
         field.NormalizeMesh();
-        field.Initialize(-1);
+        field.Initialize(3000);
 
         qflow::Hierarchy& mRes = field.hierarchy;
 
@@ -327,7 +328,8 @@ bool InstantMeshesTessellationRoutine::tessellate(
         mRes.clearConstraints();
         const size_t constrainable = std::min(rawTangents.size(), (size_t)mRes.mV[0].cols());
         for (size_t i = 0; i < constrainable; ++i) {
-            if (rawTangentWeights[i] <= 0.0) continue;
+            if (rawTangentWeights[i] <= 0.0) 
+                continue;
             mRes.mCQ[0].col((Eigen::Index)i) = rawTangents[i];
             mRes.mCQw[0][(Eigen::Index)i] = rawTangentWeights[i];
         }

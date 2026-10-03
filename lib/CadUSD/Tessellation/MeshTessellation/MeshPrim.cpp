@@ -1,5 +1,6 @@
 #include <string>
 #include <numeric>
+#include <algorithm>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -30,6 +31,14 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+static TfToken boundaryEdgeDistanceName(int slot) {
+    return TfToken("boundaryEdgeDistance" + std::to_string(slot));
+}
+
+static bool anyNonZero(const VtArray<float>& values) {
+    return std::any_of(values.begin(), values.end(), [](float v) { return v != 0.0f; });
+}
+
 bool MeshTessellationRoutine::defineMeshPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -50,6 +59,14 @@ bool MeshTessellationRoutine::defineMeshPrim(
     api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
     api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
     api.CreatePrimvar(TfToken("boundaryTangent"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
+    for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
+        if (!anyNonZero(boundaryEdgeDistances[k])) continue;
+        api.CreatePrimvar(
+            boundaryEdgeDistanceName(k),
+            SdfValueTypeNames->FloatArray,
+            UsdGeomTokens->faceVarying
+        );
+    }
     return true;
 }
 
@@ -105,6 +122,20 @@ bool MeshTessellationRoutine::writeMeshPrim(
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("boundaryTangent")))
             p.Set(boundaryTangents);
     }
+
+    for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
+        if (!anyNonZero(boundaryEdgeDistances[k])) continue;
+
+        if (boundaryEdgeDistances[k].size() != faceVertexIndices.size()) {
+            LOG_ERR("writeMeshGeometry: boundaryEdgeDistance" + std::to_string(k) +
+                    " size mismatch at " + protoPath.GetString());
+            continue;
+        }
+        if (UsdGeomPrimvar p = api.GetPrimvar(boundaryEdgeDistanceName(k))) {
+            p.Set(boundaryEdgeDistances[k]);
+        }
+    }
+
     return true;
 }
 

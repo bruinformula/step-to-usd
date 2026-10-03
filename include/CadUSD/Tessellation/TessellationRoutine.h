@@ -154,16 +154,19 @@ struct MeshTessellationRoutine : public TessellationRoutineInterface {
 
     size_t size() const override;
 
+    static constexpr int kBoundaryEdgeSlots = 6;
 private:
-
+    
     VtArray<GfVec3f> points;
     VtArray<GfVec3f> normals;
     VtArray<int> faceVertexCounts;
     VtArray<int> faceVertexIndices;
-
+    
     VtArray<GfVec2f> perSurfaceUVs;
     VtArray<bool> isBoundaryVertex;
     VtArray<GfVec3f> boundaryTangents;
+    
+    VtArray<float> boundaryEdgeDistances[kBoundaryEdgeSlots];
 
     struct SurfaceIDBounds {
         int startIdx;

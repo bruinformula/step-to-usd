@@ -9,6 +9,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include <TDF_Label.hxx>
 #include <TopLoc_Location.hxx>
@@ -232,6 +233,12 @@ struct TangentAccum {
     int count = 0;
 };
 
+struct BoundarySegment {
+    int a;      // local triangulation node
+    int b;      // local triangulation node
+    int third;  // the node opposite this segment in the one triangle that owns it
+};
+
 // Everything that gets built up in one phase and consumed in a later one,
 // bundled so helper functions don't need a dozen out-parameters apiece.
 struct MeshTessellationContext {
@@ -242,6 +249,9 @@ struct MeshTessellationContext {
     std::unordered_set<TriNodeKey, TriNodeKey::Hash> boundaryKeys;
     std::unordered_set<int> boundaryNodes;
     std::unordered_map<TriNodeKey, TriNodeKey, TriNodeKey::Hash> nodeAlias;
+    std::unordered_set<uint64_t> boundaryTriEdges;
+    std::vector<BoundarySegment> boundarySegments;
+    std::unordered_map<int, std::vector<int>> boundaryNodeSegments;
 
     std::vector<DeferredCurve> deferredCurves;
     
@@ -444,7 +454,7 @@ void MeshTessellationRoutine::buildEdgeWalk(
                 TriNodeKey resolvedOther = resolveAlias(ctx.nodeAlias, otherKey);
                 ctx.boundaryKeys.insert(resolvedOther);
 
-                // Alias the other face's node to the canonical representative
+                // Alias the other face's node to canonical 
                 // so that the face loop emits a single shared vertex for both.
                 if (resolvedOther != resolvedCanon) {
                     ctx.nodeAlias[resolvedOther] = resolvedCanon;
@@ -510,6 +520,173 @@ void MeshTessellationRoutine::countTrianglesAndNodes(const TopoDS_Shape& defShap
         if (tri.IsNull()) continue;
         totalTris += tri->NbTriangles();
         totalNodes += tri->NbNodes();
+    }
+}
+
+static uint64_t triangleEdgeKey(int a, int b) {
+    const uint32_t lo = static_cast<uint32_t>(std::min(a, b));
+    const uint32_t hi = static_cast<uint32_t>(std::max(a, b));
+    return (static_cast<uint64_t>(lo) << 32) | hi;
+}
+
+static void collectBoundarySegments(
+    const TopoDS_Face& face,
+    const occt::handle<Poly_Triangulation>& tri,
+    const TopLoc_Location& loc,
+    MeshTessellationContext& ctx
+) {
+    ctx.boundarySegments.clear();
+    ctx.boundaryNodeSegments.clear();
+
+    // Triangle edges that lie on a B-rep edge
+    std::unordered_set<uint64_t> boundary;
+    for (TopExp_Explorer edgeExp(face, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
+        if (BRep_Tool::Degenerated(edge)) continue;
+        if (BRep_Tool::IsClosed(edge, face)) continue;
+
+        occt::handle<Poly_PolygonOnTriangulation> poly = BRep_Tool::PolygonOnTriangulation(edge, tri, loc);
+        if (poly.IsNull()) continue;
+
+        for (int k = 1; k < poly->NbNodes(); ++k) {
+            boundary.insert(triangleEdgeKey(poly->Node(k), poly->Node(k + 1)));
+        }
+    }
+    if (boundary.empty()) return;
+
+    // Find the triangle that owns each boundary edge, to learn which side the
+    // face interior is on.
+    std::unordered_set<uint64_t> seen;
+    for (int t = 1; t <= tri->NbTriangles(); ++t) {
+        int n[3];
+        tri->Triangle(t).Get(n[0], n[1], n[2]);
+        for (int k = 0; k < 3; ++k) {
+            const int a = n[k];
+            const int b = n[(k + 1) % 3];
+            const uint64_t key = triangleEdgeKey(a, b);
+            if (boundary.count(key) == 0) continue;
+            if (!seen.insert(key).second) continue;
+
+            const int idx = static_cast<int>(ctx.boundarySegments.size());
+            ctx.boundarySegments.push_back({a, b, n[(k + 2) % 3]});
+            ctx.boundaryNodeSegments[a].push_back(idx);
+            ctx.boundaryNodeSegments[b].push_back(idx);
+        }
+    }
+}
+
+// Unit vector in the plane with normal tn, perpendicular to segment a-b and
+// pointing toward pThird, which is a point on the face interior side.
+static bool segmentInward(
+    const gp_Pnt& pa, 
+    const gp_Pnt& pb, 
+    const gp_Pnt& pThird,
+    const gp_Vec& tn, 
+    gp_Vec& inward
+) {
+    gp_Vec d(pa, pb);
+    d.Subtract(tn.Multiplied(d.Dot(tn)));       // project into the plane
+    if (d.Magnitude() < 1e-12) return false;
+
+    inward = tn.Crossed(d);
+    const double m = inward.Magnitude();
+    if (m < 1e-12) return false;
+    inward.Divide(m);
+
+    if (inward.Dot(gp_Vec(pa, pThird)) < 0.0) 
+        inward.Reverse();
+    return true;
+}
+
+// Bakes one signed distance field per slot laid out as values[slot][corner]. 
+// The field is the in-plane distance to the line of a boundary segment, 
+// positive on the face side. Unused slots stay 0.
+static void bakeBoundaryEdges(
+    const MeshTessellationContext& ctx,
+    const occt::handle<Poly_Triangulation>& tri,
+    const gp_Trsf& trsf,
+    const int cornerNodes[3],
+    float values[MeshTessellationRoutine::kBoundaryEdgeSlots][3]
+) {
+    constexpr int kSlots = MeshTessellationRoutine::kBoundaryEdgeSlots;
+    // How far the extension of an incident edge may run into the face, as a sine
+    constexpr double kMaxReflexSin = 0.35;  // ~20 degrees
+
+    for (int k = 0; k < kSlots; ++k)
+        for (int c = 0; c < 3; ++c) values[k][c] = 0.0f;
+
+    if (ctx.boundarySegments.empty()) return;
+
+    auto position = [&](int node) { 
+        return tri->Node(node).Transformed(trsf); 
+    };
+
+    auto isCorner = [&](int node) {
+        return node == cornerNodes[0] || node == cornerNodes[1] || node == cornerNodes[2];
+    };
+
+    gp_Pnt corner[3];
+    for (int c = 0; c < 3; ++c) corner[c] = position(cornerNodes[c]);
+
+    gp_Vec tn = gp_Vec(corner[0], corner[1]).Crossed(gp_Vec(corner[0], corner[2]));
+    const double tnMag = tn.Magnitude();
+    if (tnMag < 1e-18) return;
+    tn.Divide(tnMag);
+
+    // Candidates: own edges first so they always get a slot, then edges that
+    // only touch a corner.
+    std::vector<int> candidates;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int c = 0; c < 3; ++c) {
+            auto it = ctx.boundaryNodeSegments.find(cornerNodes[c]);
+            if (it == ctx.boundaryNodeSegments.end()) continue;
+            for (int idx : it->second) {
+                const BoundarySegment& s = ctx.boundarySegments[idx];
+                const bool own = isCorner(s.a) && isCorner(s.b);
+                if ((pass == 0) != own) continue;
+                if (std::find(candidates.begin(), candidates.end(), idx) == candidates.end())
+                    candidates.push_back(idx);
+            }
+        }
+    }
+
+    int count = 0;
+    for (int idx : candidates) {
+        if (count == kSlots) break;
+
+        const BoundarySegment& s = ctx.boundarySegments[idx];
+        const gp_Pnt pa = position(s.a);
+        gp_Vec inward;
+        if (!segmentInward(pa, position(s.b), position(s.third), tn, inward)) continue;
+
+        const bool own = isCorner(s.a) && isCorner(s.b);
+        if (!own) {
+            // Exactly one endpoint is a corner. Extending the segment's line past
+            // that vertex only makes sense if the extension stays out of the face.
+            const int shared = isCorner(s.a) ? s.a : s.b;
+            const int other  = (shared == s.a) ? s.b : s.a;
+
+            const std::vector<int>& atVertex = ctx.boundaryNodeSegments.at(shared);
+            if (atVertex.size() == 2) {
+                const BoundarySegment& s2 = ctx.boundarySegments[atVertex[0] == idx ? atVertex[1] : atVertex[0]];
+
+                gp_Vec inward2;
+                gp_Vec ext(position(other), position(shared));
+                ext.Subtract(tn.Multiplied(ext.Dot(tn)));
+                const double extMag = ext.Magnitude();
+
+                if (extMag > 1e-12 &&
+                    segmentInward(position(s2.a), position(s2.b), position(s2.third), tn, inward2)) {
+                    ext.Divide(extMag);
+                    if (inward2.Dot(ext) > kMaxReflexSin) continue;  // sharp reflex vertex
+                }
+            }
+        }
+
+        for (int c = 0; c < 3; ++c) {
+            values[count][c] = static_cast<float>(inward.Dot(gp_Vec(pa, corner[c])));
+        }
+        ++count;
     }
 }
 
@@ -579,6 +756,20 @@ void MeshTessellationRoutine::emitFaceTriangles(
         faceVertexIndices.push_back(i1);
         faceVertexIndices.push_back(i2);
         faceVertexIndices.push_back(i3);
+
+        // Boundary edge distances, faceVarying, in the same corner order as
+        // the indices pushed above. Slot k is triangle edge (v[k], v[k+1]);
+        {
+            const int cornerNodes[3] = {n1, n2, n3};
+            float baked[kBoundaryEdgeSlots][3];
+            bakeBoundaryEdges(ctx, tri, trsf, cornerNodes, baked);
+
+            for (int c = 0; c < 3; ++c) {
+                for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
+                    boundaryEdgeDistances[k].push_back(baked[k][c]);
+                }
+            }
+        }
 
         for (int localIdx : {n1, n2, n3}) {
             GfVec3f normal(0.0f, 0.0f, 1.0f);
@@ -672,6 +863,7 @@ void MeshTessellationRoutine::tessellateFaces(
 
         float bbox[6];
         weldFaceNodes(tri, trsf, ctx, bbox);
+        collectBoundarySegments(face, tri, loc, ctx);
 
         bool reversed = (face.Orientation() == TopAbs_REVERSED);
 
@@ -890,6 +1082,12 @@ void MeshTessellationRoutine::applyUnitScale(const TessParams& params) {
     };
     scalePoints(points);
     scalePoints(wireframePoints);
+
+    for (VtArray<float>& slot : boundaryEdgeDistances) {
+        for (float& v : slot) {
+            v *= s;
+        }
+    }
 }
 
 // A definition is valid if it has mesh geometry OR sketch curves.
@@ -925,6 +1123,10 @@ bool MeshTessellationRoutine::tessellate(
     normals.reserve(totalTris * 3);
     ctx.uvPatches.reserve(ctx.faceMap.Extent());
     surfaceIDBounds.reserve(ctx.faceMap.Extent());
+
+    for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
+        boundaryEdgeDistances[k].reserve(totalTris * 3);
+    }
 
     // weld positions, emit faceVarying normals.
     tessellateFaces(defShape, ctx);
