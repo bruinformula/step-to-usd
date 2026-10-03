@@ -19,6 +19,7 @@ The short version: start with BRep (STEP), turn it into a mesh, then package it 
 
 ```
 $ vroom -h
+    ...
     vroom -- Meshes all CadContainer prims in a Usd scene
     Options: 
         -i, --inputUsdFile <path>        Path to the input Usd file. 

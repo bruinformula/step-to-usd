@@ -1,6 +1,5 @@
 
 #include <chrono>
-#include <exception>
 #include <limits>
 #include <string>
 

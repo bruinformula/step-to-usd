@@ -1,6 +1,7 @@
+#ifdef WITH_QUADRIFLOW
+
 #include <pxr/base/vt/value.h>
 #include <string>
-#include <numeric>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -27,16 +28,12 @@
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
 
-
 #pragma pop_macro("Handle")
 
 #include "CadUSD/Logger.h"
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 
-
 PXR_NAMESPACE_USING_DIRECTIVE
-
-#ifdef WITH_QUADRIFLOW
 
 bool InstantMeshesTessellationRoutine::definePrim(
     UsdStageRefPtr stage,

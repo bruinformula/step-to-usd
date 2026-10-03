@@ -1,13 +1,8 @@
 
 #include <iostream>
 #include <unordered_set>
-#include <unordered_map>
-#include <vector>
-#include <chrono>
 #include <filesystem>
 #include <string>
-#include <optional>
-#include <utility>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -28,11 +23,6 @@
 
 #pragma pop_macro("Handle")
 
-#include "cadContainerAPI.h"
-#include "cadContainer.h"
-
-#include "CadUSD/CadUsdPipeline.h"
-#include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/Logger.h"
 
 #include "mesh.h"

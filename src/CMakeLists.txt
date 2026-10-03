@@ -1,32 +1,18 @@
 find_package(pxr REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 
-# frack
-add_executable(frack "${CMAKE_CURRENT_SOURCE_DIR}/frack.cpp")
-target_link_libraries(frack PRIVATE CadUSD)
-
-target_include_directories(frack
-    PUBLIC "${CMAKE_SOURCE_DIR}/include"
-)
-
-install(TARGETS frack
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-)
-
-# frick 
-add_executable(frick 
-    "${CMAKE_CURRENT_SOURCE_DIR}/frick.cpp"
+# vroom 
+add_executable(vroom 
+    "${CMAKE_CURRENT_SOURCE_DIR}/vroom.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/convert.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp" 
 )
-target_link_libraries(frick PRIVATE CadUSD)
+target_link_libraries(vroom PRIVATE CadUSD)
 
-target_include_directories(frick
+target_include_directories(vroom
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
 )
-install(TARGETS frick
+install(TARGETS vroom
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib

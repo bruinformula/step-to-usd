@@ -1,14 +1,9 @@
 #pragma once
 
 #include <cassert>
-#include <algorithm>
 #include <cctype>
-#include <chrono>
-#include <exception>
 #include <filesystem>
-#include <iostream>
 #include <vector>
-#include <optional>
 
 #include <BinXCAFDrivers.hxx>
 #include <STEPCAFControl_Reader.hxx>
@@ -30,10 +25,6 @@
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
-
-#include "CadUSD/OpenCascadeAssembly.h"
-#include "CadUSD/Logger.h"
-#include "CadUSD/UsdUtils.h"
 
 namespace fs = std::filesystem;
 

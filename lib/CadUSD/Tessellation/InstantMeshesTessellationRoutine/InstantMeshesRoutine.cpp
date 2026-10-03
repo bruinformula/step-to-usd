@@ -1,3 +1,4 @@
+#ifdef WITH_QUADRIFLOW
 
 #include <algorithm>
 #include <string>
@@ -46,7 +47,6 @@
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 #include "CadUSD/Tessellation/TessellationUtils.h"
 
-#ifdef WITH_QUADRIFLOW
 
 #include "Quadriflow/hierarchy.hpp"
 #include "Quadriflow/optimizer.hpp"

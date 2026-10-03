@@ -1,9 +1,7 @@
 #include <cassert>
-#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <exception>
-#include <filesystem>
 #include <iostream>
 #include <vector>
 #include <optional>
@@ -39,16 +37,14 @@
 #include "convert.h"
 #include "mesh.h"
 
-#include "CadUSD/OpenCascadeAssembly.h"
-#include "CadUSD/Logger.h"
-#include "CadUSD/UsdUtils.h"
+#include "cadContainerAPI.h"
 
-namespace occt = opencascade;
-namespace fs = std::filesystem;
+#include "CadUSD/CadUsdPipeline.h"
+#include "CadUSD/Logger.h"
 
 const std::string usageText =
-    " frick -- CAD data io utility\n"
-    " usage: frick convert -i <input> [-o <output>] [-p <prim>] [-v]\n"
+    " vroom -- CAD data io and meshing utility\n"
+    " usage: vroom convert -i <input> [-o <output>] [-p <prim>] [-v]\n"
     "\n"
     " The following conversions are supported:\n"
     "    .step, .stp   STEP -> XBF\n"
@@ -68,11 +64,18 @@ const std::string usageText =
     "    -v, --verbose            Enable debug logging.\n"
     "\n"
     " examples:\n"
-    "    frick convert -i part.step\n"
-    "    frick convert -i part.brep -o part.xbf\n"
-    "    frick convert -i assem.xbf\n"
-    "    frick convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n";
-
+    "    vroom convert -i part.step\n"
+    "    vroom convert -i part.brep -o part.xbf\n"
+    "    vroom convert -i assem.xbf\n"
+    "    vroom convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n"
+    " usage: vroom mesh -i <path> [options] \n"
+    " Meshes all CadContainer prims in a Usd scene\n"
+    " Options: \n"
+    "    -i, --input <path>               Path to the input Usd file. \n"
+    "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
+    "    -q, --quiet                      Suppress all output.\n"
+    "    -v, --verbose                    Prints like everything.\n"
+    "    -h, --help                       Prints this message.\n\n";
 int runMeshMode(const std::vector<std::string>& tokens) {
     CadUsdTesselateArgs args;
     for (size_t i = 0; i < tokens.size(); i++) {
