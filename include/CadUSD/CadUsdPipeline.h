@@ -119,12 +119,6 @@ private:
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
     );
 
-    bool populateParamsBank(
-        const PrototypeContainer& proto,
-        const TessParams& variantLevelParams,
-        std::map<SdfPath, TessParams>& paramsBank
-    );
-
     bool populateTessellationJobs(
         const std::vector<PrototypeContainer>& prototypes,
         std::vector<TessellationJob>& tessJobs

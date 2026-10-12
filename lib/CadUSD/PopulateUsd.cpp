@@ -89,6 +89,8 @@ static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMeters
     return std::abs(stageMetersPerUnit - expectedMetersPerUnit) > kUnitTolerance;
 }
 
+// Determine wheather a candidate prim 
+// has been selected by to be tesselated
 bool CadUsdPipeline::isPrototypeActiveInFilter(
     const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
     const SdfPath& protoPath,
@@ -99,19 +101,17 @@ bool CadUsdPipeline::isPrototypeActiveInFilter(
         return true;
 
     // Resolve the fully qualified prototypes path for the current container variant permutation
-    SdfPath basePrototypesKey = pathConfig.containerPrimPath.AppendChild(TfToken("Prototypes"));
     SdfPath prototypesKey;
-
     if (variantSetName.empty()) {
-        prototypesKey = basePrototypesKey;
+        prototypesKey = pathConfig.containerPrimPath;
     } else {
-        prototypesKey = basePrototypesKey.AppendVariantSelection(variantSetName, variantName);
+        prototypesKey = pathConfig.containerPrimPath.AppendVariantSelection(variantSetName, variantName);
     }
 
     // Project protoPath onto this container
     SdfPath absoluteProtoPath;
-    if (protoPath.HasPrefix(basePrototypesKey)) {
-        absoluteProtoPath = protoPath.ReplacePrefix(basePrototypesKey, prototypesKey);
+    if (protoPath.HasPrefix(pathConfig.containerPrimPath)) {
+        absoluteProtoPath = protoPath.ReplacePrefix(pathConfig.containerPrimPath, prototypesKey);
     } else {
         absoluteProtoPath = protoPath.ReplacePrefix(
             SdfPath::AbsoluteRootPath().AppendChild(TfToken("Prototypes")),
@@ -535,57 +535,6 @@ bool CadUsdPipeline::populatePrototypeContainers(
     return true;
 }
 
-bool CadUsdPipeline::populateParamsBank(
-    const PrototypeContainer& proto,
-    const TessParams& variantLevelParams,
-    std::map<SdfPath, TessParams>& paramsBank
-) {
-    fs::path containerFilePath = fs::canonical(
-        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
-    );
-
-    UsdStageRefPtr throwawayStage = UsdStage::Open(
-        containerFilePath.string(),
-        UsdStage::LoadAll
-    );
-
-    if (!throwawayStage) {
-        LOG_WARN("Could not open throwaway stage from " + containerFilePath.string()
-                 + ", falling back to variant-level params.");
-        return false;
-    }
-
-    throwawayStage->SetEditTarget(
-        UsdEditTarget(throwawayStage->GetSessionLayer())
-    );
-
-    UsdPrim throwawayContainer = throwawayStage->GetPrimAtPath(pathConfig.containerPrimPath);
-
-    if (!proto.variantSetName.empty() && throwawayContainer.IsValid()) {
-        throwawayContainer.GetVariantSet(proto.variantSetName).SetVariantSelection(proto.variantName);
-    }
-
-    UsdPrim prototypesOnThrowaway = throwawayStage->GetPrimAtPath(pathConfig.prototypesPath);
-
-    if (!prototypesOnThrowaway.IsValid()) {
-        return false;
-    }
-
-    // Just in case the protoypes prims was set active = false 
-    prototypesOnThrowaway.SetActive(true);
-
-    for (const UsdPrim& child : prototypesOnThrowaway.GetAllChildren()) {
-        auto childParams = resolveParams(child, variantLevelParams);
-
-        for (const auto& [throwawayPath, params] : childParams) {
-            paramsBank[throwawayPath] = params;
-        }
-    }
-
-
-    return true;
-}
-
 bool CadUsdPipeline::populateTessellationJobs(
     const std::vector<PrototypeContainer>& prototypes,
     std::vector<TessellationJob>& tessJobs
@@ -599,20 +548,18 @@ bool CadUsdPipeline::populateTessellationJobs(
         }
 
         // We use containerStage to observe any variant opinions authored on the container file
-        UsdPrim protocontainerPrim = containerStage->GetPrimAtPath(pathConfig.prototypesPath);
+        UsdPrim prototypesOnContainerStage = containerStage->GetPrimAtPath(pathConfig.prototypesPath);
 
         TessParams containerParams = getTessParams(containerPrim);
-        TessParams variantLevelParams = getTessParams(protocontainerPrim, containerParams);
+        TessParams variantLevelParams = getTessParams(prototypesOnContainerStage, containerParams);
 
         std::map<SdfPath, TessParams> paramsBank;
-        bool sucess = populateParamsBank(
-            proto,
-            variantLevelParams,
-            paramsBank
-        );
-        
-        if (!sucess) {
-            LOG_WARN("Failed to populate params bank for prototypes [" + proto.stage->GetRootLayer()->GetRealPath() + "].");
+        for (const UsdPrim& child : prototypesOnContainerStage.GetAllChildren()) {
+            auto childParams = resolveParams(child, variantLevelParams);
+    
+            for (const auto& [throwawayPath, params] : childParams) {
+                paramsBank[throwawayPath] = params;
+            }
         }
 
         std::shared_ptr<PrototypeContainer> protoPtr = std::make_shared<PrototypeContainer>(proto);

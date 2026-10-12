@@ -360,7 +360,7 @@ void CadUsdPipeline::writePrototypeGeometries(
             const TessParams& params = jobs[i]->params;
             const TessellationRoutine& routine = *jobs[i]->routine;
 
-            if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
+            if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                 continue;
             }
 
@@ -415,7 +415,7 @@ void CadUsdPipeline::writePrototypeGeometries(
                 const TessParams& params = jobs[i]->params;
                 const TessellationRoutine& routine = *jobs[i]->routine;
 
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
+                if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
                     if (Logger::activeLevel != Logger::DEBUG) {
                         LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
@@ -510,7 +510,7 @@ void CadUsdPipeline::writePrototypeGeometries(
             if (!res.layer) continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i]->protoPath;
-                if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
+                if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     continue; // Skip filtered
                 }
                 if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
@@ -539,8 +539,7 @@ void CadUsdPipeline::writePrototypeGeometries(
         if (!res.layer) continue;
         for (size_t i = res.startIdx; i < res.endIdx; i++) {
             const SdfPath& protoPath = jobs[i]->protoPath;
-            if (!selectedPaths.empty() &&
-                !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
+            if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                 continue;
             }
 
