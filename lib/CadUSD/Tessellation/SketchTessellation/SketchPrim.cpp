@@ -34,7 +34,6 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 bool SketchTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
-    std::cout << "as;dlfkjas;dlfkjasdf" << std::endl;
     SdfPath sketchPath = partPath.AppendChild(TfToken("Sketch"));
     SdfPath sketchPlanesPath = partPath.AppendChild(TfToken("SketchPlanes"));
 

@@ -56,6 +56,7 @@ struct CadUsdPipeline {
         SdfPath containerPrimPath;
         SdfPath assemblyPath;
         SdfPath prototypesPath;
+        SdfPath partPath;
     };
 
     static std::optional<CadUsdPipeline> create(
@@ -63,7 +64,7 @@ struct CadUsdPipeline {
     );
 
     void populateUsd(
-        UsdPrim& containerPrim,
+        const SdfPath& containerPrimPath,
         const std::unordered_set<SdfPath, SdfPath::Hash> selectedInContainerPaths
     );
 
@@ -73,7 +74,9 @@ struct CadUsdPipeline {
     ) : containerStage(std::move(cs)), modelCache(std::move(mc)) {}
 
     PathConfig pathConfig;
-    UsdStageRefPtr containerStage;
+    UsdStageRefPtr containerStage; // this is the original stage given in the initialization
+    UsdStageRefPtr scratchStage; // This contains all of the temp writes for variants and such
+
     std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> modelCache;
     TessellationRoutine partRoutine;
 
@@ -84,7 +87,6 @@ private:
         TessParams params;
         TessellationRoutine routine;
     };
-
 
     const OpenCascadeAssembly& getModelForProto(const PrototypeContainer& proto) const;
 
@@ -106,8 +108,6 @@ private:
     );
 
     bool populatePrototypeContainers(
-        const UsdPrim& containerPrim,
-        const UsdStageRefPtr& containerStage,
         const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
         const std::unordered_set<SdfPath, SdfPath::Hash>& containerVariantPaths,
         double outputMetersPerUnit,
@@ -116,14 +116,10 @@ private:
 
     bool buildPrototypeStages(
         std::vector<PrototypeContainer>& prototypes,
-        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-        const UsdStageRefPtr& containerStage,
-        const UsdPrim& containerPrim
+        const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths
     );
 
     bool populateParamsBank(
-        const UsdStageRefPtr& containerStage,
-        const UsdPrim& containerPrim,
         const PrototypeContainer& proto,
         const TessParams& variantLevelParams,
         std::map<SdfPath, TessParams>& paramsBank
@@ -131,15 +127,11 @@ private:
 
     bool populateTessellationJobs(
         const std::vector<PrototypeContainer>& prototypes,
-        const UsdStageRefPtr& containerStage,
-        const UsdPrim& containerPrim,
         std::vector<TessellationJob>& tessJobs
     );
     
     void writePartClass(
-        UsdStageRefPtr prototypesStage,
-        const UsdPrim& prototypesPrimOnContainerStage,
-        const SdfPath& partClassPath
+        UsdStageRefPtr prototypesStage
     );
     
     void writePrototypeXforms(

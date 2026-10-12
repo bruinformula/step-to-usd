@@ -2,6 +2,7 @@
 
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Edge.hxx>
+#include <pxr/base/tf/token.h>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -383,7 +384,7 @@ private:
 
 };
 
-struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {
+struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {  
     TessParams params;
 
     bool writePartMember(UsdStageRefPtr stage,

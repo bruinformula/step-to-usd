@@ -67,14 +67,13 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 // Write CAD pat
 void CadUsdPipeline::writePartClass(
-    UsdStageRefPtr prototypesStage,
-    const UsdPrim& prototypesPrimOnContainerStage,
-    const SdfPath& partPath
+    UsdStageRefPtr prototypesStage
 ) {
+    const UsdPrim& prototypesPrimOnContainerStage = containerStage->GetPrimAtPath(pathConfig.prototypesPath);
     std::optional<SdfReference> defaultParamsRef = CadUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
     fs::path containerStagePath = fs::canonical(
-        prototypesPrimOnContainerStage.GetStage()->GetRootLayer()->GetResolvedPath().GetPathString()
+        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
     );
     fs::path prototypesStagePath = fs::canonical(
         prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString()
@@ -82,14 +81,13 @@ void CadUsdPipeline::writePartClass(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    SdfPath resolvedPartPath = this->pathConfig.containerPrimPath.AppendChild(partPath.GetNameToken());
-    UsdPrim partPrim = prototypesStage->CreateClassPrim(resolvedPartPath);
+    UsdPrim partPrim = prototypesStage->CreateClassPrim(pathConfig.partPath);
 
-    prototypesStage->GetPrimAtPath(this->pathConfig.containerPrimPath).SetSpecifier(SdfSpecifierOver);
+    prototypesStage->GetPrimAtPath(pathConfig.containerPrimPath).SetSpecifier(SdfSpecifierOver);
 
     UsdGeomImageable(partPrim).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
-    partRoutine.writePartMember(prototypesStage, resolvedPartPath);
+    partRoutine.writePartMember(prototypesStage, pathConfig.partPath);
     
     if (defaultParamsRef.has_value()) {
         partPrim.GetPrim().GetReferences().AddReference(
@@ -118,9 +116,8 @@ void CadUsdPipeline::writePrototypeXforms(
     std::optional<SdfReference> defaultParamsRef;
     fs::path relativePath;
 
-    UsdGeomXform::Define(proto.stage, this->pathConfig.containerPrimPath);
+    UsdGeomXform::Define(proto.stage, pathConfig.containerPrimPath);
     
-    SdfPath partPath = this->pathConfig.containerPrimPath.AppendChild(TfToken("Part"));
     const LabelMap<std::string>& definitionNames = proto.model->definitionNames;
     const LabelMap<std::string>& definitionLabelSuffixes = proto.model->definitionLabelSuffixes;
 
@@ -147,7 +144,7 @@ void CadUsdPipeline::writePrototypeXforms(
             rawName = "__" + suffix;
         }
 
-        SdfPath protoPath = this->pathConfig.prototypesPath.AppendChild(TfToken(rawName));
+        SdfPath protoPath = pathConfig.prototypesPath.AppendChild(TfToken(rawName));
 
         if (!proto.makeFreshStage && proto.stage->GetPrimAtPath(protoPath).IsValid()) {
             protoPaths[defLabel] = protoPath;
@@ -163,11 +160,7 @@ void CadUsdPipeline::writePrototypeXforms(
 
         if (!proto.makeFreshStage && protoPrim.IsValid()) {
             completed++;
-            if (Logger::activeLevel == Logger::DEBUG) {
-                //LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip existing prototype: " + protoPath.GetString());
-            } else {
-                LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
-            }
+            LOG_PROGRESS(completed, total, "Writing Prototype Prims " + logLabel);
             continue;
         }
 
@@ -182,18 +175,14 @@ void CadUsdPipeline::writePrototypeXforms(
             
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName);
-            protoPrim.GetInherits().AddInherit(partPath);
+            protoPrim.GetInherits().AddInherit(pathConfig.partPath);
             
             labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
             labelPrimvar.Set(TfToken(entry.ToCString()));
         }
 
         completed++;
-        if (Logger::activeLevel == Logger::DEBUG) {
-            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing prototype: " + protoPath.GetString());
-        } else {
-            LOG_PROGRESS(completed, total, "Writing prototypes " + logLabel);
-        }
+        LOG_PROGRESS(completed, total, "Writing Prototype Prims " + logLabel);
     }
     LOG_PROGRESS_DONE();
 }
@@ -244,7 +233,7 @@ void CadUsdPipeline::writeAssemblyXforms(
             if (Logger::activeLevel == Logger::DEBUG) {
                 LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
             } else {
-                LOG_PROGRESS(completed, total, "Writing Assembly");
+                LOG_PROGRESS(completed, total, "Writing Assembly Prims");
             }
             continue;
         }
@@ -276,7 +265,7 @@ void CadUsdPipeline::writeAssemblyXforms(
                     if (Logger::activeLevel == Logger::DEBUG) {
                         LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
                     } else {
-                        LOG_PROGRESS(completed, total, "Writing Assembly");
+                        LOG_PROGRESS(completed, total, "Writing Assembly Prims");
                     }
                     continue;
                 }
@@ -316,9 +305,9 @@ void CadUsdPipeline::writeAssemblyXforms(
         } // SdfChangeBlock
         completed++;
         if (Logger::activeLevel == Logger::DEBUG) {
-            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly: " + paths[i].GetString());
+            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Prims: " + paths[i].GetString());
         } else {
-            LOG_PROGRESS(completed, total, "Writing Assembly");
+            LOG_PROGRESS(completed, total, "Writing Assembly Prims");
         }
     }
     LOG_PROGRESS_DONE();
@@ -429,7 +418,7 @@ void CadUsdPipeline::writePrototypeGeometries(
                 if (!selectedPaths.empty() && !isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     int c = ++completed;
                     if (Logger::activeLevel != Logger::DEBUG) {
-                        LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
+                        LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
                     }
                     continue;
                 }
@@ -453,7 +442,7 @@ void CadUsdPipeline::writePrototypeGeometries(
                 if (!protoXform) {
                     LOG_ERR("writePrototypeGeometries: protoXform invalid at " + writeProtoPath.GetString() + " — define pass was skipped or failed");
                     int c = ++completed;
-                    LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
+                    LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
                     continue;
                 }
 
@@ -461,9 +450,9 @@ void CadUsdPipeline::writePrototypeGeometries(
 
                 int c = ++completed;
                 if (Logger::activeLevel == Logger::DEBUG) {
-                    LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing geometry: " + protoPath.GetString());
+                    LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing Geometry: " + protoPath.GetString());
                 } else {
-                    LOG_PROGRESS(c, total, "Writing geometry" + logLabel);
+                    LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
                 }
             }
         } // SdfChangeBlock

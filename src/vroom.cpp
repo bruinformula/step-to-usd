@@ -109,7 +109,7 @@ int runMeshMode(const std::vector<std::string>& tokens) {
     for (UsdPrim prim : cadPipeline.containerStage->TraverseAll()) {
         if (!prim.HasAPI<AutolibCadContainerAPI>()) continue;
 
-        cadPipeline.populateUsd(prim, args.selectedPaths);
+        cadPipeline.populateUsd(prim.GetPath(), args.selectedPaths);
     }
 
     if (Logger::activeLevel == Logger::Level::INFO) {
