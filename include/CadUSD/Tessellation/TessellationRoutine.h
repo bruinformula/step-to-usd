@@ -96,6 +96,9 @@ struct TessParams {
 struct TessellationRoutineInterface {
     virtual ~TessellationRoutineInterface() = default;
 
+    virtual bool writePartMember(UsdStageRefPtr stage,
+                                 SdfPath& partPath) const = 0;
+
     virtual bool tessellate(
         const TopoDS_Shape& defShape, 
         const TessParams& params,
@@ -118,7 +121,7 @@ struct TessellationRoutineInterface {
         UsdStageRefPtr stage,
         const SdfPath& protoPath
     ) const = 0;
-
+        
     virtual size_t size() const = 0;
 };
 
@@ -129,6 +132,10 @@ struct MeshTessellationContext;
 struct MeshTessellationRoutine : public TessellationRoutineInterface {
     TessParams params;
 
+    bool writePartMember(UsdStageRefPtr stage,
+                         SdfPath& partPath) const override;
+
+    
     bool tessellate(
         const TopoDS_Shape& defShape, 
         const TessParams& params,
@@ -273,6 +280,9 @@ struct SketchTessellationContext;
 
 struct SketchTessellationRoutine : public TessellationRoutineInterface {
     TessParams params;
+
+    bool writePartMember(UsdStageRefPtr stage,
+                         SdfPath& partPath) const override;
     
     bool tessellate(
         const TopoDS_Shape& defShape, 
@@ -376,6 +386,9 @@ private:
 struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {
     TessParams params;
 
+    bool writePartMember(UsdStageRefPtr stage,
+                         SdfPath& partPath) const override;
+    
     bool tessellate(
         const TopoDS_Shape& defShape, 
         const TessParams& params,
@@ -413,6 +426,10 @@ private:
 };
 
 struct TessellationRoutine : public TessellationRoutineInterface {
+
+    bool writePartMember(UsdStageRefPtr stage,
+                         SdfPath& partPath) const override;
+  
     bool tessellate(
         const TopoDS_Shape& defShape, 
         const TessParams& params,

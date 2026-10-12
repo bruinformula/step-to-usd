@@ -39,6 +39,19 @@ static bool anyNonZero(const VtArray<float>& values) {
     return std::any_of(values.begin(), values.end(), [](float v) { return v != 0.0f; });
 }
 
+bool MeshTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
+    SdfPath meshPath = partPath.AppendChild(TfToken("Mesh"));
+    SdfPath wireframePath = partPath.AppendChild(TfToken("Wireframe"));
+
+    UsdPrim meshChild = stage->OverridePrim(meshPath);
+    UsdGeomImageable(meshChild).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    UsdPrim wireframeChild = stage->OverridePrim(wireframePath);
+    UsdGeomImageable(wireframeChild).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
+
+    return true;
+}
+
 bool MeshTessellationRoutine::defineMeshPrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,

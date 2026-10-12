@@ -75,14 +75,16 @@ struct CadUsdPipeline {
     PathConfig pathConfig;
     UsdStageRefPtr containerStage;
     std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> modelCache;
+    TessellationRoutine partRoutine;
 
 private:
-
+ 
     struct ProtoGeomJob {
         SdfPath protoPath;
         TessParams params;
         TessellationRoutine routine;
     };
+
 
     const OpenCascadeAssembly& getModelForProto(const PrototypeContainer& proto) const;
 

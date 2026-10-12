@@ -82,23 +82,14 @@ void CadUsdPipeline::writePartClass(
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
-    SdfPath realPartClassPath = this->pathConfig.containerPrimPath.AppendChild(partPath.GetNameToken());
-    UsdPrim partPrim = prototypesStage->CreateClassPrim(realPartClassPath);
+    SdfPath resolvedPartPath = this->pathConfig.containerPrimPath.AppendChild(partPath.GetNameToken());
+    UsdPrim partPrim = prototypesStage->CreateClassPrim(resolvedPartPath);
 
     prototypesStage->GetPrimAtPath(this->pathConfig.containerPrimPath).SetSpecifier(SdfSpecifierOver);
 
     UsdGeomImageable(partPrim).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
-    auto makeClassChild = [&](const char* name) {
-        SdfPath childPath = realPartClassPath.AppendChild(TfToken(name));
-        UsdPrim child = prototypesStage->OverridePrim(childPath);
-        UsdGeomImageable(child).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
-    };
-
-    makeClassChild("Mesh");
-    makeClassChild("Wireframe");
-    makeClassChild("Sketch");
-    makeClassChild("SketchPlanes");
+    partRoutine.writePartMember(prototypesStage, resolvedPartPath);
     
     if (defaultParamsRef.has_value()) {
         partPrim.GetPrim().GetReferences().AddReference(

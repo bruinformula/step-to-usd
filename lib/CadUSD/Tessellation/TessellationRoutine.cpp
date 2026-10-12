@@ -209,6 +209,13 @@ bool TessellationRoutine::tessellate(
     return instSuccess && meshSuccess && sketchSuccess;
 }
 
+bool TessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath &partPath) const {
+    bool sketchSuccess = sketchRoutine.writePartMember(stage, partPath);
+    bool meshSuccess = meshRoutine.writePartMember(stage, partPath);
+
+    return meshSuccess && sketchSuccess;
+}
+
 bool TessellationRoutine::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,

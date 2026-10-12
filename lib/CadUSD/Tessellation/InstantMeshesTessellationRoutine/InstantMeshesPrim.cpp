@@ -35,6 +35,16 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+bool InstantMeshesTessellationRountine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
+    SdfPath pointsPath = partPath.AppendChild(TfToken("Points"));
+    SdfPath instantMeshesPath = partPath.AppendChild(TfToken("InstantMesh"));
+
+    stage->DefinePrim(pointsPath);
+    stage->DefinePrim(instantMeshesPath);
+
+    return true;
+}
+
 bool InstantMeshesTessellationRoutine::definePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
