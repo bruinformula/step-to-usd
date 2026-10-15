@@ -41,14 +41,6 @@ template <typename T>
 void updateIfAuthored(const UsdAttribute& attr,
                       T* value);
 
-template <>
-void updateIfAuthored<TessParams::CurveType>(const UsdAttribute& attr,
-                                             TessParams::CurveType* value);
-
-template <>
-void updateIfAuthored<TessParams::CurveSampling>(const UsdAttribute& attr,
-                                                 TessParams::CurveSampling* value);
-
 extern template void updateIfAuthored<float>(const UsdAttribute&,
                                              float*);
 extern template void updateIfAuthored<double>(const UsdAttribute&,
@@ -59,5 +51,7 @@ extern template void updateIfAuthored<uint64_t>(const UsdAttribute&,
                                                 uint64_t*);
 extern template void updateIfAuthored<bool>(const UsdAttribute&,
                                             bool*);
+extern template void updateIfAuthored<TfToken>(const UsdAttribute&,
+                                            TfToken*);
 
 } // namespace CadUSD

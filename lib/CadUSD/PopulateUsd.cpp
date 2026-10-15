@@ -735,6 +735,7 @@ std::optional<CadUsdPipeline> CadUsdPipeline::create(const fs::path& inputUsdFil
 
         AutolibCadContainer container(prim);
         if (!container.GetCadSourceAssetAttr().HasAuthoredValue())
+            LOG_WARN("Skipping prim " + prim.GetPath().GetAsString());
             return;
 
         UsdAttribute sourceAttr = container.GetCadSourceAssetAttr();

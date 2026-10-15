@@ -55,15 +55,15 @@ bool SketchTessellationRoutine::defineSketchPrim(UsdStageRefPtr stage,
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
     UsdGeomScope::Define(stage, sketchPath);
 
-    if (params.sketchPointLimit <= 0) {
+    if (sketch.pointLimit <= 0) {
         LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " +
-                std::to_string(params.sketchPointLimit) + ", must be > 0.");
+                std::to_string(sketch.pointLimit) + ", must be > 0.");
         return false;
     }
 
-    uint64_t numSubCurves = (sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+    uint64_t numSubCurves = (sketchPoints.size() + sketch.pointLimit - 1) / sketch.pointLimit;
 
-    if (params.sketchCombineCurves && numSubCurves == 1) {
+    if (sketch.combineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, sketchPath.AppendChild(TfToken("Curves")));
         if (!sketchArcValues.empty()) {
             UsdGeomPrimvarsAPI(curves).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray,
@@ -71,7 +71,7 @@ bool SketchTessellationRoutine::defineSketchPrim(UsdStageRefPtr stage,
         }
     } else {
         std::vector<CurveChunk> chunks =
-            computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+            computeCurveChunks(sketchCounts, sketch.pointLimit, sketch.combineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves sketchCurve =
@@ -91,15 +91,15 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
                                                 const TessParams& params) const {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
 
-    if (params.sketchPointLimit <= 0) {
+    if (sketch.pointLimit <= 0) {
         LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " +
-                std::to_string(params.sketchPointLimit) + ", must be > 0.");
+                std::to_string(sketch.pointLimit) + ", must be > 0.");
         return false;
     }
 
-    uint64_t numSubCurves = (sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
+    uint64_t numSubCurves = (sketchPoints.size() + sketch.pointLimit - 1) / sketch.pointLimit;
 
-    if (params.sketchCombineCurves && numSubCurves == 1) {
+    if (sketch.combineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curves"))));
 
         if (!sketchCurve) {
@@ -107,7 +107,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
             return false;
         }
 
-        if (params.sketchMode.type == TessParams::CurveType::Cubic) {
+        if (sketch.type == AutolibTokens->cubic) {
             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
@@ -143,7 +143,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
         std::vector<CurveChunk> chunks =
-            computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+            computeCurveChunks(sketchCounts, sketch.pointLimit, sketch.combineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             const CurveChunk& chunk = chunks[ci];
@@ -155,7 +155,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
                 continue;
             }
 
-            if (params.sketchMode.type == TessParams::CurveType::Cubic) {
+            if (sketch.type == AutolibTokens->cubic) {
                 sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {

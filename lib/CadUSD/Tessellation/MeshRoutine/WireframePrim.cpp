@@ -43,27 +43,27 @@ bool MeshTessellationRoutine::defineWireframePrim(UsdStageRefPtr stage,
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
     UsdGeomXform::Define(stage, wireframePath);
 
-    if (params.wireframePointLimit <= 0) {
+    if (wireframe.pointLimit <= 0) {
         LOG_ERR("Prim: " + protoPath.GetString() +
                 ": MeshTessellationRoutine::defineWireframePrim: invalid wireframePointLimit " +
-                std::to_string(params.wireframePointLimit) + ", must be > 0.");
+                std::to_string(wireframe.pointLimit) + ", must be > 0.");
         return false;
     }
 
-    uint64_t numSubCurves = (wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+    uint64_t numSubCurves = (wireframePoints.size() + wireframe.pointLimit - 1) / wireframe.pointLimit;
 
-    if (params.wireframeCombineCurves && numSubCurves == 1) {
+    if (wireframe.combineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(stage, wireframePath.AppendChild(TfToken("Curves")));
         if (!wireframeContinuity.empty()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray,
                                                     UsdGeomTokens->uniform);
         }
-        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
+        if (wireframe.embedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
             UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray,
                                                     UsdGeomTokens->vertex);
         }
 
-        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
+        if (wireframe.embedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
             LOG_DEBUG("MeshTessellationRoutine::defineWireframePrim: Created surfaceNormal primvar for wireframe");
         }
         if (wireframeArcValues.size() == wireframePoints.size()) {
@@ -72,7 +72,7 @@ bool MeshTessellationRoutine::defineWireframePrim(UsdStageRefPtr stage,
         }
     } else {
         std::vector<CurveChunk> chunks =
-            computeCurveChunks(wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
+            computeCurveChunks(wireframeCounts, wireframe.pointLimit, wireframe.combineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             UsdGeomBasisCurves curve = UsdGeomBasisCurves::Define(
@@ -82,7 +82,7 @@ bool MeshTessellationRoutine::defineWireframePrim(UsdStageRefPtr stage,
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("continuityType"), SdfValueTypeNames->IntArray,
                                                         UsdGeomTokens->uniform);
             }
-            if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
+            if (wireframe.embedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size()) {
                 UsdGeomPrimvarsAPI(curve).CreatePrimvar(TfToken("surfaceNormal"), SdfValueTypeNames->Normal3fArray,
                                                         UsdGeomTokens->vertex);
             }
@@ -100,16 +100,16 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
                                                  const TessParams& params) const {
     SdfPath wireframePath = protoPath.AppendChild(TfToken("Wireframe"));
 
-    if (params.wireframePointLimit <= 0) {
+    if (wireframe.pointLimit <= 0) {
         LOG_ERR("Prim: " + protoPath.GetString() +
                 ": MeshTessellationRoutine::writeWireframePrim: invalid wireframePointLimit " +
-                std::to_string(params.wireframePointLimit) + ", must be > 0.");
+                std::to_string(wireframe.pointLimit) + ", must be > 0.");
         return false;
     }
 
-    uint64_t numSubCurves = (wireframePoints.size() + params.wireframePointLimit - 1) / params.wireframePointLimit;
+    uint64_t numSubCurves = (wireframePoints.size() + wireframe.pointLimit - 1) / wireframe.pointLimit;
 
-    if (params.wireframeCombineCurves && numSubCurves == 1) {
+    if (wireframe.combineCurves && numSubCurves == 1) {
         UsdGeomBasisCurves curve(stage->GetPrimAtPath(wireframePath.AppendChild(TfToken("Curves"))));
 
         if (!curve) {
@@ -118,7 +118,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
             return false;
         }
 
-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+        if (wireframe.type == AutolibTokens->cubic) {
             curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
             curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
         } else {
@@ -150,7 +150,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
                 p.Set(wireframeContinuity);
         }
 
-        if (params.wireframeEmbedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size() &&
+        if (wireframe.embedSurfaceNormals && wireframeSurfaceNormals.size() == wireframePoints.size() &&
             !points.empty()) {
             UsdGeomPrimvarsAPI api(curve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
@@ -164,7 +164,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
         }
     } else {
         std::vector<CurveChunk> chunks =
-            computeCurveChunks(wireframeCounts, params.wireframePointLimit, params.wireframeCombineCurves);
+            computeCurveChunks(wireframeCounts, wireframe.pointLimit, wireframe.combineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             const CurveChunk& chunk = chunks[ci];
@@ -178,7 +178,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
                 continue;
             }
 
-            if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+            if (wireframe.type == AutolibTokens->cubic) {
                 curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
                 curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
             } else {
@@ -220,7 +220,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
                     p.Set(arcUs);
             }
 
-            if (params.wireframeEmbedSurfaceNormals && !wireframeSurfaceNormals.empty()) {
+            if (wireframe.embedSurfaceNormals && !wireframeSurfaceNormals.empty()) {
                 VtArray<GfVec3f> normals = gatherChunkValues(wireframeSurfaceNormals, chunk);
                 if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("surfaceNormal")))
                     p.Set(normals);

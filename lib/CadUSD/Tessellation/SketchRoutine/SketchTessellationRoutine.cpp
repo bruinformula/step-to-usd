@@ -162,12 +162,12 @@ void SketchTessellationRoutine::tessellateSketchPlane(const TopoDS_Shape& defSha
     double diagonal = computeBoundingBoxDiagonal(freeEdgeCompound);
 
     opencascade::handle<TopTools_HSequenceOfShape> wireSeq = new TopTools_HSequenceOfShape();
-    double edgeTolerance = std::max(params.sketchPlaneCombineTolerance, diagonal * params.sketchPlaneCombineTolerance);
+    double edgeTolerance = std::max(sketchPlane.combineTolerance, diagonal * sketchPlane.combineTolerance);
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, true, wireSeq);
 
     if (wireSeq->Length() >= edgeSeq->Length()) {
         opencascade::handle<TopTools_HSequenceOfShape> fallbackWireSeq = new TopTools_HSequenceOfShape();
-        const double fallbackTol = std::max(edgeTolerance, static_cast<double>(params.sketchDeflection));
+        const double fallbackTol = std::max(edgeTolerance, static_cast<double>(sketch.deflection));
         ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, fallbackTol, false, fallbackWireSeq);
         if (fallbackWireSeq->Length() < wireSeq->Length()) {
             wireSeq = fallbackWireSeq;
@@ -267,28 +267,28 @@ void SketchTessellationRoutine::tessellateSketchPlane(const TopoDS_Shape& defSha
     }
 
     ShapeFix_Shape fixer(defShape);
-    fixer.SetPrecision(params.sketchPlaneFixPrecision);
-    fixer.SetMaxTolerance(params.sketchPlaneFixTolerance);
+    fixer.SetPrecision(sketchPlane.fixPrecision);
+    fixer.SetMaxTolerance(sketchPlane.fixTolerance);
 
     opencascade::handle<DeadlineProgressIndicator> fixProgress;
     {
         std::string label = "ShapeFix_Shape for part " + protoName + ": ";
-        fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneFixTimeout), label);
+        fixProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(sketchPlane.fixTimeout), label);
     }
     Message_ProgressRange fixRange = fixProgress->Start();
     fixer.Perform(fixRange);
 
     // Mesh the unified shape and emit SketchPlaneBounds
     IMeshTools_Parameters sketchPlaneMeshParams;
-    sketchPlaneMeshParams.Deflection = diagonal * params.sketchPlaneLinearDeflection;
-    sketchPlaneMeshParams.Angle = params.sketchPlaneAngularDeflection;
-    sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
+    sketchPlaneMeshParams.Deflection = diagonal * sketchPlane.linearDeflection;
+    sketchPlaneMeshParams.Angle = sketchPlane.angularDeflection;
+    sketchPlaneMeshParams.MinSize = sketchPlane.minSize;
 
     BRepMesh_IncrementalMesh planeMesher(unifiedShape, sketchPlaneMeshParams);
     opencascade::handle<DeadlineProgressIndicator> meshProgress;
     {
         std::string label = "BRepMesh_IncrementalMesh for part " + protoName + ": ";
-        meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(params.sketchPlaneMeshTimeout), label);
+        meshProgress = new DeadlineProgressIndicator(std::chrono::milliseconds(sketchPlane.meshTimeout), label);
     }
     Message_ProgressRange meshRange = meshProgress->Start();
     planeMesher.Perform(meshRange);
@@ -376,13 +376,13 @@ void SketchTessellationRoutine::tessellateSketchPlane(const TopoDS_Shape& defSha
 void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
                                                  const SdfPath& protoPath,
                                                  SketchTessellationContext& ctx) {
-    if (params.sketchMode.type == TessParams::CurveType::None)
+    if (sketch.type == AutolibTokens->none)
         return;
 
     for (const TopoDS_Edge& edge : ctx.freeEdges) {
         BRepAdaptor_Curve adaptor(edge);
 
-        GCPnts_QuasiUniformDeflection sampler(adaptor, params.sketchDeflection, adaptor.FirstParameter(),
+        GCPnts_QuasiUniformDeflection sampler(adaptor, sketch.deflection, adaptor.FirstParameter(),
                                               adaptor.LastParameter());
         if (!sampler.IsDone() || sampler.NbPoints() < 2)
             continue;
@@ -391,7 +391,7 @@ void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
 
         std::vector<float> arcValues = computeArcValues(sampler);
 
-        if (params.sketchMode.type == TessParams::CurveType::Cubic) {
+        if (sketch.type == AutolibTokens->cubic) {
             // Phantom start — duplicate first point for Catmull-Rom
             gp_Pnt p0 = sampler.Value(1);
             sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
@@ -419,10 +419,10 @@ void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
 }
 
 void SketchTessellationRoutine::applyUnitScale(const TessParams& params) {
-    if (params.unitScale == 1.0)
+    if (unitScale == 1.0)
         return;
 
-    const float s = static_cast<float>(params.unitScale);
+    const float s = static_cast<float>(unitScale);
     auto scalePoints = [s](VtArray<GfVec3f>& points) {
         for (GfVec3f& p : points) {
             p *= s;
@@ -442,6 +442,11 @@ bool SketchTessellationRoutine::hasValidGeometry() {
 bool SketchTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
                                            const TessParams& params,
                                            const SdfPath& protoPath) {
+               
+    unitScale = params.unitScale;   
+    sketch = params.sketch;                                
+    sketchPlane = params.sketchPlane;
+    
     try {
         SketchTessellationContext ctx;
         initializeFreeEdges(defShape, ctx);

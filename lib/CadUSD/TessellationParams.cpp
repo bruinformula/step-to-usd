@@ -40,50 +40,7 @@ TessParams CadUsdPipeline::getTessParams(UsdPrim prim,
     AutolibCadTessellationAPI api(prim);
 
     // Meshing
-    updateIfAuthored(api.GetCadMeshLinearDeflectionAttr(), &params.meshLinearDeflection);
-    updateIfAuthored(api.GetCadMeshAngularDeflectionAttr(), &params.meshAngularDeflection);
-    updateIfAuthored(api.GetCadMeshMinSizeAttr(), &params.meshMinSize);
-    updateIfAuthored(api.GetCadMeshSelfIntersectionThresholdAttr(), &params.meshSelfIntersectionThreshold);
-    updateIfAuthored(api.GetCadMeshMaxNumberRemeshPassesAttr(), &params.meshMaxNumberRemeshPasses);
-    updateIfAuthored(api.GetCadMeshFixPrecisionAttr(), &params.meshFixPrecision);
-    updateIfAuthored(api.GetCadMeshFixToleranceAttr(), &params.meshFixTolerance);
-    updateIfAuthored(api.GetCadMeshEnableRepairShapeAttr(), &params.meshEnableRepairPass);
-
-    updateIfAuthored(api.GetCadMeshFixTimeoutAttr(), &params.meshFixTimeout);
-    updateIfAuthored(api.GetCadMeshMeshTimeoutAttr(), &params.meshMeshTimeout);
-    updateIfAuthored(api.GetCadMeshRemeshTimeoutAttr(), &params.meshRemeshTimeout);
-
-    // Wireframe
-    updateIfAuthored(api.GetCadWireframeCombineCurvesAttr(), &params.wireframeCombineCurves);
-    updateIfAuthored(api.GetCadWireframeDeflectionAttr(), &params.wireframeDeflection);
-    updateIfAuthored(api.GetCadWireframeTypeAttr(), &params.wireframeMode.type);
-    updateIfAuthored(api.GetCadWireframeEmbedSurfaceNormalsAttr(), &params.wireframeEmbedSurfaceNormals);
-    updateIfAuthored(api.GetCadWireframePointLimitAttr(), &params.wireframePointLimit);
-    updateIfAuthored(api.GetCadWireframeSamplingAttr(), &params.wireframeMode.sampling);
-
-    // Sketch
-    updateIfAuthored(api.GetCadSketchCombineCurvesAttr(), &params.sketchCombineCurves);
-    updateIfAuthored(api.GetCadSketchDeflectionAttr(), &params.sketchDeflection);
-    updateIfAuthored(api.GetCadSketchTypeAttr(), &params.sketchMode.type);
-    updateIfAuthored(api.GetCadSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
-    updateIfAuthored(api.GetCadSketchPointLimitAttr(), &params.sketchPointLimit);
-
-    // Sketch Plane
-    updateIfAuthored(api.GetCadSketchPlaneLinearDeflectionAttr(), &params.sketchPlaneLinearDeflection);
-    updateIfAuthored(api.GetCadSketchPlaneAngularDeflectionAttr(), &params.sketchPlaneAngularDeflection);
-    updateIfAuthored(api.GetCadSketchPlaneMinSizeAttr(), &params.sketchPlaneMinSize);
-    updateIfAuthored(api.GetCadSketchPlaneCombineToleranceAttr(), &params.sketchPlaneCombineTolerance);
-    updateIfAuthored(api.GetCadSketchPlaneFixPrecisionAttr(), &params.sketchPlaneFixPrecision);
-    updateIfAuthored(api.GetCadSketchPlaneFixToleranceAttr(), &params.sketchPlaneFixTolerance);
-    updateIfAuthored(api.GetCadSketchPlaneFixTimeoutAttr(), &params.sketchPlaneFixTimeout);
-    updateIfAuthored(api.GetCadSketchPlaneMeshTimeoutAttr(), &params.sketchPlaneMeshTimeout);
-
-    // Other
-    updateIfAuthored(api.GetCadRenderPurposeThresholdAttr(), &params.renderPurposeThreshold);
-    updateIfAuthored(api.GetCadMeshEnableSurfaceSubsetsAttr(), &params.meshEnableSurfaceSubsets);
-    updateIfAuthored(api.GetCadMeshEnableUVsAttr(), &params.meshEnableUVs);
-    updateIfAuthored(api.GetCadMeshEnableSurfaceIDAttr(), &params.meshEnableSurfaceID);
-    updateIfAuthored(api.GetCadMeshEnableIsBoundaryVertexAttr(), &params.meshEnableIsBoundaryVertex);
+    
 
     return params;
 }

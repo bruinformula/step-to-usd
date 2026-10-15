@@ -280,12 +280,12 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
                                                           int continuity,
                                                           const TessParams& params) {
     BRepAdaptor_Curve adaptor(edge);
-    GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframeDeflection, adaptor.FirstParameter(),
+    GCPnts_QuasiUniformDeflection sampler(adaptor, params.wireframe.deflection, adaptor.FirstParameter(),
                                           adaptor.LastParameter());
 
     VtArray<GfVec3f> wireframeSurfaceNormals;
 
-    if (params.wireframeEmbedSurfaceNormals) {
+    if (params.wireframe.embedSurfaceNormals) {
         int n = sampler.NbPoints();
         wireframeSurfaceNormals.assign(n, GfVec3f(0.f, 0.f, 0.f));
 
@@ -308,7 +308,7 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
 
     LOG_DEBUG("  -> Wireframe sampling: " + std::to_string(sampler.NbPoints()) + " points");
 
-    if (params.wireframeEmbedSurfaceNormals) {
+    if (params.wireframe.embedSurfaceNormals) {
         LOG_DEBUG("  -> Wireframe surface normals sampled: " + std::to_string(wireframeSurfaceNormals.size()));
     }
 
@@ -318,20 +318,20 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
     int n = sampler.NbPoints();
     std::vector<float> arcValues = computeArcValues(sampler);
 
-    if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+    if (params.wireframe.type == AutolibTokens->cubic) {
         // Add phantom start for Catmull-Rom interpolation
         gp_Pnt p0 = sampler.Value(1);
         wireframeArcValues.push_back(0.0f);
 
         wireframePoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
-        if (params.wireframeEmbedSurfaceNormals)
+        if (params.wireframe.embedSurfaceNormals)
             wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[0]);
 
         for (int i = 1; i <= n; ++i) {
             gp_Pnt p = sampler.Value(i);
             wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
             wireframeArcValues.push_back(arcValues[i - 1]);
-            if (params.wireframeEmbedSurfaceNormals)
+            if (params.wireframe.embedSurfaceNormals)
                 wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
         }
 
@@ -339,7 +339,7 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
         gp_Pnt pN = sampler.Value(n);
         wireframePoints.push_back(GfVec3f(pN.X(), pN.Y(), pN.Z()));
         wireframeArcValues.push_back(1.0f);
-        if (params.wireframeEmbedSurfaceNormals)
+        if (params.wireframe.embedSurfaceNormals)
             wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[n - 1]);
 
         wireframeCounts.push_back(n + 2);
@@ -349,7 +349,7 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
             gp_Pnt p = sampler.Value(i);
             wireframePoints.push_back(GfVec3f(p.X(), p.Y(), p.Z()));
             wireframeArcValues.push_back(arcValues[i - 1]);
-            if (params.wireframeEmbedSurfaceNormals)
+            if (params.wireframe.embedSurfaceNormals)
                 wireframeSurfaceNormals.push_back(wireframeSurfaceNormals[i - 1]);
         }
         wireframeCounts.push_back(n);
@@ -451,7 +451,7 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
         }
 
         std::vector<TriNodeKey> edgeCanonicalKeys;
-        if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
+        if (isSurfaceBoundary && params.wireframe.sampling == AutolibTokens->underlying)
             edgeCanonicalKeys.reserve(numNodes);
 
         for (int k = 1; k <= numNodes; k++) {
@@ -475,7 +475,7 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
                 }
             }
 
-            if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
+            if (isSurfaceBoundary && params.wireframe.sampling == AutolibTokens->underlying)
                 edgeCanonicalKeys.push_back(canonKey);
         }
 
@@ -509,8 +509,8 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
             }
         }
 
-        if (isSurfaceBoundary && params.wireframeMode.type != TessParams::CurveType::None) {
-            if (params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
+        if (isSurfaceBoundary && params.wireframe.type != AutolibTokens->none) {
+            if (params.wireframe.sampling == AutolibTokens->underlying) {
                 if (edgeCanonicalKeys.size() >= 2)
                     ctx.deferredCurves.push_back({std::move(edgeCanonicalKeys), continuity});
             } else {
@@ -966,7 +966,7 @@ void MeshTessellationRoutine::finalizeBoundaryData(MeshTessellationContext& ctx)
 VtArray<GfVec3f> computeEmbeddedPointNormals(const TessParams& params,
                                              const MeshTessellationContext& ctx) {
     VtArray<GfVec3f> pointNormals(ctx.pointNormalAccum.size(), GfVec3f(0.0f, 0.0f, 1.0f));
-    if (params.wireframeEmbedSurfaceNormals && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
+    if (params.wireframe.embedSurfaceNormals && params.wireframe.sampling == AutolibTokens->underlying) {
         for (int i = 0; i < (int)ctx.pointNormalAccum.size(); ++i) {
             if (ctx.pointNormalCount[i] > 0) {
                 GfVec3f avg = ctx.pointNormalAccum[i]; // sum, not yet divided
@@ -1008,25 +1008,25 @@ void MeshTessellationRoutine::emitDeferredWireframeCurves(const TessParams& para
             arcValues.back() = 1.0f;
         }
 
-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+        if (params.wireframe.type == AutolibTokens->cubic) {
             // Phantom start — duplicate first point
             wireframePoints.push_back(points[resolved.front()]);
             wireframeArcValues.push_back(0.0f);
-            if (params.wireframeEmbedSurfaceNormals)
+            if (params.wireframe.embedSurfaceNormals)
                 wireframeSurfaceNormals.push_back(pointNormals[resolved.front()]);
         }
         for (size_t i = 0; i < resolved.size(); ++i) {
             wireframePoints.push_back(points[resolved[i]]);
             wireframeArcValues.push_back(arcValues[i]);
-            if (params.wireframeEmbedSurfaceNormals)
+            if (params.wireframe.embedSurfaceNormals)
                 wireframeSurfaceNormals.push_back(pointNormals[resolved[i]]);
         }
-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
+        if (params.wireframe.type == AutolibTokens->cubic) {
             // Phantom end — duplicate last point
             wireframePoints.push_back(points[resolved.back()]);
             wireframeArcValues.push_back(1.0f);
             wireframeCounts.push_back(static_cast<int>(resolved.size()) + 2);
-            if (params.wireframeEmbedSurfaceNormals)
+            if (params.wireframe.embedSurfaceNormals)
                 wireframeSurfaceNormals.push_back(pointNormals[resolved.back()]);
         } else {
             wireframeCounts.push_back(static_cast<int>(resolved.size()));
@@ -1091,10 +1091,10 @@ void MeshTessellationRoutine::compactUnusedPoints() {
 }
 
 void MeshTessellationRoutine::applyUnitScale(const TessParams& params) {
-    if (params.unitScale == 1.0)
+    if (unitScale == 1.0)
         return;
 
-    const float s = static_cast<float>(params.unitScale);
+    const float s = static_cast<float>(unitScale);
     auto scalePoints = [s](VtArray<GfVec3f>& points) {
         for (GfVec3f& p : points) {
             p *= s;
@@ -1122,6 +1122,11 @@ bool MeshTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
                                          const SdfPath& protoPath) {
     auto tessellateStart = Clock::now();
 
+    // TODO: THIS IS SLOPPY 
+    unitScale = params.unitScale;
+    wireframe = params.wireframe;
+    mesh = params.mesh;
+    
     LOG_DEBUG("  -> tessellatePart: Edge walk preparation");
 
     MeshTessellationContext ctx;

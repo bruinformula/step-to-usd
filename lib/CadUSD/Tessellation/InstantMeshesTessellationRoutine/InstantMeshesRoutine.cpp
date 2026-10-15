@@ -201,6 +201,9 @@ static void weldFaceNodes(const occt::handle<Poly_Triangulation>& tri,
 bool InstantMeshesTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
                                                   const TessParams& params,
                                                   const SdfPath& protoPath) {
+
+    unitScale = params.unitScale;
+    
     std::string protoName = protoPath.GetAsString();
 
     // Run the part through BRepMesh so every face has a triangulation to
@@ -209,9 +212,9 @@ bool InstantMeshesTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
 
     IMeshTools_Parameters meshParams;
     meshParams.InParallel = false;
-    meshParams.Deflection = diagonal * params.meshLinearDeflection;
-    meshParams.Angle = params.meshAngularDeflection;
-    meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
+    meshParams.Deflection = diagonal * params.mesh.linearDeflection;
+    meshParams.Angle = params.mesh.angularDeflection;
+    meshParams.MinSize = meshParams.Deflection * params.mesh.minSize;
 
     BRepMesh_IncrementalMesh meshGen;
     meshGen.SetShape(defShape);
@@ -388,7 +391,7 @@ bool InstantMeshesTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
     points.reserve(field.O_compact.size());
     normals.reserve(field.N_compact.size());
     for (size_t i = 0; i < field.O_compact.size(); ++i) {
-        Eigen::Vector3d p = (field.O_compact[i] * field.normalize_scale + field.normalize_offset) * params.unitScale;
+        Eigen::Vector3d p = (field.O_compact[i] * field.normalize_scale + field.normalize_offset) * unitScale;
         points.push_back(GfVec3f(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z())));
         const Eigen::Vector3d& n = field.N_compact[i];
         normals.push_back(GfVec3f(static_cast<float>(n.x()), static_cast<float>(n.y()), static_cast<float>(n.z())));

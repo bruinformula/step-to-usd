@@ -1,0 +1,1093 @@
+diff --git a/include/CadUSD/Tessellation/InstantMeshesRoutine.h b/include/CadUSD/Tessellation/InstantMeshesRoutine.h
+new file mode 100644
+index 0000000..524297e
+--- /dev/null
++++ b/include/CadUSD/Tessellation/InstantMeshesRoutine.h
+@@ -0,0 +1,53 @@
++#pragma once
++
++#include <cstdint>
++
++#include <pxr/pxr.h>
++#include <pxr/usd/usd/stage.h>
++#include <pxr/usd/sdf/path.h>
++
++#include <pxr/base/gf/vec3f.h>
++
++#include "CadUSD/Tessellation/TessellationRoutineInterface.h"
++
++PXR_NAMESPACE_USING_DIRECTIVE
++
++class TopoDS_Shape;
++
++namespace CadUSD {
++
++struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {
++    TessParams params;
++
++    bool writePartMember(UsdStageRefPtr stage,
++                         SdfPath& partPath) const override;
++
++    bool tessellate(const TopoDS_Shape& defShape,
++                    const TessParams& params,
++                    const SdfPath& protoPath) override;
++
++    bool definePrim(UsdStageRefPtr stage,
++                    const SdfPath& protoPath,
++                    const TessParams& params) const override;
++
++    bool writePrim(UsdStageRefPtr stage,
++                    const SdfPath& protoPath,
++                    const TessParams& params) const override;
++
++    void clearPrim(UsdStageRefPtr stage,
++                    const SdfPath& protoPath) const override;
++
++    size_t size() const override;
++
++    private:
++    VtArray<GfVec3f> points;
++    VtArray<GfVec3f> normals;
++    VtArray<int> faceVertexCounts;
++    VtArray<int> faceVertexIndices;
++
++    VtArray<GfVec3f> samplePoints;
++    VtArray<GfVec3f> sampleNormals;
++};
++
++
++}
+\ No newline at end of file
+diff --git a/include/CadUSD/Tessellation/MeshRoutine.h b/include/CadUSD/Tessellation/MeshRoutine.h
+new file mode 100644
+index 0000000..dcd54df
+--- /dev/null
++++ b/include/CadUSD/Tessellation/MeshRoutine.h
+@@ -0,0 +1,164 @@
++#pragma once
++
++#include "tokens.h"
++#include <pxr/base/tf/token.h>
++#include <pxr/pxr.h>
++#include <pxr/usd/sdf/tokens.h>
++
++#include <stdint.h>
++
++PXR_NAMESPACE_USING_DIRECTIVE
++
++namespace CadUSD {
++
++struct MeshParams {
++    double linearDeflection = 1.0;
++    double angularDeflection = 0.5;
++    double minSize = 0.0;
++
++    double selfIntersectionThreshold = 1e-3;
++    int maxRemeshPasses = 1;
++
++    double fixPrecision = 1e-7;
++    double fixTolerance = 1e-7;
++    bool enableRepairPass = false;
++
++    uint64_t fixTimeout = 3000;
++    uint64_t meshTimeout = 3000;
++    uint64_t remeshTimeout = 3000;
++};
++
++struct WireframeParams {
++    enum class Type { None, Linear, Cubic };
++    enum class Sampling { Underlying, Resampled };
++
++    double deflection = 0.01;
++    TfToken type = AutolibTokens->linear;
++    TfToken sampling = AutolibTokens->underlying;
++
++    bool combineCurves = true;
++    bool embedSurfaceNormals = true;
++    uint64_t pointLimit = 65535;
++};
++
++// Handles the Mesh and the Wireframe
++struct UVPatch;
++struct MeshTessellationContext;
++
++struct MeshTessellationRoutine : public TessellationRoutineInterface {
++    TessParams params;
++
++    bool writePartMember(UsdStageRefPtr stage,
++                         SdfPath& partPath) const override;
++
++    bool tessellate(const TopoDS_Shape& defShape,
++                    const TessParams& params,
++                    const SdfPath& protoPath) override;
++
++    bool definePrim(UsdStageRefPtr stage,
++                    const SdfPath& protoPath,
++                    const TessParams& params) const override;
++
++    bool writePrim(UsdStageRefPtr stage,
++                   const SdfPath& protoPath,
++                   const TessParams& params) const override;
++
++    void clearPrim(UsdStageRefPtr stage,
++                   const SdfPath& protoPath) const override;
++
++    size_t size() const override;
++
++    static constexpr int kBoundaryEdgeSlots = 6;
++
++  private:
++    VtArray<GfVec3f> points;
++    VtArray<GfVec3f> normals;
++    VtArray<int> faceVertexCounts;
++    VtArray<int> faceVertexIndices;
++
++    VtArray<GfVec2f> perSurfaceUVs;
++    VtArray<bool> isBoundaryVertex;
++    VtArray<GfVec3f> boundaryTangents;
++
++    VtArray<float> boundaryEdgeDistances[kBoundaryEdgeSlots];
++
++    struct SurfaceIDBounds {
++        int startIdx;
++        int endIdx;
++        int surfaceID;
++    };
++
++    std::vector<SurfaceIDBounds> surfaceIDBounds; // start, end index for a particular face id
++
++    // Wireframe curves
++    VtArray<GfVec3f> wireframePoints;
++    VtArray<int> wireframeCounts;
++    VtArray<float> wireframeArcValues;
++    VtArray<GfVec3f> wireframeSurfaceNormals;
++    VtArray<int> wireframeContinuity;
++
++    void meshShape(const TopoDS_Shape& defShape);
++
++    void emitResampledWireframeCurve(const TopoDS_Edge& edge,
++                                     const NCollection_List<TopoDS_Shape>& adjFaces,
++                                     int continuity,
++                                     const TessParams& params);
++
++    void buildEdgeWalk(const TopoDS_Shape& defShape,
++                       const TessParams& params,
++                       MeshTessellationContext& ctx);
++
++    void countTrianglesAndNodes(const TopoDS_Shape& defShape,
++                                int& totalTris,
++                                int& totalNodes);
++
++    void weldFaceNodes(const occt::handle<Poly_Triangulation>& tri,
++                       const gp_Trsf& trsf,
++                       MeshTessellationContext& ctx,
++                       float bboxOut[6] // xmin, xmax, ymin, ymax, zmin, zmax
++    );
++
++    void emitFaceTriangles(const occt::handle<Poly_Triangulation>& tri,
++                           const gp_Trsf& trsf,
++                           bool reversed,
++                           bool hasUV,
++                           const occt::handle<Geom_Surface>& geomSurface,
++                           const gp_Vec& faceTangentU,
++                           const gp_Vec& faceTangentV,
++                           const gp_Pnt& faceCentroid,
++                           MeshTessellationContext& ctx,
++                           UVPatch& patch);
++
++    void tessellateFaces(const TopoDS_Shape& defShape,
++                         MeshTessellationContext& ctx);
++
++    void finalizeBoundaryData(MeshTessellationContext& ctx);
++
++    void emitDeferredWireframeCurves(const TessParams& params,
++                                     const MeshTessellationContext& ctx,
++                                     const VtArray<GfVec3f>& pointNormals);
++
++    void compactUnusedPoints();
++
++    void applyUnitScale(const TessParams& params);
++
++    bool hasValidGeometry();
++
++    bool defineMeshPrim(UsdStageRefPtr stage,
++                        const SdfPath& protoPath,
++                        const TessParams& params) const;
++
++    bool writeMeshPrim(UsdStageRefPtr stage,
++                       const SdfPath& protoPath,
++                       const TessParams& params) const;
++
++    bool defineWireframePrim(UsdStageRefPtr stage,
++                             const SdfPath& protoPath,
++                             const TessParams& params) const;
++
++    bool writeWireframePrim(UsdStageRefPtr stage,
++                            const SdfPath& protoPath,
++                            const TessParams& params) const;
++};
++
++} // namespace CadUSD
+\ No newline at end of file
+diff --git a/include/CadUSD/Tessellation/SketchRoutine.h b/include/CadUSD/Tessellation/SketchRoutine.h
+new file mode 100644
+index 0000000..7b7278a
+--- /dev/null
++++ b/include/CadUSD/Tessellation/SketchRoutine.h
+@@ -0,0 +1,122 @@
++#pragma once
++
++#include "tokens.h"
++#include <pxr/base/tf/token.h>
++#include <pxr/pxr.h>
++#include <pxr/usd/sdf/tokens.h>
++
++#include <stdint.h>
++
++PXR_NAMESPACE_USING_DIRECTIVE
++
++namespace CadUSD {
++
++struct SketchParams {
++    double deflection = 0.01;
++    TfToken type = AutolibTokens->linear;
++
++    bool combineCurves = true;
++    bool embedSurfaceNormals = true;
++    uint64_t pointLimit = 65535;
++};
++
++struct SketchPlaneParams {
++    double linearDeflection = 0.01;
++    double angularDeflection = 0.5;
++    double minSize = 0.0;
++    double combineTolerance = 1e-5;
++
++    double fixPrecision = 1e-7;
++    double fixTolerance = 1e-7;
++
++    uint64_t fixTimeout = 3000;
++    uint64_t meshTimeout = 3000;
++};
++
++
++// Handles the Sketch and the SketchPlane
++struct SketchTessellationContext;
++
++struct SketchTessellationRoutine : public TessellationRoutineInterface {
++    TessParams params;
++
++    bool writePartMember(UsdStageRefPtr stage,
++                         SdfPath& partPath) const override;
++
++    bool tessellate(const TopoDS_Shape& defShape,
++                    const TessParams& params,
++                    const SdfPath& protoPath) override;
++
++    bool definePrim(UsdStageRefPtr stage,
++                    const SdfPath& protoPath,
++                    const TessParams& params) const override;
++
++    bool writePrim(UsdStageRefPtr stage,
++                   const SdfPath& protoPath,
++                   const TessParams& params) const override;
++
++    void clearPrim(UsdStageRefPtr stage,
++                   const SdfPath& protoPath) const override;
++
++    size_t size() const override;
++
++  private:
++    // Sketch curves
++    VtArray<GfVec3f> sketchPoints;
++    VtArray<int> sketchCounts;
++    VtArray<float> sketchArcValues;
++    VtArray<GfVec3f> sketchSurfaceNormals;
++
++    // Sketch planes reconstructed from closed free-edge loops
++    VtArray<GfVec3f> sketchPlanePoints;
++    VtArray<GfVec3f> sketchPlaneNormals;
++    VtArray<int> sketchPlaneFaceVertexCounts;
++    VtArray<int> sketchPlaneFaceVertexIndices;
++
++    struct SketchPlaneBounds {
++        int pointStart;
++        int pointCount;
++        int faceCountStart;
++        int faceCountCount;
++        int faceIndexStart;
++        int faceIndexCount;
++        int normalStart;
++        int normalCount;
++    };
++
++    std::vector<SketchPlaneBounds> sketchPlaneBounds;
++
++    void initializeFreeEdges(const TopoDS_Shape& defShape,
++                             SketchTessellationContext& ctx) const;
++
++    void tessellateSketchPlane(const TopoDS_Shape& defShape,
++                               const SdfPath& protoPath,
++                               SketchTessellationContext& ctx);
++
++    void tessellateSketch(const TopoDS_Shape& defShape,
++                          const SdfPath& protoPath,
++                          SketchTessellationContext& ctx);
++
++    void applyUnitScale(const TessParams& params);
++
++    bool hasValidGeometry();
++
++    bool defineSketchPrim(UsdStageRefPtr stage,
++                          const SdfPath& protoPath,
++                          const TessParams& params) const;
++
++    bool writeSketchPrim(UsdStageRefPtr stage,
++                         const SdfPath& protoPath,
++                         const TessParams& params) const;
++
++    bool defineSketchPlanePrim(UsdStageRefPtr stage,
++                               const SdfPath& protoPath,
++                               const TessParams& params) const;
++
++    bool writeSketchPlanePrim(UsdStageRefPtr stage,
++                              const SdfPath& protoPath,
++                              const TessParams& params) const;
++};
++
++
++} // namespace CadUSD
+\ No newline at end of file
+diff --git a/include/CadUSD/Tessellation/TessellationRoutine.h b/include/CadUSD/Tessellation/TessellationRoutine.h
+index 104c3d9..36afaf0 100644
+--- a/include/CadUSD/Tessellation/TessellationRoutine.h
++++ b/include/CadUSD/Tessellation/TessellationRoutine.h
+@@ -2,23 +2,29 @@
+ 
+ #include <TopoDS_Edge.hxx>
+ #include <TopoDS_Shape.hxx>
+-#include <pxr/base/tf/token.h>
+ 
+ #pragma push_macro("Handle")
+ #undef Handle
+ 
+-#include <pxr/base/work/loops.h>
+-#include <pxr/base/work/workTBB/loops_impl.h>
+ #include <pxr/pxr.h>
+ #include <pxr/usd/usd/stage.h>
++#include <pxr/usd/sdf/path.h>
+ 
+ #include <pxr/base/gf/vec2f.h>
+ #include <pxr/base/gf/vec3f.h>
++#include <pxr/base/tf/token.h>
+ #include <pxr/base/vt/array.h>
+-#include <pxr/usd/sdf/path.h>
++
++#include <pxr/base/work/loops.h>
++#include <pxr/base/work/workTBB/loops_impl.h>
+ 
+ #pragma pop_macro("Handle")
+ 
++#include "CadUSD/Tessellation/TessellationRoutineInterface.h"
++#include "CadUSD/Tessellation/MeshRoutine.h"
++#include "CadUSD/Tessellation/SketchRoutine.h"
++#include "CadUSD/Tessellation/InstantMeshesRoutine.h"
++
+ PXR_NAMESPACE_USING_DIRECTIVE
+ 
+ class Poly_Triangulation;
+@@ -28,333 +34,15 @@ namespace occt = opencascade;
+ 
+ namespace CadUSD {
+ 
+-struct TessParams {
+-    // Meshing
+-    double meshLinearDeflection = 1.0f;          // Linear deflection as fraction of bounding-box diagonal
+-    double meshAngularDeflection = 0.5f;         // Angular deflection in radians
+-    double meshMinSize = 0.0;                    // Minimum triangle edge length as fraction of bounding-box diagonal
+-    double meshSelfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
+-    int meshMaxNumberRemeshPasses = 1;           // Maximum remesh passes
+-    double meshFixPrecision = 1e-7;              // Tolerance for shape fixing
+-    double meshFixTolerance = 1e-7;              // Tolerance for meshing operations
+-    bool meshEnableRepairPass = false;           // Enables a repair pass before meshing
+-
+-    // Timeout in milliseconds
+-    uint64_t meshFixTimeout = 3000;
+-    uint64_t meshMeshTimeout = 3000;
+-    uint64_t meshRemeshTimeout = 3000;
+-
+-    enum class CurveType {
+-        None,   // ain't got nothing on me
+-        Linear, // polyline using the tessellated mesh boundary vertices directly
+-        Cubic   // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
+-    };
+-
+-    enum class CurveSampling {
+-        Underlying, // polyline using the tessellated mesh boundary vertices
+-        Resampled   // resampled from the underlying curve geometry
+-    };
+-
+-    struct CurveMode {
+-        CurveType type;
+-        CurveSampling sampling;
+-    };
+-
+-    // Wireframe
+-    double wireframeDeflection = 0.01f;
+-    CurveMode wireframeMode = {CurveType::Linear, CurveSampling::Underlying};
+-    bool wireframeCombineCurves = true;
+-    bool wireframeEmbedSurfaceNormals = true;
+-    uint64_t wireframePointLimit = 65535;
+-
+-    // Sketch
+-    double sketchDeflection = 0.005f;
+-    CurveMode sketchMode = {CurveType::Linear, CurveSampling::Underlying};
+-    bool sketchCombineCurves = true;
+-    bool sketchEmbedSurfaceNormals = true;
+-    uint64_t sketchPointLimit = 65535;
+-
+-    // Sketch Plane
+-    double sketchPlaneLinearDeflection = 0.01f;
+-    double sketchPlaneAngularDeflection = 0.5f;
+-    double sketchPlaneMinSize = 0.0;
+-    double sketchPlaneCombineTolerance = 1e-5;
+-    double sketchPlaneFixPrecision = 1e-7;
+-    double sketchPlaneFixTolerance = 1e-7;
+-
+-    uint64_t sketchPlaneFixTimeout = 3000;
+-    uint64_t sketchPlaneMeshTimeout = 3000;
+-
+-    // Other
++struct GenericParams {
+     double renderPurposeThreshold = std::numeric_limits<double>::infinity();
+-    bool meshEnableSurfaceSubsets = false;
+-    bool meshEnableUVs = true;
+-    bool meshEnableSurfaceID = false;
+-    bool meshEnableIsBoundaryVertex = false;
+-    double unitScale = 1.0; // Internal exporter scale: source model units -> target USD units.
+-    // in the units of the model along the diagonal.
+-    // if proto is smaller it gets marked as a render only asset
+-};
+-
+-struct TessellationRoutineInterface {
+-    virtual ~TessellationRoutineInterface() = default;
+-
+-    virtual bool writePartMember(UsdStageRefPtr stage,
+-                                 SdfPath& partPath) const = 0;
+-
+-    virtual bool tessellate(const TopoDS_Shape& defShape,
+-                            const TessParams& params,
+-                            const SdfPath& protoPath) = 0;
+-
+-    virtual bool definePrim(UsdStageRefPtr stage,
+-                            const SdfPath& protoPath,
+-                            const TessParams& params) const = 0;
+-
+-    virtual bool writePrim(UsdStageRefPtr stage,
+-                           const SdfPath& protoPath,
+-                           const TessParams& params) const = 0;
+-
+-    virtual void clearPrim(UsdStageRefPtr stage,
+-                           const SdfPath& protoPath) const = 0;
+-
+-    virtual size_t size() const = 0;
+-};
+-
+-// Handles the Mesh and the Wireframe
+-struct UVPatch;
+-struct MeshTessellationContext;
+-
+-struct MeshTessellationRoutine : public TessellationRoutineInterface {
+-    TessParams params;
+-
+-    bool writePartMember(UsdStageRefPtr stage,
+-                         SdfPath& partPath) const override;
+-
+-    bool tessellate(const TopoDS_Shape& defShape,
+-                    const TessParams& params,
+-                    const SdfPath& protoPath) override;
+-
+-    bool definePrim(UsdStageRefPtr stage,
+-                    const SdfPath& protoPath,
+-                    const TessParams& params) const override;
+-
+-    bool writePrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath,
+-                   const TessParams& params) const override;
+-
+-    void clearPrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath) const override;
+-
+-    size_t size() const override;
+-
+-    static constexpr int kBoundaryEdgeSlots = 6;
+-
+-  private:
+-    VtArray<GfVec3f> points;
+-    VtArray<GfVec3f> normals;
+-    VtArray<int> faceVertexCounts;
+-    VtArray<int> faceVertexIndices;
+-
+-    VtArray<GfVec2f> perSurfaceUVs;
+-    VtArray<bool> isBoundaryVertex;
+-    VtArray<GfVec3f> boundaryTangents;
+-
+-    VtArray<float> boundaryEdgeDistances[kBoundaryEdgeSlots];
+-
+-    struct SurfaceIDBounds {
+-        int startIdx;
+-        int endIdx;
+-        int surfaceID;
+-    };
+-
+-    std::vector<SurfaceIDBounds> surfaceIDBounds; // start, end index for a particular face id
+-
+-    // Wireframe curves
+-    VtArray<GfVec3f> wireframePoints;
+-    VtArray<int> wireframeCounts;
+-    VtArray<float> wireframeArcValues;
+-    VtArray<GfVec3f> wireframeSurfaceNormals;
+-    VtArray<int> wireframeContinuity;
+-
+-    void meshShape(const TopoDS_Shape& defShape);
+-
+-    void emitResampledWireframeCurve(const TopoDS_Edge& edge,
+-                                     const NCollection_List<TopoDS_Shape>& adjFaces,
+-                                     int continuity,
+-                                     const TessParams& params);
+-
+-    void buildEdgeWalk(const TopoDS_Shape& defShape,
+-                       const TessParams& params,
+-                       MeshTessellationContext& ctx);
+-
+-    void countTrianglesAndNodes(const TopoDS_Shape& defShape,
+-                                int& totalTris,
+-                                int& totalNodes);
+-
+-    void weldFaceNodes(const occt::handle<Poly_Triangulation>& tri,
+-                       const gp_Trsf& trsf,
+-                       MeshTessellationContext& ctx,
+-                       float bboxOut[6] // xmin, xmax, ymin, ymax, zmin, zmax
+-    );
+-
+-    void emitFaceTriangles(const occt::handle<Poly_Triangulation>& tri,
+-                           const gp_Trsf& trsf,
+-                           bool reversed,
+-                           bool hasUV,
+-                           const occt::handle<Geom_Surface>& geomSurface,
+-                           const gp_Vec& faceTangentU,
+-                           const gp_Vec& faceTangentV,
+-                           const gp_Pnt& faceCentroid,
+-                           MeshTessellationContext& ctx,
+-                           UVPatch& patch);
+-
+-    void tessellateFaces(const TopoDS_Shape& defShape,
+-                         MeshTessellationContext& ctx);
+-
+-    void finalizeBoundaryData(MeshTessellationContext& ctx);
+-
+-    void emitDeferredWireframeCurves(const TessParams& params,
+-                                     const MeshTessellationContext& ctx,
+-                                     const VtArray<GfVec3f>& pointNormals);
+ 
+-    void compactUnusedPoints();
+-
+-    void applyUnitScale(const TessParams& params);
+-
+-    bool hasValidGeometry();
+-
+-    bool defineMeshPrim(UsdStageRefPtr stage,
+-                        const SdfPath& protoPath,
+-                        const TessParams& params) const;
+-
+-    bool writeMeshPrim(UsdStageRefPtr stage,
+-                       const SdfPath& protoPath,
+-                       const TessParams& params) const;
+-
+-    bool defineWireframePrim(UsdStageRefPtr stage,
+-                             const SdfPath& protoPath,
+-                             const TessParams& params) const;
+-
+-    bool writeWireframePrim(UsdStageRefPtr stage,
+-                            const SdfPath& protoPath,
+-                            const TessParams& params) const;
+-};
+-
+-// Handles the Sketch and the SketchPlane
+-struct SketchTessellationContext;
+-
+-struct SketchTessellationRoutine : public TessellationRoutineInterface {
+-    TessParams params;
+-
+-    bool writePartMember(UsdStageRefPtr stage,
+-                         SdfPath& partPath) const override;
+-
+-    bool tessellate(const TopoDS_Shape& defShape,
+-                    const TessParams& params,
+-                    const SdfPath& protoPath) override;
+-
+-    bool definePrim(UsdStageRefPtr stage,
+-                    const SdfPath& protoPath,
+-                    const TessParams& params) const override;
+-
+-    bool writePrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath,
+-                   const TessParams& params) const override;
+-
+-    void clearPrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath) const override;
+-
+-    size_t size() const override;
+-
+-  private:
+-    // Sketch curves
+-    VtArray<GfVec3f> sketchPoints;
+-    VtArray<int> sketchCounts;
+-    VtArray<float> sketchArcValues;
+-    VtArray<GfVec3f> sketchSurfaceNormals;
+-
+-    // Sketch planes reconstructed from closed free-edge loops
+-    VtArray<GfVec3f> sketchPlanePoints;
+-    VtArray<GfVec3f> sketchPlaneNormals;
+-    VtArray<int> sketchPlaneFaceVertexCounts;
+-    VtArray<int> sketchPlaneFaceVertexIndices;
+-
+-    struct SketchPlaneBounds {
+-        int pointStart;
+-        int pointCount;
+-        int faceCountStart;
+-        int faceCountCount;
+-        int faceIndexStart;
+-        int faceIndexCount;
+-        int normalStart;
+-        int normalCount;
+-    };
+-
+-    std::vector<SketchPlaneBounds> sketchPlaneBounds;
+-
+-    void initializeFreeEdges(const TopoDS_Shape& defShape,
+-                             SketchTessellationContext& ctx) const;
+-
+-    void tessellateSketchPlane(const TopoDS_Shape& defShape,
+-                               const SdfPath& protoPath,
+-                               SketchTessellationContext& ctx);
+-
+-    void tessellateSketch(const TopoDS_Shape& defShape,
+-                          const SdfPath& protoPath,
+-                          SketchTessellationContext& ctx);
+-
+-    void applyUnitScale(const TessParams& params);
+-
+-    bool hasValidGeometry();
+-
+-    bool defineSketchPrim(UsdStageRefPtr stage,
+-                          const SdfPath& protoPath,
+-                          const TessParams& params) const;
+-
+-    bool writeSketchPrim(UsdStageRefPtr stage,
+-                         const SdfPath& protoPath,
+-                         const TessParams& params) const;
+-
+-    bool defineSketchPlanePrim(UsdStageRefPtr stage,
+-                               const SdfPath& protoPath,
+-                               const TessParams& params) const;
+-
+-    bool writeSketchPlanePrim(UsdStageRefPtr stage,
+-                              const SdfPath& protoPath,
+-                              const TessParams& params) const;
+-};
+-
+-struct InstantMeshesTessellationRoutine : public TessellationRoutineInterface {
+-    TessParams params;
+-
+-    bool writePartMember(UsdStageRefPtr stage,
+-                         SdfPath& partPath) const override;
+-
+-    bool tessellate(const TopoDS_Shape& defShape,
+-                    const TessParams& params,
+-                    const SdfPath& protoPath) override;
+-
+-    bool definePrim(UsdStageRefPtr stage,
+-                    const SdfPath& protoPath,
+-                    const TessParams& params) const override;
+-
+-    bool writePrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath,
+-                   const TessParams& params) const override;
+-
+-    void clearPrim(UsdStageRefPtr stage,
+-                   const SdfPath& protoPath) const override;
+-
+-    size_t size() const override;
+-
+-  private:
+-    VtArray<GfVec3f> points;
+-    VtArray<GfVec3f> normals;
+-    VtArray<int> faceVertexCounts;
+-    VtArray<int> faceVertexIndices;
++    bool enableSurfaceSubsets = false;
++    bool enableUVs = true;
++    bool enableSurfaceID = false;
++    bool enableIsBoundaryVertex = false;
+ 
+-    VtArray<GfVec3f> samplePoints;
+-    VtArray<GfVec3f> sampleNormals;
++    double unitScale = 1.0;
+ };
+ 
+ struct TessellationRoutine : public TessellationRoutineInterface {
+diff --git a/include/CadUSD/Tessellation/TessellationRoutineInterface.h b/include/CadUSD/Tessellation/TessellationRoutineInterface.h
+new file mode 100644
+index 0000000..597f035
+--- /dev/null
++++ b/include/CadUSD/Tessellation/TessellationRoutineInterface.h
+@@ -0,0 +1,122 @@
++#pragma once
++
++#include <TopoDS_Edge.hxx>
++#include <TopoDS_Shape.hxx>
++#include <pxr/base/tf/token.h>
++
++#pragma push_macro("Handle")
++#undef Handle
++
++#include <pxr/base/work/loops.h>
++#include <pxr/base/work/workTBB/loops_impl.h>
++#include <pxr/pxr.h>
++#include <pxr/usd/usd/stage.h>
++
++#include <pxr/base/gf/vec2f.h>
++#include <pxr/base/gf/vec3f.h>
++#include <pxr/base/vt/array.h>
++#include <pxr/usd/sdf/path.h>
++
++#pragma pop_macro("Handle")
++
++PXR_NAMESPACE_USING_DIRECTIVE
++
++class Poly_Triangulation;
++class Geom_Surface;
++
++namespace occt = opencascade;
++
++namespace CadUSD {
++
++
++struct TessParams {
++    // Meshing
++    double meshLinearDeflection = 1.0f;          // Linear deflection as fraction of bounding-box diagonal
++    double meshAngularDeflection = 0.5f;         // Angular deflection in radians
++    double meshMinSize = 0.0;                    // Minimum triangle edge length as fraction of bounding-box diagonal
++    double meshSelfIntersectionThreshold = 1e-3; // Threshold for detecting self-intersecting triangles
++    int meshMaxNumberRemeshPasses = 1;           // Maximum remesh passes
++    double meshFixPrecision = 1e-7;              // Tolerance for shape fixing
++    double meshFixTolerance = 1e-7;              // Tolerance for meshing operations
++    bool meshEnableRepairPass = false;           // Enables a repair pass before meshing
++
++    // Timeout in milliseconds
++    uint64_t meshFixTimeout = 3000;
++    uint64_t meshMeshTimeout = 3000;
++    uint64_t meshRemeshTimeout = 3000;
++
++    enum class CurveType {
++        None,   // ain't got nothing on me
++        Linear, // polyline using the tessellated mesh boundary vertices directly
++        Cubic   // cubic Catmull-Rom using the tessellated mesh boundary vertices directly
++    };
++
++    enum class CurveSampling {
++        Underlying, // polyline using the tessellated mesh boundary vertices
++        Resampled   // resampled from the underlying curve geometry
++    };
++
++    // Wireframe
++    double wireframeDeflection = 0.01f;
++    CurveType wireframeType = CurveType::Linear;
++    CurveSampling wireframeSampling = CurveSampling::Underlying;
++    bool wireframeCombineCurves = true;
++    bool wireframeEmbedSurfaceNormals = true;
++    uint64_t wireframePointLimit = 65535;
++
++    // Sketch
++    double sketchDeflection = 0.005f;
++    CurveType sketchType = CurveType::Linear;
++    CurveSampling sketchSampling = CurveSampling::Underlying;
++    bool sketchCombineCurves = true;
++    bool sketchEmbedSurfaceNormals = true;
++    uint64_t sketchPointLimit = 65535;
++
++    // Sketch Plane
++    double sketchPlaneLinearDeflection = 0.01f;
++    double sketchPlaneAngularDeflection = 0.5f;
++    double sketchPlaneMinSize = 0.0;
++    double sketchPlaneCombineTolerance = 1e-5;
++    double sketchPlaneFixPrecision = 1e-7;
++    double sketchPlaneFixTolerance = 1e-7;
++
++    uint64_t sketchPlaneFixTimeout = 3000;
++    uint64_t sketchPlaneMeshTimeout = 3000;
++
++    // Other
++    double renderPurposeThreshold = std::numeric_limits<double>::infinity();
++    bool meshEnableSurfaceSubsets = false;
++    bool meshEnableUVs = true;
++    bool meshEnableSurfaceID = false;
++    bool meshEnableIsBoundaryVertex = false;
++    double unitScale = 1.0; // Internal exporter scale: source model units -> target USD units.
++    // in the units of the model along the diagonal.
++    // if proto is smaller it gets marked as a render only asset
++};
++
++
++struct TessellationRoutineInterface {
++    virtual ~TessellationRoutineInterface() = default;
++
++    virtual bool writePartMember(UsdStageRefPtr stage,
++                                 SdfPath& partPath) const = 0;
++
++    virtual bool tessellate(const TopoDS_Shape& defShape,
++                            const TessParams& params,
++                            const SdfPath& protoPath) = 0;
++
++    virtual bool definePrim(UsdStageRefPtr stage,
++                            const SdfPath& protoPath,
++                            const TessParams& params) const = 0;
++
++    virtual bool writePrim(UsdStageRefPtr stage,
++                           const SdfPath& protoPath,
++                           const TessParams& params) const = 0;
++
++    virtual void clearPrim(UsdStageRefPtr stage,
++                           const SdfPath& protoPath) const = 0;
++
++    virtual size_t size() const = 0;
++};
++
++} // namespace CadUSD
+\ No newline at end of file
+diff --git a/include/CadUSD/UsdUtils.h b/include/CadUSD/UsdUtils.h
+index f9cb520..5b34d84 100644
+--- a/include/CadUSD/UsdUtils.h
++++ b/include/CadUSD/UsdUtils.h
+@@ -60,4 +60,62 @@ extern template void updateIfAuthored<uint64_t>(const UsdAttribute&,
+ extern template void updateIfAuthored<bool>(const UsdAttribute&,
+                                             bool*);
+ 
++template <typename T>
++void readAttribute(const UsdPrim& prim,
++                   const TfToken& name,
++                   T& destination)
++{
++    const UsdAttribute attr = prim.GetAttribute(name);
++
++    if (!attr)
++        return;
++
++    T value{};
++    if (attr.Get(&value))
++        destination = value;
++}
++
++template <auto Member>
++struct ParamField {
++    TfToken attribute;
++};
++
++template <auto Member>
++ParamField<Member> field(TfToken attribute) {
++    return {std::move(attribute)};
++}
++
++template <typename Params, auto Member>
++void readField(
++    const UsdPrim& prim,
++    Params& params,
++    const ParamField<Member>& field)
++{
++    const UsdAttribute attr = prim.GetAttribute(field.attribute);
++    if (!attr)
++        return;
++
++    auto& destination = params.*Member;
++
++    // Preserve the default if conversion fails.
++    auto value = destination;
++    if (readUsdValue(attr, value))
++        destination = std::move(value);
++}
++
++template <typename Params, typename Fields>
++Params readParams(
++    const UsdPrim& prim,
++    const Fields& fields)
++{
++    Params params{};
++
++    std::apply([&](const auto&... f) {
++            (readField(prim, params, f), ...);
++    }, fields);
++
++    return params;
++}
++
++
+ } // namespace CadUSD
+\ No newline at end of file
+diff --git a/lib/CadUSD/Tessellation/MeshTessellation/MeshTessellationRoutine.cpp b/lib/CadUSD/Tessellation/MeshTessellation/MeshTessellationRoutine.cpp
+index 185c3fa..8a32f4f 100644
+--- a/lib/CadUSD/Tessellation/MeshTessellation/MeshTessellationRoutine.cpp
++++ b/lib/CadUSD/Tessellation/MeshTessellation/MeshTessellationRoutine.cpp
+@@ -318,7 +318,7 @@ void MeshTessellationRoutine::emitResampledWireframeCurve(const TopoDS_Edge& edg
+     int n = sampler.NbPoints();
+     std::vector<float> arcValues = computeArcValues(sampler);
+ 
+-    if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
++    if (params.wireframeType == TessParams::CurveType::Cubic) {
+         // Add phantom start for Catmull-Rom interpolation
+         gp_Pnt p0 = sampler.Value(1);
+         wireframeArcValues.push_back(0.0f);
+@@ -451,7 +451,7 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
+         }
+ 
+         std::vector<TriNodeKey> edgeCanonicalKeys;
+-        if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
++        if (isSurfaceBoundary && params.wireframeSampling == TessParams::CurveSampling::Underlying)
+             edgeCanonicalKeys.reserve(numNodes);
+ 
+         for (int k = 1; k <= numNodes; k++) {
+@@ -475,7 +475,7 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
+                 }
+             }
+ 
+-            if (isSurfaceBoundary && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying)
++            if (isSurfaceBoundary && params.wireframeSampling == TessParams::CurveSampling::Underlying)
+                 edgeCanonicalKeys.push_back(canonKey);
+         }
+ 
+@@ -509,8 +509,8 @@ void MeshTessellationRoutine::buildEdgeWalk(const TopoDS_Shape& defShape,
+             }
+         }
+ 
+-        if (isSurfaceBoundary && params.wireframeMode.type != TessParams::CurveType::None) {
+-            if (params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
++        if (isSurfaceBoundary && params.wireframeType != TessParams::CurveType::None) {
++            if (params.wireframeSampling == TessParams::CurveSampling::Underlying) {
+                 if (edgeCanonicalKeys.size() >= 2)
+                     ctx.deferredCurves.push_back({std::move(edgeCanonicalKeys), continuity});
+             } else {
+@@ -966,7 +966,7 @@ void MeshTessellationRoutine::finalizeBoundaryData(MeshTessellationContext& ctx)
+ VtArray<GfVec3f> computeEmbeddedPointNormals(const TessParams& params,
+                                              const MeshTessellationContext& ctx) {
+     VtArray<GfVec3f> pointNormals(ctx.pointNormalAccum.size(), GfVec3f(0.0f, 0.0f, 1.0f));
+-    if (params.wireframeEmbedSurfaceNormals && params.wireframeMode.sampling == TessParams::CurveSampling::Underlying) {
++    if (params.wireframeEmbedSurfaceNormals && params.wireframeSampling == TessParams::CurveSampling::Underlying) {
+         for (int i = 0; i < (int)ctx.pointNormalAccum.size(); ++i) {
+             if (ctx.pointNormalCount[i] > 0) {
+                 GfVec3f avg = ctx.pointNormalAccum[i]; // sum, not yet divided
+@@ -1008,7 +1008,7 @@ void MeshTessellationRoutine::emitDeferredWireframeCurves(const TessParams& para
+             arcValues.back() = 1.0f;
+         }
+ 
+-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
++        if (params.wireframeType == TessParams::CurveType::Cubic) {
+             // Phantom start — duplicate first point
+             wireframePoints.push_back(points[resolved.front()]);
+             wireframeArcValues.push_back(0.0f);
+@@ -1021,7 +1021,7 @@ void MeshTessellationRoutine::emitDeferredWireframeCurves(const TessParams& para
+             if (params.wireframeEmbedSurfaceNormals)
+                 wireframeSurfaceNormals.push_back(pointNormals[resolved[i]]);
+         }
+-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
++        if (params.wireframeType == TessParams::CurveType::Cubic) {
+             // Phantom end — duplicate last point
+             wireframePoints.push_back(points[resolved.back()]);
+             wireframeArcValues.push_back(1.0f);
+diff --git a/lib/CadUSD/Tessellation/MeshTessellation/WireframePrim.cpp b/lib/CadUSD/Tessellation/MeshTessellation/WireframePrim.cpp
+index a3972aa..4ac9172 100644
+--- a/lib/CadUSD/Tessellation/MeshTessellation/WireframePrim.cpp
++++ b/lib/CadUSD/Tessellation/MeshTessellation/WireframePrim.cpp
+@@ -118,7 +118,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
+             return false;
+         }
+ 
+-        if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
++        if (params.wireframeType == TessParams::CurveType::Cubic) {
+             curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+             curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+         } else {
+@@ -178,7 +178,7 @@ bool MeshTessellationRoutine::writeWireframePrim(UsdStageRefPtr stage,
+                 continue;
+             }
+ 
+-            if (params.wireframeMode.type == TessParams::CurveType::Cubic) {
++            if (params.wireframeType == TessParams::CurveType::Cubic) {
+                 curve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                 curve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+             } else {
+diff --git a/lib/CadUSD/Tessellation/SketchTessellation/SketchPrim.cpp b/lib/CadUSD/Tessellation/SketchTessellation/SketchPrim.cpp
+index 1801e2b..e2c54f4 100644
+--- a/lib/CadUSD/Tessellation/SketchTessellation/SketchPrim.cpp
++++ b/lib/CadUSD/Tessellation/SketchTessellation/SketchPrim.cpp
+@@ -107,7 +107,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
+             return false;
+         }
+ 
+-        if (params.sketchMode.type == TessParams::CurveType::Cubic) {
++        if (params.sketchType == TessParams::CurveType::Cubic) {
+             sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+             sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+         } else {
+@@ -155,7 +155,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
+                 continue;
+             }
+ 
+-            if (params.sketchMode.type == TessParams::CurveType::Cubic) {
++            if (params.sketchType == TessParams::CurveType::Cubic) {
+                 sketchCurve.CreateTypeAttr().Set(UsdGeomTokens->cubic);
+                 sketchCurve.CreateBasisAttr().Set(UsdGeomTokens->catmullRom);
+             } else {
+diff --git a/lib/CadUSD/Tessellation/SketchTessellation/SketchTessellationRoutine.cpp b/lib/CadUSD/Tessellation/SketchTessellation/SketchTessellationRoutine.cpp
+index 992756b..2543189 100644
+--- a/lib/CadUSD/Tessellation/SketchTessellation/SketchTessellationRoutine.cpp
++++ b/lib/CadUSD/Tessellation/SketchTessellation/SketchTessellationRoutine.cpp
+@@ -376,7 +376,7 @@ void SketchTessellationRoutine::tessellateSketchPlane(const TopoDS_Shape& defSha
+ void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
+                                                  const SdfPath& protoPath,
+                                                  SketchTessellationContext& ctx) {
+-    if (params.sketchMode.type == TessParams::CurveType::None)
++    if (params.sketchType == TessParams::CurveType::None)
+         return;
+ 
+     for (const TopoDS_Edge& edge : ctx.freeEdges) {
+@@ -391,7 +391,7 @@ void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
+ 
+         std::vector<float> arcValues = computeArcValues(sampler);
+ 
+-        if (params.sketchMode.type == TessParams::CurveType::Cubic) {
++        if (params.sketchType == TessParams::CurveType::Cubic) {
+             // Phantom start — duplicate first point for Catmull-Rom
+             gp_Pnt p0 = sampler.Value(1);
+             sketchPoints.push_back(GfVec3f(p0.X(), p0.Y(), p0.Z()));
+diff --git a/lib/CadUSD/TessellationParams.cpp b/lib/CadUSD/TessellationParams.cpp
+index f01b263..467efe9 100644
+--- a/lib/CadUSD/TessellationParams.cpp
++++ b/lib/CadUSD/TessellationParams.cpp
+@@ -56,15 +56,15 @@ TessParams CadUsdPipeline::getTessParams(UsdPrim prim,
+     // Wireframe
+     updateIfAuthored(api.GetCadWireframeCombineCurvesAttr(), &params.wireframeCombineCurves);
+     updateIfAuthored(api.GetCadWireframeDeflectionAttr(), &params.wireframeDeflection);
+-    updateIfAuthored(api.GetCadWireframeTypeAttr(), &params.wireframeMode.type);
++    updateIfAuthored(api.GetCadWireframeTypeAttr(), &params.wireframeType);
+     updateIfAuthored(api.GetCadWireframeEmbedSurfaceNormalsAttr(), &params.wireframeEmbedSurfaceNormals);
+     updateIfAuthored(api.GetCadWireframePointLimitAttr(), &params.wireframePointLimit);
+-    updateIfAuthored(api.GetCadWireframeSamplingAttr(), &params.wireframeMode.sampling);
++    updateIfAuthored(api.GetCadWireframeSamplingAttr(), &params.wireframeSampling);
+ 
+     // Sketch
+     updateIfAuthored(api.GetCadSketchCombineCurvesAttr(), &params.sketchCombineCurves);
+     updateIfAuthored(api.GetCadSketchDeflectionAttr(), &params.sketchDeflection);
+-    updateIfAuthored(api.GetCadSketchTypeAttr(), &params.sketchMode.type);
++    updateIfAuthored(api.GetCadSketchTypeAttr(), &params.sketchType);
+     updateIfAuthored(api.GetCadSketchEmbedSurfaceNormalsAttr(), &params.sketchEmbedSurfaceNormals);
+     updateIfAuthored(api.GetCadSketchPointLimitAttr(), &params.sketchPointLimit);
+ 

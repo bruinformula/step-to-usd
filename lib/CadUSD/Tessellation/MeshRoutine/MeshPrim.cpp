@@ -62,7 +62,7 @@ bool MeshTessellationRoutine::defineMeshPrim(UsdStageRefPtr stage,
                                              const TessParams& params) const {
     UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
-    if (params.meshEnableSurfaceSubsets) {
+    if (mesh.enableSurfaceSubsets) {
         for (const auto& surfaceIDBounds : surfaceIDBounds) {
             UsdGeomSubset::Define(stage, protoMesh.GetPath().AppendChild(
                                              TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID))));
@@ -86,7 +86,7 @@ bool MeshTessellationRoutine::writeMeshPrim(UsdStageRefPtr stage,
                                             const TessParams& params) const {
     UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
 
-    if (params.meshEnableSurfaceSubsets) {
+    if (mesh.enableSurfaceSubsets) {
         for (const auto& surfaceIDBounds : surfaceIDBounds) {
             int count = surfaceIDBounds.endIdx - surfaceIDBounds.startIdx;
 
@@ -127,10 +127,10 @@ bool MeshTessellationRoutine::writeMeshPrim(UsdStageRefPtr stage,
     }
 
     UsdGeomPrimvarsAPI api(protoMesh);
-    if (params.meshEnableUVs)
+    if (mesh.enableUVs)
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st")))
             p.Set(perSurfaceUVs);
-    if (params.meshEnableIsBoundaryVertex)
+    if (mesh.enableIsBoundaryVertex)
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex")))
             p.Set(isBoundaryVertex);
     if (!boundaryTangents.empty() && boundaryTangents.size() == points.size()) {

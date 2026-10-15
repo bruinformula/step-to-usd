@@ -136,54 +136,6 @@ void updateIfAuthored(const UsdAttribute& attr,
     }
 }
 
-// Helper to read a token attr and convert to CurveType
-template <>
-void updateIfAuthored(const UsdAttribute& attr,
-                      TessParams::CurveSampling* value) {
-    bool hasValue = attr.HasValue();
-    if (!hasValue)
-        return;
-
-    TfToken token;
-    if (!attr.Get(&token)) {
-        *value = TessParams::CurveSampling::Underlying;
-        return;
-    }
-
-    if (token == AutolibTokens->underlying) {
-        *value = TessParams::CurveSampling::Underlying;
-        return;
-    } else if (token == AutolibTokens->resampled) {
-        *value = TessParams::CurveSampling::Resampled;
-        return;
-    }
-}
-
-template <>
-void updateIfAuthored(const UsdAttribute& attr,
-                      TessParams::CurveType* value) {
-    bool hasValue = attr.HasValue();
-    if (!hasValue)
-        return;
-
-    TfToken token;
-    if (!attr.Get(&token)) {
-        *value = TessParams::CurveType::None;
-        return;
-    }
-
-    if (token == AutolibTokens->none) {
-        *value = TessParams::CurveType::None;
-        return;
-    } else if (token == AutolibTokens->linear) {
-        *value = TessParams::CurveType::Linear;
-        return;
-    } else if (token == AutolibTokens->cubic) {
-        *value = TessParams::CurveType::Cubic;
-        return;
-    }
-}
-
 template void updateIfAuthored<float>(const UsdAttribute&,
                                       float*);
 template void updateIfAuthored<double>(const UsdAttribute&,
@@ -194,5 +146,8 @@ template void updateIfAuthored<uint64_t>(const UsdAttribute&,
                                          uint64_t*);
 template void updateIfAuthored<bool>(const UsdAttribute&,
                                      bool*);
+
+template void updateIfAuthored<TfToken>(const UsdAttribute&,
+                                     TfToken*);
 
 } // namespace CadUSD

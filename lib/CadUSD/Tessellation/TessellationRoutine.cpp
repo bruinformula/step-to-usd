@@ -75,9 +75,15 @@
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 #include "CadUSD/Tessellation/TessellationUtils.h"
 
+#include "CadUSD/UsdUtils.h"
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace CadUSD {
+
+void GenericParams::populateParams(const AutolibCadTessellationAPI &api) {
+    updateIfAuthored(api.GetCadRenderPurposeThresholdAttr(), &renderPurposeThreshold);
+}
 
 bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
                                      const TessParams& params,
@@ -90,13 +96,13 @@ bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
     std::string protoName = protoPath.GetAsString();
 
     TopoDS_Shape fixedShape = defShape;
-    if (params.meshEnableRepairPass) {
+    if (params.mesh.enableRepairPass) {
         LOG_DEBUG("  -> tessellatePart: ShapeFix_Shape (Repair pass)");
         ShapeFix_Shape fixer(defShape);
-        fixer.SetPrecision(params.meshFixPrecision);
-        fixer.SetMaxTolerance(params.meshFixTolerance);
+        fixer.SetPrecision(params.mesh.fixPrecision);
+        fixer.SetMaxTolerance(params.mesh.fixTolerance);
 
-        bool fixTimedOut = runWithDeadline(std::chrono::milliseconds(params.meshFixTimeout),
+        bool fixTimedOut = runWithDeadline(std::chrono::milliseconds(params.mesh.fixTimeout),
                                            "ShapeFix_Shape for part " + protoName + ": ", fixer);
 
         if (fixTimedOut) {
@@ -111,28 +117,28 @@ bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
 
     double diagonal = computeBoundingBoxDiagonal(fixedShape);
 
-    bool renderOnly = params.renderPurposeThreshold != std::numeric_limits<double>::infinity() &&
-                      diagonal < params.renderPurposeThreshold;
+    bool renderOnly = params.generic.renderPurposeThreshold != std::numeric_limits<double>::infinity() &&
+                      diagonal < params.generic.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
     meshParams.InParallel = false;
-    meshParams.Deflection = diagonal * params.meshLinearDeflection;
-    meshParams.Angle = params.meshAngularDeflection; // in radians
-    meshParams.MinSize = meshParams.Deflection * params.meshMinSize;
+    meshParams.Deflection = diagonal * params.mesh.linearDeflection;
+    meshParams.Angle = params.mesh.angularDeflection; // in radians
+    meshParams.MinSize = meshParams.Deflection * params.mesh.minSize;
 
     LOG_DEBUG("  -> tessellatePart: BRepMesh_IncrementalMesh");
     BRepMesh_IncrementalMesh mesher;
     mesher.SetShape(fixedShape);
     mesher.ChangeParameters() = meshParams;
 
-    bool meshTimedOut = runWithDeadline(std::chrono::milliseconds(params.meshMeshTimeout),
+    bool meshTimedOut = runWithDeadline(std::chrono::milliseconds(params.mesh.meshTimeout),
                                         "BRepMesh_IncrementalMesh for part " + protoName + ": ", mesher);
 
     if (meshTimedOut) {
         LOG_DEBUG("  -> BRepMesh_IncrementalMesh timed out"); // Some faces will have null triangulations
     }
 
-    int maxPasses = params.meshMaxNumberRemeshPasses;
+    int maxPasses = params.mesh.maxRemeshPasses;
     IMeshTools_Parameters repairParams = meshParams;
 
     // repeat check for self-intersections
@@ -146,7 +152,7 @@ bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
     LOG_DEBUG("  -> tessellatePart: Starting remesh passes (" + std::to_string(maxPasses) + ")");
     for (int pass = 0; pass < maxPasses; ++pass) {
         LOG_DEBUG("  Running self-intersection check (pass " + std::to_string(pass) + ")");
-        BRepExtrema_SelfIntersection checker(fixedShape, params.meshSelfIntersectionThreshold);
+        BRepExtrema_SelfIntersection checker(fixedShape, params.mesh.selfIntersectionThreshold);
         LOG_DEBUG("  -> checker.Perform()");
         checker.Perform();
 
@@ -174,7 +180,7 @@ bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
         remesher.SetShape(fixedShape);
         remesher.ChangeParameters() = repairParams;
 
-        bool remeshTimedOut = runWithDeadline(std::chrono::milliseconds(params.meshRemeshTimeout),
+        bool remeshTimedOut = runWithDeadline(std::chrono::milliseconds(params.mesh.remeshTimeout),
                                               "BRepMesh_IncrementalMesh for part " + protoName + ": ", remesher);
 
         if (remeshTimedOut) {
