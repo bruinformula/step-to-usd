@@ -4,7 +4,7 @@
 #include <Eigen/Core>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
@@ -26,6 +26,6 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
                     const std::vector<Vector3i> &face_edgeOrients, const MatrixXi &F,
                     const VectorXi &V2E, const VectorXi &E2E);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

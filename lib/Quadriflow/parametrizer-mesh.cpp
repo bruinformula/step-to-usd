@@ -8,7 +8,7 @@
 #include "Quadriflow/dedge.hpp"
 #include <queue>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void Parametrizer::NormalizeMesh() {
     double maxV[3] = {-1e30, -1e30, -1e30};
@@ -612,4 +612,5 @@ void Parametrizer::OutputMesh(const char* obj_name) {
     os.close();
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

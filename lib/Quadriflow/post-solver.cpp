@@ -16,7 +16,7 @@
 #include "Quadriflow/post-solver.hpp"
 #include "Quadriflow/serialize.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 /// Coefficient of area constraint.  The magnitude is 1 if area is equal to 0.
 const double COEFF_AREA = 1;
@@ -424,4 +424,5 @@ int main(int argc, char* argv[]) {
 
 #endif
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

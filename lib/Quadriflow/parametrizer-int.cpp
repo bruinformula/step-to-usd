@@ -6,7 +6,7 @@
 #include <random>
 #include "Quadriflow/optimizer.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 
 void Parametrizer::BuildEdgeInfo() {
@@ -422,4 +422,5 @@ void Parametrizer::ComputeMaxFlow() {
     hierarchy.UpdateGraphValue(face_edgeOrients, face_edgeIds, edge_diff);
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

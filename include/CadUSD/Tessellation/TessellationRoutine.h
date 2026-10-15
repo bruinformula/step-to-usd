@@ -26,6 +26,8 @@ class Geom_Surface;
 
 namespace occt = opencascade;
 
+namespace CadUSD {
+
 struct TessParams {
     // Meshing
     double meshLinearDeflection = 1.0f;       // Linear deflection as fraction of bounding-box diagonal
@@ -463,6 +465,7 @@ private:
     MeshTessellationRoutine meshRoutine;
     #ifdef WITH_QUADRIFLOW
     InstantMeshesTessellationRoutine instRoutine;
-    #endif 
-
+    #endif
 };
+
+} // namespace CadUSD

@@ -22,6 +22,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 struct StageFilterInfo {
     bool makeFresh = false; // whole stage targeted
     bool hasSpecificPrototypes = false; // individual prototypes targeted
@@ -181,3 +183,5 @@ private:
         const TessParams& defaultParams = {}
     );
 };
+
+} // namespace CadUSD

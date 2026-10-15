@@ -8,7 +8,7 @@
 #include "Quadriflow/field-math.hpp"
 #include "Quadriflow/parametrizer.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi &E2E, VectorXi &boundary,
                VectorXi &nonmanifold, double maxLength) {
@@ -539,4 +539,5 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
     }
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

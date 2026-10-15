@@ -3,7 +3,7 @@
 #include "Quadriflow/dedge.hpp"
 #include <fstream>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void generate_adjacency_matrix_uniform(
 	const MatrixXi &F, const VectorXi &V2E, const VectorXi &E2E,
@@ -32,4 +32,5 @@ void generate_adjacency_matrix_uniform(
 	}
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

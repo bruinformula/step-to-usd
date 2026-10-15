@@ -35,7 +35,9 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-bool InstantMeshesTessellationRountine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
+namespace CadUSD {
+
+bool InstantMeshesTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
     SdfPath pointsPath = partPath.AppendChild(TfToken("Points"));
     SdfPath instantMeshesPath = partPath.AppendChild(TfToken("InstantMesh"));
 
@@ -105,4 +107,5 @@ size_t InstantMeshesTessellationRoutine::size() const {
     return meshSize;
 }
 
+} // namespace CadUSD
 #endif

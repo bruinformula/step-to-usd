@@ -19,7 +19,7 @@
 #include "post-solver.hpp"
 #include "serialize.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
@@ -172,6 +172,6 @@ extern void generate_adjacency_matrix_uniform(const MatrixXi& F, const VectorXi&
                                               const VectorXi& E2E, const VectorXi& nonManifold,
                                               AdjacentMatrix& adj);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

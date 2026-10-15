@@ -80,6 +80,8 @@ class Geom_Surface;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 struct ShapeKey {
     const void* tshape;
 
@@ -422,3 +424,4 @@ void CadUsdPipeline::tessellateGeometry(
         }
     }
 }
+} // namespace CadUSD

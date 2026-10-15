@@ -65,6 +65,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 // Write CAD pat
 void CadUsdPipeline::writePartClass(
     UsdStageRefPtr prototypesStage
@@ -589,3 +591,5 @@ void CadUsdPipeline::writePrototypeGeometries(
 
     LOG_PROGRESS_DONE();
 }
+
+} // namespace CadUSD

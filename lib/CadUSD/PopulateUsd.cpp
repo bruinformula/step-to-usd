@@ -67,6 +67,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 static bool stageNeedsUnitReset(const fs::path& stagePath, double expectedMetersPerUnit) {
     if (!fs::exists(stagePath)) return false;
 
@@ -908,3 +910,5 @@ void CadUsdPipeline::populateUsd(
             LOG_ERR("Usd: " + error.GetCommentary());
     }
 }
+
+} // namespace CadUSD

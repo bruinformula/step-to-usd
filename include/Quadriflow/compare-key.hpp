@@ -4,7 +4,7 @@
 #include <iostream>
 #include <map>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 struct Key2i
 {
@@ -97,6 +97,6 @@ struct KeySorted3i
 };
 
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

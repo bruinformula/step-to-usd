@@ -15,7 +15,7 @@
 #include <queue>
 #include <set>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void Parametrizer::ComputeIndexMap(int with_scale) {
     // build edge info
@@ -243,4 +243,5 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
     //                            hierarchy.mScale, false);
 }
 
-}  // namespace qflow
+}  // namespace CadUSD::qflow
+

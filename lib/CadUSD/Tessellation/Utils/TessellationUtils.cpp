@@ -21,6 +21,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 // Split each original curve into pieces no longer than pointLimit.
 // For oversized curves, each continuation piece repeats the previous
 // piece's endpoint as its first point to avoid visual gaps.
@@ -143,3 +145,5 @@ double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape) {
 
     return diagonal;
 }
+
+} // namespace CadUSD

@@ -5,6 +5,8 @@
 #include "CadUSD/Logger.h"
 #include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
 
+namespace CadUSD {
+
 DeadlineProgressIndicator::~DeadlineProgressIndicator() {
     if (_timedOut) {
         LOG_WARN(label + "DeadlineProgressIndicator destroyed after timeout");
@@ -31,3 +33,5 @@ void DeadlineProgressIndicator::Show(const Message_ProgressScope& scope, const b
 }
 
 bool DeadlineProgressIndicator::timedOut() const { return _timedOut; }
+
+} // namespace CadUSD

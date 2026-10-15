@@ -28,8 +28,9 @@
 #include "CadUSD/Logger.h"
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 
-
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace CadUSD {
 
 static TfToken boundaryEdgeDistanceName(int slot) {
     return TfToken("boundaryEdgeDistance" + std::to_string(slot));
@@ -165,3 +166,4 @@ size_t MeshTessellationRoutine::size() const {
     size_t wireframeSize = wireframePoints.size();
     return meshSize + wireframeSize;
 }
+} // namespace CadUSD

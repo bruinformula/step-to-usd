@@ -2,7 +2,7 @@
 #include "Quadriflow/field-math.hpp"
 #include "Quadriflow/parametrizer.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void Parametrizer::ComputeOrientationSingularities() {
     MatrixXd &N = hierarchy.mN[0], &Q = hierarchy.mQ[0];
@@ -139,4 +139,5 @@ void Parametrizer::AnalyzeValence() {
 }
 
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

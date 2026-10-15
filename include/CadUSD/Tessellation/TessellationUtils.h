@@ -18,6 +18,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 struct CurvePiece {
     int sourceCurveIdx; // index into original counts/continuity array
     int pointOffset;    // offset into points array
@@ -64,4 +66,6 @@ VtArray<T> gatherChunkValues(const VtArray<T>& source, const CurveChunk& chunk) 
 
 std::vector<float> computeArcValues(const GCPnts_QuasiUniformDeflection& sampler);
 
-double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape);
+double computeBoundingBoxDiagonal(const TopoDS_Shape &defShape);
+
+} // namespace CadUSD

@@ -27,6 +27,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 bool SketchTessellationRoutine::defineSketchPlanePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -119,3 +121,5 @@ bool SketchTessellationRoutine::writeSketchPlanePrim(
 
     return true;
 }
+
+} // namespace CadUSD

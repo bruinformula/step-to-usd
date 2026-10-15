@@ -43,6 +43,8 @@
 namespace occt = opencascade;
 namespace fs = std::filesystem;
 
+using namespace CadUSD;
+
 const std::string usageText =
     "vroom <convert|mesh> [options]\n"
     "\n"
@@ -342,4 +344,3 @@ int convertXbfToBrep(const ConvertArgs& args) {
               + " BREP files to " + outDir.string());
     return written == static_cast<int>(parts.size()) ? 0 : 1;
 }
-

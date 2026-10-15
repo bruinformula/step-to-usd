@@ -60,4 +60,4 @@ int convertStepToXbf(const fs::path& inputPath, const fs::path& outputPath);
 // BREP -> XBF
 int convertBrepToXbf(const fs::path& inputPath, const fs::path& outputPath);
 // XBF -> BREP
-int convertXbfToBrep(const ConvertArgs& args); 
+int convertXbfToBrep(const ConvertArgs& args);

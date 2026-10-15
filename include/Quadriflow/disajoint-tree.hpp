@@ -3,7 +3,7 @@
 
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 class DisajointTree {
    public:
@@ -146,6 +146,6 @@ class DisajointOrientTree {
     std::vector<int> rank;
 };
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

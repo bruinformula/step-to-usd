@@ -40,6 +40,8 @@
 #include "CadUSD/UsdUtils.h"
 #include "CadUSD/Logger.h"
 
+namespace CadUSD {
+
 std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;
     if (!label.FindAttribute(TDataStd_Name::GetID(), nameAttr)) 
@@ -501,3 +503,5 @@ void OpenCascadeAssembly::debugPrintInstances() const {
                   << "\n";
     }
 }
+
+} // namespace CadUSD

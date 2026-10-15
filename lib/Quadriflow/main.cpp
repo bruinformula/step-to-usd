@@ -8,7 +8,7 @@
 #include <cuda_runtime.h>
 #endif
 
-using namespace qflow;
+using namespace CadUSD::qflow;
 
 Parametrizer field;
 
@@ -125,3 +125,4 @@ int main(int argc, char** argv) {
     //	field.LoopFace(2);
     return 0;
 }
+

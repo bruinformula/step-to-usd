@@ -5,7 +5,7 @@
 #include <atomic>
 #include <iostream>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 /**
 * Lock-free parallel disjoint set data structure (aka UNION-FIND)
@@ -158,6 +158,6 @@ public:
 	mutable std::vector<std::atomic<uint64_t>> mData;
 };
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif /* __UNIONFIND_H */

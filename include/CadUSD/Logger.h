@@ -5,6 +5,8 @@
 #include <chrono>
 #include <string>
 
+namespace CadUSD {
+
 class Logger {
 public:
     enum Level { INFO, DEBUG, ERR, NONE, WARN };
@@ -96,3 +98,5 @@ public:
 #define LOG_PROGRESS_DONE() Logger::progressDone()
 
 #define LOG_SCOPED_TIMER(name) ScopedTimer timer_##__LINE__(name)
+
+} // namespace CadUSD

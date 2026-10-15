@@ -29,6 +29,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+using namespace CadUSD; 
+
 const std::string usageText =
     " frack -- Meshes all CadContainer prims in a Usd scene\n"
     " Options: \n"

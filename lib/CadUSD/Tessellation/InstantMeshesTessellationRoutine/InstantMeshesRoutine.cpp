@@ -54,6 +54,7 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
 
 struct TriNodeKey {
     const Poly_Triangulation* first;
@@ -420,4 +421,5 @@ bool InstantMeshesTessellationRoutine::tessellate(
     return true;
 }
 
+} // namespace CadUSD
 #endif

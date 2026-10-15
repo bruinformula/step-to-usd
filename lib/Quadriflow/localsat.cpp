@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 const int max_depth = 0;
 
@@ -292,4 +292,5 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
     }
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

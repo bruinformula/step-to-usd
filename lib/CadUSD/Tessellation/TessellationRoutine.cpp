@@ -77,6 +77,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 bool TessellationRoutine::tessellate(
     const TopoDS_Shape& defShape, 
     const TessParams& params,
@@ -266,3 +268,5 @@ void TessellationRoutine::clearPrim(
 size_t TessellationRoutine::size() const {
     return meshRoutine.size() + sketchRoutine.size();
 }
+
+} // namespace CadUSD

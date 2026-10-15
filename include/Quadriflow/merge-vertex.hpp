@@ -3,12 +3,12 @@
 
 #include <Eigen/Core>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
 void merge_close(MatrixXd& V, MatrixXi& F, double threshold);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

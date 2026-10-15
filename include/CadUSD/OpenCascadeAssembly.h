@@ -33,6 +33,8 @@ namespace fs = std::filesystem;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 // TDF_Label is a handle into the document's label tree. Two labels pointing
 // at the same node are equal — we use that for deduplicating definitions.
 // We hash by walking the tag chain to the container, which uniquely identifies
@@ -192,3 +194,5 @@ private:
         int& cursor
     );
 };
+
+} // namespace CadUSD

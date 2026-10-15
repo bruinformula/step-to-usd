@@ -5,7 +5,7 @@
 #include <map>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void merge_close(MatrixXd& V, MatrixXi& F, double threshold)
 {
@@ -41,4 +41,5 @@ void merge_close(MatrixXd& V, MatrixXi& F, double threshold)
 	F = std::move(newF);
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

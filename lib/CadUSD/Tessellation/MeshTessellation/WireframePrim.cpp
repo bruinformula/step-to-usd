@@ -36,6 +36,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 bool MeshTessellationRoutine::defineWireframePrim(
     UsdStageRefPtr stage,
     const SdfPath& protoPath,
@@ -213,3 +215,5 @@ bool MeshTessellationRoutine::writeWireframePrim(
     }
     return true;
 }
+
+} // namespace CadUSD

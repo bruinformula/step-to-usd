@@ -12,7 +12,7 @@
 #include <vector>
 #include "disajoint-tree.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
@@ -59,6 +59,6 @@ void optimize_quad_positions(std::vector<Vector3d>& O_quad, std::vector<Vector3d
                              DisajointTree& disajoint_tree, double reference_length,
                              bool just_serialize = true);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif /* post_solver_h */

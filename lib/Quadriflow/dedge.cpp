@@ -10,7 +10,7 @@
 #ifdef WITH_TBB
 #include "tbb/tbb.h"
 #endif
-namespace qflow {
+namespace CadUSD::qflow {
 
 inline int dedge_prev(int e, int deg) { return (e % deg == 0u) ? e + (deg - 1) : e - 1; }
 
@@ -484,4 +484,5 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
     }
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

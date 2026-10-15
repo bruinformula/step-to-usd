@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
@@ -20,6 +20,6 @@ void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& 
 
 void remove_nonmanifold(std::vector<Vector4i> &F, std::vector<Vector3d> &V);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

@@ -12,7 +12,7 @@
 #  include "pss/parallel_stable_sort.h"
 #endif
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 Hierarchy::Hierarchy() {
     mAdj.resize(MAX_DEPTH + 1);
@@ -1340,4 +1340,5 @@ void Hierarchy::CopyToHost() {}
 
 #endif
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

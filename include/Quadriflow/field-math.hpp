@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
@@ -478,6 +478,6 @@ inline Vector3d TravelField(Vector3d p, Vector3d &pt, double &len, int &f, Vecto
     return p;
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

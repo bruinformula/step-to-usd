@@ -1,6 +1,6 @@
 #include "Quadriflow/parametrizer.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 void Parametrizer::ComputeInverseAffine()
 {
@@ -116,4 +116,5 @@ void Parametrizer::EstimateSlope() {
     }
 }
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

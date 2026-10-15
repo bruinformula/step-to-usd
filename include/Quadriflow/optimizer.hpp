@@ -4,7 +4,7 @@
 #include "field-math.hpp"
 #include "hierarchy.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 class Optimizer {
    public:
@@ -51,6 +51,6 @@ extern void PropagatePositionUpper(glm::dvec3* srcField, int num_position, glm::
 
 #endif
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

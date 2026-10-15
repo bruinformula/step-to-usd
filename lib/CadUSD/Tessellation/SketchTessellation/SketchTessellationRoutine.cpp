@@ -83,6 +83,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 struct SketchTessellationContext { 
     std::vector<TopoDS_Edge> freeEdges;
 };
@@ -537,3 +539,5 @@ bool SketchTessellationRoutine::writePrim(
 
     return sketchWritten && sketchPlaneWritten;
 }
+
+} // namespace CadUSD

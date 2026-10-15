@@ -14,7 +14,7 @@
 
 using namespace Eigen;
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 class Hierarchy {
    public:
@@ -94,6 +94,6 @@ class Hierarchy {
 #endif
 };
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

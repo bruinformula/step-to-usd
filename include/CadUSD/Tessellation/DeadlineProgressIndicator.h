@@ -2,7 +2,9 @@
 
 #include <chrono>
 #include <Message_ProgressIndicator.hxx>
- 
+
+namespace CadUSD {
+
 class DeadlineProgressIndicator : public Message_ProgressIndicator {
 public:
     using Clock = std::chrono::steady_clock;
@@ -42,3 +44,5 @@ bool runWithDeadline(
 
     return progress->timedOut();
 }
+
+} // namespace CadUSD

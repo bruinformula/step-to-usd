@@ -4,12 +4,12 @@
 #include <Eigen/Core>
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 using namespace Eigen;
 
 void load(const char* filename, MatrixXd& V, MatrixXi& F);
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif

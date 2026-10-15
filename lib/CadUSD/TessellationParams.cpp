@@ -19,6 +19,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 TessParams CadUsdPipeline::getTessParams(
     UsdPrim prim,
     const TessParams& defaultParams
@@ -178,3 +180,4 @@ std::optional<SdfReference> CadUsdPipeline::getPrototypesDefaultParams(const Usd
 
     return reference;
 }
+} // namespace CadUSD

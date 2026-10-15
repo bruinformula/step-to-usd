@@ -42,6 +42,8 @@
 #include "CadUSD/CadUsdPipeline.h"
 #include "CadUSD/Logger.h"
 
+using namespace CadUSD;
+
 const std::string usageText =
     " vroom -- CAD data io and meshing utility\n"
     " usage: vroom convert -i <input> [-o <output>] [-p <prim>] [-v]\n"

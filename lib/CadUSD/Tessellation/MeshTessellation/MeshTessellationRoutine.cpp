@@ -87,6 +87,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 using Clock = std::chrono::high_resolution_clock;
 using Seconds = std::chrono::duration<double>;
 
+namespace CadUSD {
+
 static GfVec3f sampleNearestSurfaceNormal(const TopoDS_Face& face, const gp_Pnt& p) {
     TopLoc_Location loc;
     occt::handle<Geom_Surface> surf = BRep_Tool::Surface(face, loc);
@@ -1192,3 +1194,4 @@ bool MeshTessellationRoutine::writePrim(
 
     return meshWritten && wireframeWritten;
 }
+} // namespace CadUSD

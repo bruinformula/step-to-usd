@@ -33,6 +33,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 bool SketchTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
     SdfPath sketchPath = partPath.AppendChild(TfToken("Sketch"));
     SdfPath sketchPlanesPath = partPath.AppendChild(TfToken("SketchPlanes"));
@@ -202,3 +204,5 @@ size_t SketchTessellationRoutine::size() const {
     size_t sketchPlaneSize = sketchPlanePoints.size();
     return sketchSize + sketchPlaneSize;
 }
+
+} // namespace CadUSD

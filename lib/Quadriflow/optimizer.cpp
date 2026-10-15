@@ -13,7 +13,7 @@
 #include "Quadriflow/flow.hpp"
 #include "Quadriflow/parametrizer.hpp"
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 #ifdef WITH_CUDA
 #    include <cuda_runtime.h>
@@ -1410,4 +1410,5 @@ void Optimizer::optimize_positions_cuda(Hierarchy& mRes) {
 
 #endif
 
-} // namespace qflow
+} // namespace CadUSD::qflow
+

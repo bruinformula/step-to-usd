@@ -17,6 +17,8 @@ namespace fs = std::filesystem;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace CadUSD {
+
 UsdStageRefPtr initUsdStage(
     const fs::path& newStagePath, 
     bool clearExisting
@@ -53,4 +55,6 @@ extern template void updateIfAuthored<float>(const UsdAttribute&, float*);
 extern template void updateIfAuthored<double>(const UsdAttribute&, double*);
 extern template void updateIfAuthored<int>(const UsdAttribute&, int*);
 extern template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
-extern template void updateIfAuthored<bool>(const UsdAttribute&, bool*);
+extern template void updateIfAuthored<bool>(const UsdAttribute &, bool *);
+
+} // namespace CadUSD

@@ -3,7 +3,7 @@
 
 #include <vector>
 
-namespace qflow {
+namespace CadUSD::qflow {
 
 struct Link
 {
@@ -32,6 +32,6 @@ struct TaggedLink {
 
 typedef std::vector<std::vector<Link> > AdjacentMatrix;
 
-} // namespace qflow
+} // namespace CadUSD::qflow
 
 #endif
