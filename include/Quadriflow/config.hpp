@@ -10,13 +10,13 @@ const int GRAIN_SIZE = 1024;
 
 #ifdef LOG_OUTPUT
 
-#define lprintf(...) printf(__VA_ARGS__)
-#define lputs(...) puts(__VA_ARGS__)
+#    define lprintf(...) printf(__VA_ARGS__)
+#    define lputs(...) puts(__VA_ARGS__)
 
 #else
 
-#define lprintf(...) void(0)
-#define lputs(...) void(0)
+#    define lprintf(...) void(0)
+#    define lputs(...) void(0)
 
 #endif
 

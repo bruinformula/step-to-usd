@@ -1,31 +1,31 @@
-#include <cassert>
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <filesystem>
 #include <iostream>
-#include <vector>
 #include <optional>
+#include <vector>
 
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
 #include <BinXCAFDrivers.hxx>
-#include <STEPCAFControl_Reader.hxx>
-#include <TDocStd_Application.hxx>
-#include <TDocStd_Document.hxx>
-#include <XCAFDoc_DocumentTool.hxx>
-#include <XCAFDoc_ShapeTool.hxx>
-#include <TDF_Label.hxx>
-#include <TDataStd_Name.hxx>
-#include <TCollection_ExtendedString.hxx>
-#include <gp_Trsf.hxx>
-#include <gp_TrsfForm.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <PCDM_ReaderStatus.hxx>
 #include <PCDM_StoreStatus.hxx>
+#include <STEPCAFControl_Reader.hxx>
 #include <Standard_Failure.hxx>
-#include <TopoDS_Shape.hxx>
 #include <Standard_Handle.hxx>
-#include <BRepTools.hxx>
-#include <BRep_Builder.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDF_Label.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDocStd_Application.hxx>
+#include <TDocStd_Document.hxx>
+#include <TopoDS_Shape.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_TrsfForm.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -34,8 +34,8 @@
 
 #pragma pop_macro("Handle")
 
-#include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/Logger.h"
+#include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/UsdUtils.h"
 
 #include "convert.h"
@@ -45,35 +45,34 @@ namespace fs = std::filesystem;
 
 using namespace CadUSD;
 
-const std::string usageText =
-    "vroom <convert|mesh> [options]\n"
-    "\n"
-    "convert: STEP/BREP <-> XBF\n"
-    "  -i, --input <path>       Input\n"
-    "  -o, --output <path>      Output\n"
-    "  -p, --prim <path>        BREP export prim (repeatable)\n"
-    "  -v, --verbose            Debug\n"
-    "\n"
-    "mesh: Tessellate USD\n"
-    "  -i, --input <path>       Input\n"
-    "  -p, --prim <path>        Prim (repeatable)\n"
-    "  -q, --quiet              Suppress output\n"
-    "  -v, --verbose            Verbose\n"
-    "  -h, --help               Help\n"
-    "\n"
-    "Examples:\n"
-    "  vroom convert -i part.step\n"
-    "  vroom convert -i assembly.xbf -p /Bracket\n"
-    "  vroom mesh -i container.usd\n";
+const std::string usageText = "vroom <convert|mesh> [options]\n"
+                              "\n"
+                              "convert: STEP/BREP <-> XBF\n"
+                              "  -i, --input <path>       Input\n"
+                              "  -o, --output <path>      Output\n"
+                              "  -p, --prim <path>        BREP export prim (repeatable)\n"
+                              "  -v, --verbose            Debug\n"
+                              "\n"
+                              "mesh: Tessellate USD\n"
+                              "  -i, --input <path>       Input\n"
+                              "  -p, --prim <path>        Prim (repeatable)\n"
+                              "  -q, --quiet              Suppress output\n"
+                              "  -v, --verbose            Verbose\n"
+                              "  -h, --help               Help\n"
+                              "\n"
+                              "Examples:\n"
+                              "  vroom convert -i part.step\n"
+                              "  vroom convert -i assembly.xbf -p /Bracket\n"
+                              "  vroom mesh -i container.usd\n";
 
 std::string lowerExtension(const fs::path& p) {
     std::string ext = p.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(),
-                    [](unsigned char c) { return std::tolower(c); });
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
     return ext;
 }
 
-ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token, const std::string& nextToken) {
+ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token,
+                                            const std::string& nextToken) {
     if (token == "-i" || token == "--input") {
         if (nextToken.empty()) {
             std::cerr << "Expected a path after " << token << std::endl;
@@ -85,7 +84,7 @@ ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token, const std:
         }
         inputPath = nextToken;
         std::string ext = lowerExtension(inputPath);
-    
+
         if (ext == ".step" || ext == ".stp") {
             kind = ConversionKind::StepToXbf;
         } else if (ext == ".brep") {
@@ -140,7 +139,7 @@ ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token, const std:
     if (token == "-v" || token == "--verbose") {
         Logger::activeLevel = Logger::DEBUG;
         return ParseResult::SUCCESS;
-    } 
+    }
 
     std::cout << "Unrecognized command-line option: " << token << std::endl;
     return ParseResult::FAILURE;
@@ -180,17 +179,15 @@ bool ConvertArgs::verify() {
         case ConversionKind::Unknown:
         default:
             LOG_ERR("Unrecognized input extension '" + inputPath.extension().string() +
-                     "'. Supported input extensions are .step, .stp, .brep, .xbf");
+                    "'. Supported input extensions are .step, .stp, .brep, .xbf");
             return false;
     }
 }
 
-bool writeShapeToBrep(
-    const TopoDS_Shape& localShape,
-    const gp_Trsf& worldTransform,
-    bool bake,
-    const fs::path& outPath
-) {
+bool writeShapeToBrep(const TopoDS_Shape& localShape,
+                      const gp_Trsf& worldTransform,
+                      bool bake,
+                      const fs::path& outPath) {
     if (!outPath.parent_path().empty()) {
         fs::create_directories(outPath.parent_path());
     }
@@ -207,7 +204,8 @@ bool writeShapeToBrep(
 }
 
 // STEP -> XBF
-int convertStepToXbf(const fs::path& inputPath, const fs::path& outputPath) {
+int convertStepToXbf(const fs::path& inputPath,
+                     const fs::path& outputPath) {
     // Multi-threaded read doesn't produce stable tree ordering,
     // which causes trouble with hash logic.
     // OSD_Parallel::SetUseOcctThreads(true);
@@ -239,7 +237,8 @@ int convertStepToXbf(const fs::path& inputPath, const fs::path& outputPath) {
 }
 
 // BREP -> XBF
-int convertBrepToXbf(const fs::path& inputPath, const fs::path& outputPath) {
+int convertBrepToXbf(const fs::path& inputPath,
+                     const fs::path& outputPath) {
     TopoDS_Shape shape;
     BRep_Builder builder;
     if (!BRepTools::Read(shape, inputPath.c_str(), builder)) {
@@ -296,9 +295,8 @@ int convertXbfToBrep(const ConvertArgs& args) {
     if (!args.primPaths.empty()) {
         bool allOk = true;
         for (const auto& wanted : args.primPaths) {
-            auto it = std::find_if(parts.begin(), parts.end(), [&](const auto& p) {
-                return p.path.GetString() == wanted;
-            });
+            auto it =
+                std::find_if(parts.begin(), parts.end(), [&](const auto& p) { return p.path.GetString() == wanted; });
 
             if (it == parts.end()) {
                 LOG_ERR("No prim found at path: " + wanted);
@@ -334,13 +332,14 @@ int convertXbfToBrep(const ConvertArgs& args) {
     int written = 0;
     for (const auto& part : parts) {
         std::string relative = part.path.GetString();
-        if (!relative.empty() && relative[0] == '/') relative.erase(0, 1);
+        if (!relative.empty() && relative[0] == '/')
+            relative.erase(0, 1);
         fs::path outPath = outDir / (relative + ".brep");
         if (writeShapeToBrep(part.localShape, part.worldTransform, args.bakeWorldTransform, outPath)) {
             written++;
         }
     }
-    LOG_INFO("Wrote " + std::to_string(written) + "/" + std::to_string(parts.size())
-              + " BREP files to " + outDir.string());
+    LOG_INFO("Wrote " + std::to_string(written) + "/" + std::to_string(parts.size()) + " BREP files to " +
+             outDir.string());
     return written == static_cast<int>(parts.size()) ? 0 : 1;
 }

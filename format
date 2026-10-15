@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+TARGET_DIRS=(src lib include)
+EXCLUDE_DIRS=(build .git lib/Quadriflow/3rd)
+
+find_args=()
+for dir in "${EXCLUDE_DIRS[@]}"; do
+    find_args+=( \( -path "$dir" -o -path "*/$dir" \) -prune -o )
+done
+
+find "${TARGET_DIRS[@]}" \
+    \( "${find_args[@]}" -type f \( \
+        -name "*.cpp" -o \
+        -name "*.hpp" -o \
+        -name "*.c" -o \
+        -name "*.h" -o \
+        -name "*.cc" \
+    \) -exec clang-format -i -style=file {} + \)
+
+echo "Formatting complete!"

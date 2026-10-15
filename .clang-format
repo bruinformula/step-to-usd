@@ -1,0 +1,16 @@
+BasedOnStyle: Microsoft
+Language: Cpp
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+PointerAlignment: Left
+SortIncludes: true
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: None
+IndentCaseLabels: true
+IndentPPDirectives: AfterHash
+
+PackParameters:
+  BinPack: AlwaysOnePerLine
+  

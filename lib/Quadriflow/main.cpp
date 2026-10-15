@@ -1,18 +1,20 @@
+#include <stdlib.h>
+
 #include "Quadriflow/config.hpp"
 #include "Quadriflow/field-math.hpp"
 #include "Quadriflow/optimizer.hpp"
 #include "Quadriflow/parametrizer.hpp"
-#include <stdlib.h>
 
 #ifdef WITH_CUDA
-#include <cuda_runtime.h>
+#    include <cuda_runtime.h>
 #endif
 
 using namespace CadUSD::qflow;
 
 Parametrizer field;
 
-int main(int argc, char** argv) {
+int main(int argc,
+         char** argv) {
     setbuf(stdout, NULL);
 
 #ifdef WITH_CUDA
@@ -71,8 +73,7 @@ int main(int argc, char** argv) {
                     mRes.mCO[0].col(i0) = p0;
                     mRes.mCO[0].col(i1) = p1;
                     mRes.mCQ[0].col(i0) = mRes.mCQ[0].col(i1) = edge;
-                    mRes.mCQw[0][i0] = mRes.mCQw[0][i1] = mRes.mCOw[0][i0] = mRes.mCOw[0][i1] =
-                        1.0;
+                    mRes.mCQw[0][i0] = mRes.mCQw[0][i1] = mRes.mCOw[0][i0] = mRes.mCOw[0][i1] = 1.0;
                 }
             }
         }
@@ -125,4 +126,3 @@ int main(int argc, char** argv) {
     //	field.LoopFace(2);
     return 0;
 }
-

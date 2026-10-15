@@ -1,17 +1,17 @@
-#include "Quadriflow/optimizer.hpp"
-
 #include <Eigen/Sparse>
+
+#include "Quadriflow/config.hpp"
+#include "Quadriflow/field-math.hpp"
+#include "Quadriflow/flow.hpp"
+#include "Quadriflow/optimizer.hpp"
+#include "Quadriflow/parametrizer.hpp"
+
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <queue>
 #include <unordered_map>
-
-#include "Quadriflow/config.hpp"
-#include "Quadriflow/field-math.hpp"
-#include "Quadriflow/flow.hpp"
-#include "Quadriflow/parametrizer.hpp"
 
 namespace CadUSD::qflow {
 
@@ -20,21 +20,19 @@ namespace CadUSD::qflow {
 #endif
 
 #ifndef EIGEN_MPL2_ONLY
-template<class T>
-using LinearSolver = Eigen::SimplicialLLT<T>;
+template <class T> using LinearSolver = Eigen::SimplicialLLT<T>;
 #else
-template<class T>
-using LinearSolver = Eigen::SparseLU<T>;
+template <class T> using LinearSolver = Eigen::SparseLU<T>;
 #endif
 
-Optimizer::Optimizer() {}
+Optimizer::Optimizer() {
+}
 
 void Optimizer::optimize_orientations(Hierarchy& mRes) {
 #ifdef WITH_CUDA
     optimize_orientations_cuda(mRes);
     printf("%s\n", cudaGetErrorString(cudaDeviceSynchronize()));
-    cudaMemcpy(mRes.mQ[0].data(), mRes.cudaQ[0], sizeof(glm::dvec3) * mRes.mQ[0].cols(),
-               cudaMemcpyDeviceToHost);
+    cudaMemcpy(mRes.mQ[0].data(), mRes.cudaQ[0], sizeof(glm::dvec3) * mRes.mQ[0].cols(), cudaMemcpyDeviceToHost);
 
 #else
 
@@ -49,9 +47,9 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
         for (int iter = 0; iter < levelIterations; ++iter) {
             for (int phase = 0; phase < phases.size(); ++phase) {
                 auto& p = phases[phase];
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
+#    ifdef WITH_OMP
+#        pragma omp parallel for
+#    endif
                 for (int pi = 0; pi < p.size(); ++pi) {
                     int i = p[pi];
                     const Vector3d n_i = N.col(i);
@@ -60,16 +58,17 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
                     for (auto& link : adj[i]) {
                         const int j = link.id;
                         const double weight = link.weight;
-                        if (weight == 0) continue;
+                        if (weight == 0)
+                            continue;
                         const Vector3d n_j = N.col(j);
                         Vector3d q_j = Q.col(j);
-                        std::pair<Vector3d, Vector3d> value =
-                            compat_orientation_extrinsic_4(sum, n_i, q_j, n_j);
+                        std::pair<Vector3d, Vector3d> value = compat_orientation_extrinsic_4(sum, n_i, q_j, n_j);
                         sum = value.first * weight_sum + value.second * weight;
                         sum -= n_i * n_i.dot(sum);
                         weight_sum += weight;
                         double norm = sum.norm();
-                        if (norm > RCPOVERFLOW) sum /= norm;
+                        if (norm > RCPOVERFLOW)
+                            sum /= norm;
                     }
 
                     if (CQw.size() > 0) {
@@ -81,7 +80,8 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
                             sum -= n_i * n_i.dot(sum);
 
                             float norm = sum.norm();
-                            if (norm > RCPOVERFLOW) sum /= norm;
+                            if (norm > RCPOVERFLOW)
+                                sum /= norm;
                         }
                     }
 
@@ -96,13 +96,14 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
             const MatrixXi& toUpper = mRes.mToUpper[level - 1];
             MatrixXd& destField = mRes.mQ[level - 1];
             const MatrixXd& N = mRes.mN[level - 1];
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
+#    ifdef WITH_OMP
+#        pragma omp parallel for
+#    endif
             for (int i = 0; i < srcField.cols(); ++i) {
                 for (int k = 0; k < 2; ++k) {
                     int dest = toUpper(k, i);
-                    if (dest == -1) continue;
+                    if (dest == -1)
+                        continue;
                     Vector3d q = srcField.col(i), n = N.col(dest);
                     destField.col(dest) = q - n * n.dot(q);
                 }
@@ -116,9 +117,9 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
         const MatrixXd& Q = mRes.mQ[l];
         MatrixXd& Q_next = mRes.mQ[l + 1];
         auto& toUpper = mRes.mToUpper[l];
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
+#    ifdef WITH_OMP
+#        pragma omp parallel for
+#    endif
         for (int i = 0; i < toUpper.cols(); ++i) {
             Vector2i upper = toUpper.col(i);
             Vector3d q0 = Q.col(upper[0]);
@@ -135,7 +136,8 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
             }
             Vector3d n = N_next.col(i);
             q -= n.dot(q) * n;
-            if (q.squaredNorm() > RCPOVERFLOW) q.normalize();
+            if (q.squaredNorm() > RCPOVERFLOW)
+                q.normalize();
 
             Q_next.col(i) = q;
         }
@@ -144,7 +146,9 @@ void Optimizer::optimize_orientations(Hierarchy& mRes) {
 #endif
 }
 
-void Optimizer::optimize_scale(Hierarchy& mRes, VectorXd& rho, int adaptive) {
+void Optimizer::optimize_scale(Hierarchy& mRes,
+                               VectorXd& rho,
+                               int adaptive) {
     const MatrixXd& N = mRes.mN[0];
     MatrixXd& Q = mRes.mQ[0];
     MatrixXd& V = mRes.mV[0];
@@ -265,12 +269,12 @@ void Optimizer::optimize_scale(Hierarchy& mRes, VectorXd& rho, int adaptive) {
     }
 }
 
-void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
+void Optimizer::optimize_positions(Hierarchy& mRes,
+                                   int with_scale) {
     int levelIterations = 6;
 #ifdef WITH_CUDA
     optimize_positions_cuda(mRes);
-    cudaMemcpy(mRes.mO[0].data(), mRes.cudaO[0], sizeof(glm::dvec3) * mRes.mO[0].cols(),
-               cudaMemcpyDeviceToHost);
+    cudaMemcpy(mRes.mO[0].data(), mRes.cudaO[0], sizeof(glm::dvec3) * mRes.mO[0].cols(), cudaMemcpyDeviceToHost);
 #else
     for (int level = mRes.mAdj.size() - 1; level >= 0; --level) {
         for (int iter = 0; iter < levelIterations; ++iter) {
@@ -284,9 +288,9 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
             auto& phases = mRes.mPhases[level];
             for (int phase = 0; phase < phases.size(); ++phase) {
                 auto& p = phases[phase];
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
+#    ifdef WITH_OMP
+#        pragma omp parallel for
+#    endif
                 for (int pi = 0; pi < p.size(); ++pi) {
                     int i = p[pi];
                     double scale_x = mRes.mScale;
@@ -307,7 +311,8 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
                     for (auto& link : adj[i]) {
                         const int j = link.id;
                         const double weight = link.weight;
-                        if (weight == 0) continue;
+                        if (weight == 0)
+                            continue;
                         double scale_x_1 = mRes.mScale;
                         double scale_y_1 = mRes.mScale;
                         if (with_scale) {
@@ -323,12 +328,13 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
                         q_j.normalize();
 
                         std::pair<Vector3d, Vector3d> value = compat_position_extrinsic_4(
-                            v_i, n_i, q_i, sum, v_j, n_j, q_j, o_j, scale_x, scale_y, inv_scale_x,
-                            inv_scale_y, scale_x_1, scale_y_1, inv_scale_x_1, inv_scale_y_1);
+                            v_i, n_i, q_i, sum, v_j, n_j, q_j, o_j, scale_x, scale_y, inv_scale_x, inv_scale_y,
+                            scale_x_1, scale_y_1, inv_scale_x_1, inv_scale_y_1);
 
                         sum = value.first * weight_sum + value.second * weight;
                         weight_sum += weight;
-                        if (weight_sum > RCPOVERFLOW) sum /= weight_sum;
+                        if (weight_sum > RCPOVERFLOW)
+                            sum /= weight_sum;
                         sum -= n_i.dot(sum - v_i) * n_i;
                     }
 
@@ -344,8 +350,7 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
                     }
 
                     if (weight_sum > 0) {
-                        O.col(i) = position_round_4(sum, q_i, n_i, v_i, scale_x, scale_y,
-                                                    inv_scale_x, inv_scale_y);
+                        O.col(i) = position_round_4(sum, q_i, n_i, v_i, scale_x, scale_y, inv_scale_x, inv_scale_y);
                     }
                 }
             }
@@ -356,13 +361,14 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
             MatrixXd& destField = mRes.mO[level - 1];
             const MatrixXd& N = mRes.mN[level - 1];
             const MatrixXd& V = mRes.mV[level - 1];
-#ifdef WITH_OMP
-#pragma omp parallel for
-#endif
+#    ifdef WITH_OMP
+#        pragma omp parallel for
+#    endif
             for (int i = 0; i < srcField.cols(); ++i) {
                 for (int k = 0; k < 2; ++k) {
                     int dest = toUpper(k, i);
-                    if (dest == -1) continue;
+                    if (dest == -1)
+                        continue;
                     Vector3d o = srcField.col(i), n = N.col(dest), v = V.col(dest);
                     o -= n * n.dot(o - v);
                     destField.col(dest) = o;
@@ -373,13 +379,26 @@ void Optimizer::optimize_positions(Hierarchy& mRes, int with_scale) {
 #endif
 }
 
-void Optimizer::optimize_positions_dynamic(
-    MatrixXi& F, MatrixXd& V, MatrixXd& N, MatrixXd& Q, std::vector<std::vector<int>>& Vset,
-    std::vector<Vector3d>& O_compact, std::vector<Vector4i>& F_compact,
-    std::vector<int>& V2E_compact, std::vector<int>& E2E_compact, double mScale,
-    std::vector<Vector3d>& diffs, std::vector<int>& diff_count,
-    std::map<std::pair<int, int>, int>& o2e, std::vector<int>& sharp_o,
-    std::map<int, std::pair<Vector3d, Vector3d>>& compact_sharp_constraints, int with_scale) {
+void Optimizer::optimize_positions_dynamic(MatrixXi& F,
+                                           MatrixXd& V,
+                                           MatrixXd& N,
+                                           MatrixXd& Q,
+                                           std::vector<std::vector<int>>& Vset,
+                                           std::vector<Vector3d>& O_compact,
+                                           std::vector<Vector4i>& F_compact,
+                                           std::vector<int>& V2E_compact,
+                                           std::vector<int>& E2E_compact,
+                                           double mScale,
+                                           std::vector<Vector3d>& diffs,
+                                           std::vector<int>& diff_count,
+                                           std::map<std::pair<int,
+                                                              int>,
+                                                    int>& o2e,
+                                           std::vector<int>& sharp_o,
+                                           std::map<int,
+                                                    std::pair<Vector3d,
+                                                              Vector3d>>& compact_sharp_constraints,
+                                           int with_scale) {
     std::set<int> uncertain;
     for (auto& info : o2e) {
         if (diff_count[info.second] == 0) {
@@ -422,14 +441,16 @@ void Optimizer::optimize_positions_dynamic(
                 while (true) {
                     int next_v = -1;
                     for (auto& v : adj[current_v]) {
-                        if (N.col(v).dot(n) < cos(10.0 / 180.0 * 3.141592654)) continue;
+                        if (N.col(v).dot(n) < cos(10.0 / 180.0 * 3.141592654))
+                            continue;
                         double dis = (O_compact[i] - V.col(v)).squaredNorm();
                         if (dis < current_dis) {
                             current_dis = dis;
                             next_v = v;
                         }
                     }
-                    if (next_v == -1) break;
+                    if (next_v == -1)
+                        break;
                     // rotate ideal distance
                     Vector3d n1 = N.col(current_v);
                     Vector3d n2 = N.col(next_v);
@@ -465,7 +486,8 @@ void Optimizer::optimize_positions_dynamic(
                     deid = deid0;
                     do {
                         deid = E2E_compact[deid];
-                        if (deid == -1) break;
+                        if (deid == -1)
+                            break;
                         deid = deid / 4 * 4 + (deid + 1) % 4;
                         connection.push_front(F_compact[deid / 4][(deid + 1) % 4]);
                         dedge.push_front(deid);
@@ -498,23 +520,27 @@ void Optimizer::optimize_positions_dynamic(
                         observations.push_back(0);
                     }
                 }
-                if (count <= 1) continue;
+                if (count <= 1)
+                    continue;
                 update = true;
                 observed.insert(p);
                 for (int i = 0; i < observations.size(); ++i) {
-                    if (observations[i] == 1) continue;
+                    if (observations[i] == 1)
+                        continue;
                     int j = i;
                     std::list<int> interp;
                     while (observations[j] == 0) {
                         interp.push_front(j);
                         j -= 1;
-                        if (j < 0) j = edges.size() - 1;
+                        if (j < 0)
+                            j = edges.size() - 1;
                     }
                     j = (i + 1) % edges.size();
                     while (observations[j] == 0) {
                         interp.push_back(j);
                         j += 1;
-                        if (j == edges.size()) j = 0;
+                        if (j == edges.size())
+                            j = 0;
                     }
                     Vector3d dl = diffs[edges[(interp.front() + edges.size() - 1) % edges.size()]];
                     double lenl = dl.norm();
@@ -524,7 +550,8 @@ void Optimizer::optimize_positions_dynamic(
                     dr /= lenr;
                     Vector3d n = dl.cross(dr).normalized();
                     double angle = atan2(dl.cross(dr).norm(), dl.dot(dr));
-                    if (angle < 0) angle += 2 * 3.141592654;
+                    if (angle < 0)
+                        angle += 2 * 3.141592654;
                     Vector3d nc = N.col(Vind[p]);
                     if (n.dot(nc) < 0) {
                         n = -n;
@@ -553,8 +580,10 @@ void Optimizer::optimize_positions_dynamic(
                     }
                 }
             }
-            if (!update) break;
-            for (auto& p : observed) unobserved.erase(p);
+            if (!update)
+                break;
+            for (auto& p : observed)
+                unobserved.erase(p);
         }
     };
 
@@ -568,7 +597,8 @@ void Optimizer::optimize_positions_dynamic(
         std::vector<int> fixed_dim(O_compact.size() * 2, 0);
         for (auto& info : compact_sharp_constraints) {
             fixed_dim[info.first * 2 + 1] = 1;
-            if (info.second.second.norm() < 0.5) fixed_dim[info.first * 2] = 1;
+            if (info.second.second.norm() < 0.5)
+                fixed_dim[info.first * 2] = 1;
         }
         std::vector<double> b(O_compact.size() * 2);
         std::vector<double> x(O_compact.size() * 2);
@@ -576,7 +606,7 @@ void Optimizer::optimize_positions_dynamic(
         std::vector<Vector3d> N_compact(O_compact.size());
         std::vector<Vector3d> V_compact(O_compact.size());
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
         for (int i = 0; i < O_compact.size(); ++i) {
             Q_compact[i] = Q.col(Vind[i]);
@@ -687,7 +717,7 @@ void Optimizer::optimize_positions_dynamic(
         //        solver.setMaxIterations(40);
 
         //        solver.compute(A);
-        VectorXd x_new = solver.solve(rhs);  // solver.solveWithGuess(rhs, x0);
+        VectorXd x_new = solver.solve(rhs); // solver.solveWithGuess(rhs, x0);
 
 #ifdef LOG_OUTPUT
         // std::cout << "[LSQ] n_iteration:" << solver.iterations() << std::endl;
@@ -709,7 +739,8 @@ void Optimizer::optimize_positions_dynamic(
         if (iter + 1 == max_iter) {
             for (int iter = 0; iter < 5; ++iter) {
                 for (int i = 0; i < O_compact.size(); ++i) {
-                    if (sharp_o[i]) continue;
+                    if (sharp_o[i])
+                        continue;
                     if (dedges[i].size() != 4 || uncertain.count(i)) {
                         Vector3d n(0, 0, 0), v(0, 0, 0);
                         Vector3d v0 = O_compact[i];
@@ -730,10 +761,15 @@ void Optimizer::optimize_positions_dynamic(
     }
 }
 
-void Optimizer::optimize_positions_sharp(
-    Hierarchy& mRes, std::vector<DEdge>& edge_values, std::vector<Vector2i>& edge_diff,
-    std::vector<int>& sharp_edges, std::set<int>& sharp_vertices,
-    std::map<int, std::pair<Vector3d, Vector3d>>& sharp_constraints, int with_scale) {
+void Optimizer::optimize_positions_sharp(Hierarchy& mRes,
+                                         std::vector<DEdge>& edge_values,
+                                         std::vector<Vector2i>& edge_diff,
+                                         std::vector<int>& sharp_edges,
+                                         std::set<int>& sharp_vertices,
+                                         std::map<int,
+                                                  std::pair<Vector3d,
+                                                            Vector3d>>& sharp_constraints,
+                                         int with_scale) {
     auto& V = mRes.mV[0];
     auto& F = mRes.mF;
     auto& Q = mRes.mQ[0];
@@ -770,25 +806,29 @@ void Optimizer::optimize_positions_sharp(
         if (sharp_edges[i]) {
             int v1 = F(i % 3, i / 3);
             int v2 = F((i + 1) % 3, i / 3);
-            if (sharp_vertices_links.count(v1) == 0) sharp_vertices_links[v1] = std::set<int>();
+            if (sharp_vertices_links.count(v1) == 0)
+                sharp_vertices_links[v1] = std::set<int>();
             sharp_vertices_links[v1].insert(v2);
             sharp_dedges.insert(DEdge(v1, v2));
         }
     }
     std::vector<std::vector<int>> sharp_to_original_indices(compact_sharp_indices.size());
     for (auto& v : sharp_vertices_links) {
-        if (v.second.size() == 2) continue;
+        if (v.second.size() == 2)
+            continue;
         int p = tree.Index(v.first);
         sharp_to_original_indices[compact_sharp_indices[p]].push_back(v.first);
     }
     for (auto& v : sharp_vertices_links) {
-        if (v.second.size() != 2) continue;
+        if (v.second.size() != 2)
+            continue;
         int p = tree.Index(v.first);
         sharp_to_original_indices[compact_sharp_indices[p]].push_back(v.first);
     }
 
     for (int i = 0; i < V.cols(); ++i) {
-        if (sharp_vertices.count(i)) continue;
+        if (sharp_vertices.count(i))
+            continue;
         int p = tree.Index(i);
         if (compact_sharp_indices.count(p))
             sharp_to_original_indices[compact_sharp_indices[p]].push_back(i);
@@ -801,7 +841,8 @@ void Optimizer::optimize_positions_sharp(
         int v2 = edge_values[e].y;
         int p1 = tree.Index(v1);
         int p2 = tree.Index(v2);
-        if (p1 == p2 || compact_sharp_edges.count(DEdge(p1, p2)) == 0) continue;
+        if (p1 == p2 || compact_sharp_edges.count(DEdge(p1, p2)) == 0)
+            continue;
         p1 = compact_sharp_indices[p1];
         p2 = compact_sharp_indices[p2];
 
@@ -812,7 +853,8 @@ void Optimizer::optimize_positions_sharp(
     std::vector<int> hash(links.size(), 0);
     std::vector<std::vector<Vector3d>> loops;
     for (int i = 0; i < num; ++i) {
-        if (hash[i] == 1) continue;
+        if (hash[i] == 1)
+            continue;
         if (links[i].size() == 2) {
             std::vector<int> q;
             q.push_back(i);
@@ -823,12 +865,14 @@ void Optimizer::optimize_positions_sharp(
             while (links[v].size() == 2) {
                 int next_v = -1;
                 for (auto nv : links[v])
-                    if (nv != prev_v) next_v = nv;
+                    if (nv != prev_v)
+                        next_v = nv;
                 if (hash[next_v]) {
                     is_loop = true;
                     break;
                 }
-                if (links[next_v].size() == 2) hash[next_v] = true;
+                if (links[next_v].size() == 2)
+                    hash[next_v] = true;
                 q.push_back(next_v);
                 prev_v = v;
                 v = next_v;
@@ -840,12 +884,14 @@ void Optimizer::optimize_positions_sharp(
                 while (links[v].size() == 2) {
                     int next_v = -1;
                     for (auto nv : links[v])
-                        if (nv != prev_v) next_v = nv;
+                        if (nv != prev_v)
+                            next_v = nv;
                     if (hash[next_v]) {
                         is_loop = true;
                         break;
                     }
-                    if (links[next_v].size() == 2) hash[next_v] = true;
+                    if (links[next_v].size() == 2)
+                        hash[next_v] = true;
                     q1.push_back(next_v);
                     prev_v = v;
                     v = next_v;
@@ -854,8 +900,10 @@ void Optimizer::optimize_positions_sharp(
                 q1.insert(q1.end(), q.begin(), q.end());
                 std::swap(q1, q);
             }
-            if (q.size() < 3) continue;
-            if (is_loop) q.push_back(q.front());
+            if (q.size() < 3)
+                continue;
+            if (is_loop)
+                q.push_back(q.front());
             double len = 0, scale = 0;
             std::vector<Vector3d> o(q.size()), new_o(q.size());
             std::vector<double> sc(q.size());
@@ -872,7 +920,7 @@ void Optimizer::optimize_positions_sharp(
 
             for (int i = 0; i < q.size(); ++i) {
                 if (sharp_to_original_indices[q[i]].size() == 0) {
-                  continue;
+                    continue;
                 }
                 o[i] = O.col(sharp_to_original_indices[q[i]][0]);
                 Vector3d qx = Q.col(sharp_to_original_indices[q[i]][0]);
@@ -880,9 +928,8 @@ void Optimizer::optimize_positions_sharp(
                 int fst = sharp_to_original_indices[q[1]][0];
                 Vector3d dis = (i == 0) ? (Vector3d(O.col(fst)) - o[i]) : o[i] - o[i - 1];
                 if (with_scale)
-                    sc[i] = (abs(qx.dot(dis)) > abs(qy.dot(dis)))
-                                ? S(0, sharp_to_original_indices[q[i]][0])
-                                : S(1, sharp_to_original_indices[q[i]][0]);
+                    sc[i] = (abs(qx.dot(dis)) > abs(qy.dot(dis))) ? S(0, sharp_to_original_indices[q[i]][0])
+                                                                  : S(1, sharp_to_original_indices[q[i]][0]);
                 else
                     sc[i] = 1;
                 new_o[i] = o[i];
@@ -890,8 +937,7 @@ void Optimizer::optimize_positions_sharp(
 
             if (is_loop) {
                 for (int i = 0; i < q.size(); ++i) {
-                    Vector3d dir =
-                        (o[(i + 1) % q.size()] - o[(i + q.size() - 1) % q.size()]).normalized();
+                    Vector3d dir = (o[(i + 1) % q.size()] - o[(i + q.size() - 1) % q.size()]).normalized();
                     for (auto& ind : sharp_to_original_indices[q[i]]) {
                         sharp_constraints[ind] = std::make_pair(o[i], dir);
                     }
@@ -929,9 +975,7 @@ void Optimizer::optimize_positions_sharp(
                     current_v += 1;
                     current_norm = (o[current_v + 1] - o[current_v]).norm();
                 }
-                new_o[i] =
-                    (o[current_v + 1] * left_norm + o[current_v] * (current_norm - left_norm)) /
-                    current_norm;
+                new_o[i] = (o[current_v + 1] * left_norm + o[current_v] * (current_norm - left_norm)) / current_norm;
                 o[current_v] = new_o[i];
                 current_norm -= left_norm;
                 left_norm = len * sc[current_v] / scale;
@@ -964,10 +1008,14 @@ void Optimizer::optimize_positions_sharp(
     exit(0);
 }
 
-void Optimizer::optimize_positions_fixed(
-    Hierarchy& mRes, std::vector<DEdge>& edge_values, std::vector<Vector2i>& edge_diff,
-    std::set<int>& sharp_vertices, std::map<int, std::pair<Vector3d, Vector3d>>& sharp_constraints,
-    int with_scale) {
+void Optimizer::optimize_positions_fixed(Hierarchy& mRes,
+                                         std::vector<DEdge>& edge_values,
+                                         std::vector<Vector2i>& edge_diff,
+                                         std::set<int>& sharp_vertices,
+                                         std::map<int,
+                                                  std::pair<Vector3d,
+                                                            Vector3d>>& sharp_constraints,
+                                         int with_scale) {
     auto& V = mRes.mV[0];
     auto& F = mRes.mF;
     auto& Q = mRes.mQ[0];
@@ -995,7 +1043,8 @@ void Optimizer::optimize_positions_fixed(
         v_count[tree.Index(i)] += 1;
     }
     for (int i = 0; i < num; ++i) {
-        if (v_count[i] > 0) v_positions[i] /= v_count[i];
+        if (v_count[i] > 0)
+            v_positions[i] /= v_count[i];
     }
     for (int i = 0; i < V.cols(); ++i) {
         int p = tree.Index(i);
@@ -1034,7 +1083,8 @@ void Optimizer::optimize_positions_fixed(
         double s_x1 = S(0, v1), s_y1 = S(1, v1);
         double s_x2 = S(0, v2), s_y2 = S(1, v2);
         int rank_diff = (index.second + 4 - index.first) % 4;
-        if (rank_diff % 2 == 1) std::swap(s_x2, s_y2);
+        if (rank_diff % 2 == 1)
+            std::swap(s_x2, s_y2);
         Vector3d qd_x = 0.5 * (rotate90_by(q_2, n_2, rank_diff) + q_1);
         Vector3d qd_y = 0.5 * (rotate90_by(q_2_y, n_2, rank_diff) + q_1_y);
         double scale_x = (with_scale ? 0.5 * (s_x1 + s_x2) : 1) * mRes.mScale;
@@ -1066,11 +1116,13 @@ void Optimizer::optimize_positions_fixed(
             Vector3d q_2 = Q.col(v2);
             if (sharp_constraints.count(v1)) {
                 Vector3d d = sharp_constraints[v1].second;
-                if (d != Vector3d::Zero()) q_1 = d;
+                if (d != Vector3d::Zero())
+                    q_1 = d;
             }
             if (sharp_constraints.count(v2)) {
                 Vector3d d = sharp_constraints[v2].second;
-                if (d != Vector3d::Zero()) q_2 = d;
+                if (d != Vector3d::Zero())
+                    q_2 = d;
             }
 
             Vector3d n_1 = N.col(v1);
@@ -1081,7 +1133,8 @@ void Optimizer::optimize_positions_fixed(
             int vid[] = {info.first * 2, info.first * 2 + 1, m * 2, m * 2 + 1};
             Vector3d dis = info.second.second / info.second.first;
             double lambda = 1;
-            if (sharp_vertices.count(v1) && sharp_vertices.count(v2)) lambda = 1;
+            if (sharp_vertices.count(v1) && sharp_vertices.count(v2))
+                lambda = 1;
             for (int i = 0; i < 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
                     auto it = entries[vid[i]].find(vid[j]);
@@ -1099,7 +1152,7 @@ void Optimizer::optimize_positions_fixed(
     std::vector<int> fixed_dim(num * 2, 0);
     std::vector<double> x(num * 2);
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < num; ++i) {
         int p = v_index[i];
@@ -1193,7 +1246,8 @@ void Optimizer::optimize_positions_fixed(
                 double total = 0;
                 for (auto& res : entries[i]) {
                     double t = x_new[res.first];
-                    if (std::isnan(t)) t = 0;
+                    if (std::isnan(t))
+                        t = 0;
                     total += t * res.second;
                 }
             }
@@ -1207,7 +1261,8 @@ void Optimizer::optimize_positions_fixed(
         Vector3d q = Q.col(c);
         if (fixed_dim[p * 2 + 1]) {
             Vector3d dir = sharp_constraints[c].second;
-            if (dir != Vector3d::Zero()) q = dir;
+            if (dir != Vector3d::Zero())
+                q = dir;
         }
         Vector3d n = N.col(c);
         Vector3d q_y = n.cross(q);
@@ -1215,7 +1270,9 @@ void Optimizer::optimize_positions_fixed(
     }
 }
 
-void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>& singularities,
+void Optimizer::optimize_integer_constraints(Hierarchy& mRes,
+                                             std::map<int,
+                                                      int>& singularities,
                                              bool use_minimum_cost_flow) {
     int edge_capacity = 2;
     bool fullFlow = false;
@@ -1253,12 +1310,15 @@ void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>
             std::vector<std::pair<Vector2i, int>> arcs;
             std::vector<int> arc_ids;
             for (int i = 0; i < edge_to_constraints.size(); ++i) {
-                if (AllowChange[level][i] == 0) continue;
-                if (edge_to_constraints[i][0] == -1 || edge_to_constraints[i][2] == -1) continue;
+                if (AllowChange[level][i] == 0)
+                    continue;
+                if (edge_to_constraints[i][0] == -1 || edge_to_constraints[i][2] == -1)
+                    continue;
                 if (edge_to_constraints[i][1] == -edge_to_constraints[i][3]) {
                     int v1 = edge_to_constraints[i][0];
                     int v2 = edge_to_constraints[i][2];
-                    if (edge_to_constraints[i][1] < 0) std::swap(v1, v2);
+                    if (edge_to_constraints[i][1] < 0)
+                        std::swap(v1, v2);
                     int current_v = EdgeDiff[i / 2][i % 2];
                     arcs.push_back(std::make_pair(Vector2i(v1, v2), current_v));
                     if (AllowChange[level][i] == 1)
@@ -1301,15 +1361,15 @@ void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>
                     solver->addEdge(v1, v2, c, 0, -1);
                 } else {
                     if (arc_ids[i] > 0)
-                        solver->addEdge(v1, v2, std::max(0, c + edge_capacity),
-                                        std::max(0, -c + edge_capacity), arc_ids[i] - 1);
+                        solver->addEdge(v1, v2, std::max(0, c + edge_capacity), std::max(0, -c + edge_capacity),
+                                        arc_ids[i] - 1);
                     else {
                         if (c > 0)
-                            solver->addEdge(v1, v2, std::max(0, c - 1),
-                                            std::max(0, -c + edge_capacity), -1 - arc_ids[i]);
+                            solver->addEdge(v1, v2, std::max(0, c - 1), std::max(0, -c + edge_capacity),
+                                            -1 - arc_ids[i]);
                         else
-                            solver->addEdge(v1, v2, std::max(0, c + edge_capacity),
-                                            std::max(0, -c - 1), -1 - arc_ids[i]);
+                            solver->addEdge(v1, v2, std::max(0, c + edge_capacity), std::max(0, -c - 1),
+                                            -1 - arc_ids[i]);
                     }
                 }
             }
@@ -1318,13 +1378,15 @@ void Optimizer::optimize_integer_constraints(Hierarchy& mRes, std::map<int, int>
             solver->applyTo(EdgeDiff);
 
             lprintf("flow_count = %d, supply = %d\n", flow_count, supply);
-            if (flow_count == supply) fullFlow = true;
-            if (level != 0 || fullFlow) break;
+            if (flow_count == supply)
+                fullFlow = true;
+            if (level != 0 || fullFlow)
+                break;
             edge_capacity += 1;
             iter++;
             if (iter == 10) {
-              /* Probably won't converge. */
-              break;
+                /* Probably won't converge. */
+                break;
             }
             lprintf("Not full flow, edge_capacity += 1\n");
         }
@@ -1411,4 +1473,3 @@ void Optimizer::optimize_positions_cuda(Hierarchy& mRes) {
 #endif
 
 } // namespace CadUSD::qflow
-

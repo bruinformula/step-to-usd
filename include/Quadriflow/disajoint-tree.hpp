@@ -6,32 +6,43 @@
 namespace CadUSD::qflow {
 
 class DisajointTree {
-   public:
-    DisajointTree() {}
+  public:
+    DisajointTree() {
+    }
     DisajointTree(int n) {
         parent.resize(n);
         rank.resize(n, 1);
-        for (int i = 0; i < n; ++i) parent[i] = i;
+        for (int i = 0; i < n; ++i)
+            parent[i] = i;
     }
     int Parent(int x) {
-        if (x == parent[x]) return x;
+        if (x == parent[x])
+            return x;
         int y = Parent(parent[x]);
         parent[x] = y;
         return y;
     }
-    int Index(int x) { return indices[x]; }
-    int IndexToParent(int x) {return indices_to_parent[x]; };
-    void MergeFromTo(int x, int y) {
+    int Index(int x) {
+        return indices[x];
+    }
+    int IndexToParent(int x) {
+        return indices_to_parent[x];
+    };
+    void MergeFromTo(int x,
+                     int y) {
         int px = Parent(x);
         int py = Parent(y);
-        if (px == py) return;
+        if (px == py)
+            return;
         rank[py] += rank[px];
         parent[px] = py;
     }
-    void Merge(int x, int y) {
+    void Merge(int x,
+               int y) {
         int px = Parent(x);
         int py = Parent(y);
-        if (px == py) return;
+        if (px == py)
+            return;
         if (rank[px] < rank[py]) {
             rank[py] += rank[px];
             parent[px] = py;
@@ -58,7 +69,9 @@ class DisajointTree {
         }
     }
 
-    int CompactNum() { return compact_num; }
+    int CompactNum() {
+        return compact_num;
+    }
 
     int compact_num;
     std::vector<int> parent;
@@ -67,29 +80,39 @@ class DisajointTree {
 };
 
 class DisajointOrientTree {
-   public:
-    DisajointOrientTree() {}
+  public:
+    DisajointOrientTree() {
+    }
     DisajointOrientTree(int n) {
         parent.resize(n);
         rank.resize(n, 1);
-        for (int i = 0; i < n; ++i) parent[i] = std::make_pair(i, 0);
+        for (int i = 0; i < n; ++i)
+            parent[i] = std::make_pair(i, 0);
     }
     int Parent(int j) {
-        if (j == parent[j].first) return j;
+        if (j == parent[j].first)
+            return j;
         int k = Parent(parent[j].first);
         parent[j].second = (parent[j].second + parent[parent[j].first].second) % 4;
         parent[j].first = k;
         return k;
     }
     int Orient(int j) {
-        if (j == parent[j].first) return parent[j].second;
+        if (j == parent[j].first)
+            return parent[j].second;
         return (parent[j].second + Orient(parent[j].first)) % 4;
     }
-    int Index(int x) { return indices[x]; }
-    void MergeFromTo(int v0, int v1, int orient0, int orient1) {
+    int Index(int x) {
+        return indices[x];
+    }
+    void MergeFromTo(int v0,
+                     int v1,
+                     int orient0,
+                     int orient1) {
         int p0 = Parent(v0);
         int p1 = Parent(v1);
-        if (p0 == p1) return;
+        if (p0 == p1)
+            return;
         int orientp0 = Orient(v0);
         int orientp1 = Orient(v1);
 
@@ -101,7 +124,10 @@ class DisajointOrientTree {
         parent[p0].second = (orient0 - orient1 + orientp1 - orientp0 + 8) % 4;
     }
 
-    void Merge(int v0, int v1, int orient0, int orient1) {
+    void Merge(int v0,
+               int v1,
+               int orient0,
+               int orient1) {
         int p0 = Parent(v0);
         int p1 = Parent(v1);
         if (p0 == p1) {
@@ -138,7 +164,9 @@ class DisajointOrientTree {
         }
     }
 
-    int CompactNum() { return compact_num; }
+    int CompactNum() {
+        return compact_num;
+    }
 
     int compact_num;
     std::vector<std::pair<int, int>> parent;

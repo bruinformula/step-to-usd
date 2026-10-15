@@ -1,15 +1,15 @@
 #include "Quadriflow/hierarchy.hpp"
-#include <fstream>
-#include <algorithm>
-#include <unordered_map>
 #include "Quadriflow/config.hpp"
 #include "Quadriflow/field-math.hpp"
-#include <queue>
 #include "Quadriflow/localsat.hpp"
 #include "pcg32/pcg32.h"
+#include <algorithm>
+#include <fstream>
+#include <queue>
+#include <unordered_map>
 #ifdef WITH_TBB
-#  include "tbb/tbb.h"
-#  include "pss/parallel_stable_sort.h"
+#    include "pss/parallel_stable_sort.h"
+#    include "tbb/tbb.h"
 #endif
 
 namespace CadUSD::qflow {
@@ -32,13 +32,14 @@ Hierarchy::Hierarchy() {
 
 #undef max
 
-void Hierarchy::Initialize(double scale, int with_scale) {
+void Hierarchy::Initialize(double scale,
+                           int with_scale) {
     this->with_scale = with_scale;
     generate_graph_coloring_deterministic(mAdj[0], mV[0].cols(), mPhases[0]);
 
     for (int i = 0; i < MAX_DEPTH; ++i) {
-        DownsampleGraph(mAdj[i], mV[i], mN[i], mA[i], mV[i + 1], mN[i + 1], mA[i + 1], mToUpper[i],
-                        mToLower[i], mAdj[i + 1]);
+        DownsampleGraph(mAdj[i], mV[i], mN[i], mA[i], mV[i + 1], mN[i + 1], mA[i + 1], mToUpper[i], mToLower[i],
+                        mAdj[i + 1]);
         generate_graph_coloring_deterministic(mAdj[i + 1], mV[i + 1].cols(), mPhases[i + 1]);
         if (mV[i + 1].cols() == 1) {
             mAdj.resize(i + 2);
@@ -60,7 +61,7 @@ void Hierarchy::Initialize(double scale, int with_scale) {
     mCQ.resize(mV.size());
     mCQw.resize(mV.size());
 
-    //Set random seed
+    // Set random seed
     srand(rng_seed);
 
     mScale = scale;
@@ -72,7 +73,7 @@ void Hierarchy::Initialize(double scale, int with_scale) {
         for (int j = 0; j < mN[i].cols(); ++j) {
             Vector3d s, t;
             coordinate_system(mN[i].col(j), s, t);
-            //rand() is not thread safe!
+            // rand() is not thread safe!
             double angle = ((double)rand()) / RAND_MAX * 2 * M_PI;
             double x = ((double)rand()) / RAND_MAX * 2 - 1.f;
             double y = ((double)rand()) / RAND_MAX * 2 - 1.f;
@@ -92,12 +93,14 @@ void Hierarchy::Initialize(double scale, int with_scale) {
 }
 
 #ifdef WITH_TBB
-void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj, int size,
+void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
+                                                      int size,
                                                       std::vector<std::vector<int>>& phases) {
     struct ColorData {
         uint8_t nColors;
         uint32_t nNodes[256];
-        ColorData() : nColors(0) {}
+        ColorData() : nColors(0) {
+        }
     };
 
     const uint8_t INVALID_COLOR = 0xFF;
@@ -106,7 +109,8 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
     /* Generate a permutation */
     std::vector<uint32_t> perm(size);
     std::vector<tbb::spin_mutex> mutex(size);
-    for (uint32_t i = 0; i < size; ++i) perm[i] = i;
+    for (uint32_t i = 0; i < size; ++i)
+        perm[i] = i;
 
     tbb::parallel_for(tbb::blocked_range<uint32_t>(0u, size, GRAIN_SIZE),
                       [&](const tbb::blocked_range<uint32_t>& range) {
@@ -114,8 +118,10 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
                           rng.advance(range.begin());
                           for (uint32_t i = range.begin(); i != range.end(); ++i) {
                               uint32_t j = i, k = rng.nextUInt(size - i) + i;
-                              if (j == k) continue;
-                              if (j > k) std::swap(j, k);
+                              if (j == k)
+                                  continue;
+                              if (j > k)
+                                  std::swap(j, k);
                               tbb::spin_mutex::scoped_lock l0(mutex[j]);
                               tbb::spin_mutex::scoped_lock l1(mutex[k]);
                               std::swap(perm[j], perm[k]);
@@ -135,9 +141,11 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
                 neighborhood.clear();
                 neighborhood.push_back(i);
                 //            for (const Link *link = adj[i]; link != adj[i + 1]; ++link)
-                for (auto& link : adj[i]) neighborhood.push_back(link.id);
+                for (auto& link : adj[i])
+                    neighborhood.push_back(link.id);
                 std::sort(neighborhood.begin(), neighborhood.end());
-                for (uint32_t j : neighborhood) mutex[j].lock();
+                for (uint32_t j : neighborhood)
+                    mutex[j].lock();
 
                 std::fill(possible_colors, possible_colors + colorData.nColors, true);
 
@@ -163,9 +171,8 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
                 }
                 if (chosen_color == INVALID_COLOR) {
                     if (colorData.nColors == INVALID_COLOR - 1)
-                        throw std::runtime_error(
-                            "Ran out of colors during graph coloring! "
-                            "The input mesh is very likely corrupt.");
+                        throw std::runtime_error("Ran out of colors during graph coloring! "
+                                                 "The input mesh is very likely corrupt.");
                     colorData.nNodes[colorData.nColors] = 1;
                     color[i] = colorData.nColors++;
                 } else {
@@ -173,7 +180,8 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
                     color[i] = chosen_color;
                 }
 
-                for (uint32_t j : neighborhood) mutex[j].unlock();
+                for (uint32_t j : neighborhood)
+                    mutex[j].unlock();
             }
             return colorData;
         },
@@ -181,23 +189,29 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
             ColorData result;
             result.nColors = std::max(c1.nColors, c2.nColors);
             memset(result.nNodes, 0, sizeof(uint32_t) * result.nColors);
-            for (uint8_t i = 0; i < c1.nColors; ++i) result.nNodes[i] += c1.nNodes[i];
-            for (uint8_t i = 0; i < c2.nColors; ++i) result.nNodes[i] += c2.nNodes[i];
+            for (uint8_t i = 0; i < c1.nColors; ++i)
+                result.nNodes[i] += c1.nNodes[i];
+            for (uint8_t i = 0; i < c2.nColors; ++i)
+                result.nNodes[i] += c2.nNodes[i];
             return result;
         });
 
     phases.resize(colorData.nColors);
-    for (int i = 0; i < colorData.nColors; ++i) phases[i].reserve(colorData.nNodes[i]);
+    for (int i = 0; i < colorData.nColors; ++i)
+        phases[i].reserve(colorData.nNodes[i]);
 
-    for (uint32_t i = 0; i < size; ++i) phases[color[i]].push_back(i);
+    for (uint32_t i = 0; i < size; ++i)
+        phases[color[i]].push_back(i);
 }
 #else
-void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj, int size,
+void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
+                                                      int size,
                                                       std::vector<std::vector<int>>& phases) {
     phases.clear();
 
     std::vector<uint32_t> perm(size);
-    for (uint32_t i = 0; i < size; ++i) perm[i] = i;
+    for (uint32_t i = 0; i < size; ++i)
+        perm[i] = i;
     pcg32 rng;
     rng.shuffle(perm.begin(), perm.end());
 
@@ -213,7 +227,8 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
 
         for (auto& link : adj[ip]) {
             int c = color[link.id];
-            if (c >= 0) possible_colors[c] = 0;
+            if (c >= 0)
+                possible_colors[c] = 0;
         }
 
         int chosen_color = -1;
@@ -234,25 +249,47 @@ void Hierarchy::generate_graph_coloring_deterministic(const AdjacentMatrix& adj,
         size_per_color[chosen_color]++;
     }
     phases.resize(ncolors);
-    for (int i = 0; i < ncolors; ++i) phases[i].reserve(size_per_color[i]);
-    for (uint32_t i = 0; i < size; ++i) phases[color[i]].push_back(i);
+    for (int i = 0; i < ncolors; ++i)
+        phases[i].reserve(size_per_color[i]);
+    for (uint32_t i = 0; i < size; ++i)
+        phases[color[i]].push_back(i);
 }
 #endif
 
-void Hierarchy::DownsampleGraph(const AdjacentMatrix adj, const MatrixXd& V, const MatrixXd& N,
-                                const VectorXd& A, MatrixXd& V_p, MatrixXd& N_p, VectorXd& A_p,
-                                MatrixXi& to_upper, VectorXi& to_lower, AdjacentMatrix& adj_p) {
+void Hierarchy::DownsampleGraph(const AdjacentMatrix adj,
+                                const MatrixXd& V,
+                                const MatrixXd& N,
+                                const VectorXd& A,
+                                MatrixXd& V_p,
+                                MatrixXd& N_p,
+                                VectorXd& A_p,
+                                MatrixXi& to_upper,
+                                VectorXi& to_lower,
+                                AdjacentMatrix& adj_p) {
     struct Entry {
         int i, j;
         double order;
-        inline Entry() { i = j = -1; };
-        inline Entry(int i, int j, double order) : i(i), j(j), order(order) {}
-        inline bool operator<(const Entry& e) const { return order > e.order; }
-        inline bool operator==(const Entry& e) const { return order == e.order; }
+        inline Entry() {
+            i = j = -1;
+        };
+        inline Entry(int i,
+                     int j,
+                     double order)
+            : i(i),
+              j(j),
+              order(order) {
+        }
+        inline bool operator<(const Entry& e) const {
+            return order > e.order;
+        }
+        inline bool operator==(const Entry& e) const {
+            return order == e.order;
+        }
     };
 
     int nLinks = 0;
-    for (auto& adj_i : adj) nLinks += adj_i.size();
+    for (auto& adj_i : adj)
+        nLinks += adj_i.size();
     std::vector<Entry> entries(nLinks);
     std::vector<int> bases(adj.size());
     for (int i = 1; i < bases.size(); ++i) {
@@ -260,7 +297,7 @@ void Hierarchy::DownsampleGraph(const AdjacentMatrix adj, const MatrixXd& V, con
     }
 
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < V.cols(); ++i) {
         int base = bases[i];
@@ -285,7 +322,8 @@ void Hierarchy::DownsampleGraph(const AdjacentMatrix adj, const MatrixXd& V, con
     int nCollapsed = 0;
     for (int i = 0; i < nLinks; ++i) {
         const Entry& e = entries[i];
-        if (mergeFlag[e.i] || mergeFlag[e.j]) continue;
+        if (mergeFlag[e.i] || mergeFlag[e.j])
+            continue;
         mergeFlag[e.i] = mergeFlag[e.j] = true;
         entries[nCollapsed++] = entries[i];
     }
@@ -299,7 +337,7 @@ void Hierarchy::DownsampleGraph(const AdjacentMatrix adj, const MatrixXd& V, con
     to_lower.resize(V.cols());
 
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < nCollapsed; ++i) {
         const Entry& e = entries[i];
@@ -334,28 +372,31 @@ void Hierarchy::DownsampleGraph(const AdjacentMatrix adj, const MatrixXd& V, con
     std::vector<int> capacity(V_p.cols());
     std::vector<std::vector<Link>> scratches(V_p.cols());
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < V_p.cols(); ++i) {
         int t = 0;
         for (int j = 0; j < 2; ++j) {
             int upper = to_upper(j, i);
-            if (upper == -1) continue;
+            if (upper == -1)
+                continue;
             t += adj[upper].size();
         }
         scratches[i].reserve(t);
         adj_p[i].reserve(t);
     }
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < V_p.cols(); ++i) {
         auto& scratch = scratches[i];
         for (int j = 0; j < 2; ++j) {
             int upper = to_upper(j, i);
-            if (upper == -1) continue;
+            if (upper == -1)
+                continue;
             auto& ad = adj[upper];
-            for (auto& link : ad) scratch.push_back(Link(to_lower[link.id], link.weight));
+            for (auto& link : ad)
+                scratch.push_back(Link(to_lower[link.id], link.weight));
         }
         std::sort(scratch.begin(), scratch.end());
         int id = -1;
@@ -407,16 +448,19 @@ void Hierarchy::LoadFromFile(FILE* fp) {
     Read(fp, this->mPhases);
 }
 
-void Hierarchy::UpdateGraphValue(std::vector<Vector3i>& FQ, std::vector<Vector3i>& F2E,
+void Hierarchy::UpdateGraphValue(std::vector<Vector3i>& FQ,
+                                 std::vector<Vector3i>& F2E,
                                  std::vector<Vector2i>& edge_diff) {
     FQ = std::move(mFQ[0]);
     F2E = std::move(mF2E[0]);
     edge_diff = std::move(mEdgeDiff[0]);
 }
 
-void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vector3i>& F2E,
+void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ,
+                                    std::vector<Vector3i>& F2E,
                                     std::vector<Vector2i>& edge_diff,
-                                    std::vector<int>& allow_changes, int level) {
+                                    std::vector<int>& allow_changes,
+                                    int level) {
     std::vector<Vector2i> E2F(edge_diff.size(), Vector2i(-1, -1));
     for (int i = 0; i < F2E.size(); ++i) {
         for (int j = 0; j < 3; ++j) {
@@ -475,9 +519,9 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
         auto& nSing = mSing[l + 1];
 
         for (int i = 0; i < E2F.size(); ++i) {
-            if (EdgeDiff[i] != Vector2i::Zero()) continue;
-            if ((E2F[i][0] >= 0 && fixed_faces[E2F[i][0]]) ||
-                (E2F[i][1] >= 0 && fixed_faces[E2F[i][1]])) {
+            if (EdgeDiff[i] != Vector2i::Zero())
+                continue;
+            if ((E2F[i][0] >= 0 && fixed_faces[E2F[i][0]]) || (E2F[i][1] >= 0 && fixed_faces[E2F[i][1]])) {
                 continue;
             }
             for (int j = 0; j < 2; ++j) {
@@ -490,7 +534,8 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
                         int neighbor_f = E2F[neighbor_e][m];
                         if (neighbor_f < 0)
                             continue;
-                        if (fixed_faces[neighbor_f] == 0) fixed_faces[neighbor_f] = 1;
+                        if (fixed_faces[neighbor_f] == 0)
+                            fixed_faces[neighbor_f] = 1;
                     }
                 }
             }
@@ -501,7 +546,8 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
             toUpper[i] = -2;
         }
         for (int i = 0; i < E2F.size(); ++i) {
-            if (toUpper[i] == -2) continue;
+            if (toUpper[i] == -2)
+                continue;
             if ((E2F[i][0] < 0 || fixed_faces[E2F[i][0]] == 2) && (E2F[i][1] < 0 || fixed_faces[E2F[i][1]] == 2)) {
                 toUpper[i] = -3;
                 continue;
@@ -531,7 +577,8 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
                             auto& p = paths[j];
                             toUpper[p.first] = numE;
                             int orient = p.second;
-                            if (j > 0) orient = (orient + toUpperOrients[paths[j - 1].first]) % 4;
+                            if (j > 0)
+                                orient = (orient + toUpperOrients[paths[j - 1].first]) % 4;
                             toUpperOrients[p.first] = orient;
                         }
                         nE2F.push_back(Vector2i(f0, f));
@@ -617,7 +664,8 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
         }
 
         for (auto& s : Sing) {
-            if (upperface[s] >= 0) nSing.push_back(upperface[s]);
+            if (upperface[s] >= 0)
+                nSing.push_back(upperface[s]);
         }
         mToUpperFaces.push_back(std::move(upperface));
 
@@ -637,7 +685,8 @@ void Hierarchy::DownsampleEdgeGraph(std::vector<Vector3i>& FQ, std::vector<Vecto
     mToUpperOrients.resize(levels - 1);
 }
 
-int Hierarchy::FixFlipSat(int depth, int threshold) {
+int Hierarchy::FixFlipSat(int depth,
+                          int threshold) {
     if (system("which minisat > /dev/null 2>&1")) {
         printf("minisat not found, \"-sat\" will not be used!\n");
         return 0;
@@ -660,12 +709,18 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         int f2 = E2F[i][1];
         int t1 = 0;
         int t2 = 2;
-        if (f1 != -1) while (F2E[f1][t1] != i) t1 += 1;
-        if (f2 != -1) while (F2E[f2][t2] != i) t2 -= 1;
+        if (f1 != -1)
+            while (F2E[f1][t1] != i)
+                t1 += 1;
+        if (f2 != -1)
+            while (F2E[f2][t2] != i)
+                t2 -= 1;
         t1 += f1 * 3;
         t2 += f2 * 3;
-        if (f1 != -1) E2E[t1] = (f2 == -1) ? -1 : t2;
-        if (f2 != -1) E2E[t2] = (f1 == -1) ? -1 : t1;
+        if (f1 != -1)
+            E2E[t1] = (f2 == -1) ? -1 : t2;
+        if (f2 != -1)
+            E2E[t2] = (f1 == -1) ? -1 : t1;
     }
 
     auto IntegerArea = [&](int f) {
@@ -679,7 +734,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
     for (int f = 0; f < F2E.size(); ++f) {
         if (IntegerArea(f) < 0) {
             for (int j = 0; j < 3; ++j) {
-                if (mark_dedges[f * 3 + j]) continue;
+                if (mark_dedges[f * 3 + j])
+                    continue;
                 Q.push_back(std::make_pair(f * 3 + j, 0));
                 mark_dedges[f * 3 + j] = true;
             }
@@ -696,7 +752,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         int e = e0, e1;
         do {
             e1 = E2E[e];
-            if (e1 == -1) break;
+            if (e1 == -1)
+                break;
             int length = EdgeDiff[F2E[e1 / 3][e1 % 3]].array().abs().sum();
             if (length == 0 && !mark_dedges[e1]) {
                 mark_dedges[e1] = true;
@@ -708,7 +765,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         if (e1 == -1) {
             do {
                 e1 = E2E[e];
-                if (e1 == -1) break;
+                if (e1 == -1)
+                    break;
                 int length = EdgeDiff[F2E[e1 / 3][e1 % 3]].array().abs().sum();
                 if (length == 0 && !mark_dedges[e1]) {
                     mark_dedges[e1] = true;
@@ -721,7 +779,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
 
         do {
             e1 = E2E[e];
-            if (e1 == -1) break;
+            if (e1 == -1)
+                break;
             int length = EdgeDiff[F2E[e1 / 3][e1 % 3]].array().abs().sum();
             if (length > 0 && depth + length <= threshold && !mark_dedges[e1]) {
                 mark_dedges[e1] = true;
@@ -733,7 +792,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         if (e1 == -1) {
             do {
                 e1 = E2E[e];
-                if (e1 == -1) break;
+                if (e1 == -1)
+                    break;
                 int length = EdgeDiff[F2E[e1 / 3][e1 % 3]].array().abs().sum();
                 if (length > 0 && depth + length <= threshold && !mark_dedges[e1]) {
                     mark_dedges[e1] = true;
@@ -757,8 +817,10 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         }
     }
     for (int i = 0; i < flexible.size(); ++i) {
-        if (E2F[i][0] == E2F[i][1]) flexible[i] = false;
-        if (AllowChanges[i] == 0) flexible[i] = false;
+        if (E2F[i][0] == E2F[i][1])
+            flexible[i] = false;
+        if (AllowChanges[i] == 0)
+            flexible[i] = false;
     }
 
     // Reindexing and solve
@@ -776,7 +838,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
                 q.pop();
                 int f[] = {E2F[e][0], E2F[e][1]};
                 for (int j = 0; j < 2; ++j) {
-                    if (f[j] == -1) continue;
+                    if (f[j] == -1)
+                        continue;
                     for (int k = 0; k < 3; ++k) {
                         int e1 = F2E[f[j]][k];
                         if (flexible[e1] && groups[e1] == -1) {
@@ -810,8 +873,10 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         Vector2i var[3];
         Vector2i cst[3];
         int gind = 0;
-        while (gind < 3 && groups[F2E[i][gind]] == -1) gind += 1;
-        if (gind == 3) continue;
+        while (gind < 3 && groups[F2E[i][gind]] == -1)
+            gind += 1;
+        if (gind == 3)
+            continue;
         int group = groups[F2E[i][gind]];
         int ind[3] = {-1, -1, -1};
         for (int j = 0; j < 3; ++j) {
@@ -833,7 +898,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
                 ind[j] = indices[F2E[i][j]];
             }
         }
-        for (int j = 0; j < 3; ++j) assert(ind[j] != -1);
+        for (int j = 0; j < 3; ++j)
+            assert(ind[j] != -1);
         for (int j = 0; j < 3; ++j) {
             var[j] = rshift90(Vector2i(ind[j] * 2 + 1, ind[j] * 2 + 2), FQ[i][j]);
             cst[j] = var[j].array().sign();
@@ -852,7 +918,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
     int flip_before = 0, flip_after = 0;
     for (int i = 0; i < F2E.size(); ++i) {
         int area = IntegerArea(i);
-        if (area < 0) flip_before++;
+        if (area < 0)
+            flip_before++;
     }
 
     for (int i = 0; i < num_group; ++i) {
@@ -860,13 +927,14 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         for (int j = num_edges_flexible[i] * 2; j < flexible.size(); ++j) {
             flexible[j] = false;
         }
-        SolveSatProblem(values[i].size(), values[i], flexible, variable_eq[i], constant_eq[i],
-                        variable_ge[i], constant_ge[i]);
+        SolveSatProblem(values[i].size(), values[i], flexible, variable_eq[i], constant_eq[i], variable_ge[i],
+                        constant_ge[i]);
     }
 
     for (int i = 0; i < EdgeDiff.size(); ++i) {
         int group = groups[i];
-        if (group == -1) continue;
+        if (group == -1)
+            continue;
         EdgeDiff[i][0] = values[group][2 * indices[i] + 0];
         EdgeDiff[i][1] = values[group][2 * indices[i] + 1];
     }
@@ -878,7 +946,8 @@ int Hierarchy::FixFlipSat(int depth, int threshold) {
         assert(diff == Vector2i::Zero());
 
         int area = IntegerArea(i);
-        if (area < 0) flip_after++;
+        if (area < 0)
+            flip_after++;
     }
 
     lprintf("[FlipH] FlipArea, Before: %d After %d\n", flip_before, flip_after);
@@ -936,9 +1005,11 @@ void Hierarchy::FixFlip() {
         int t1 = 0;
         int t2 = 2;
         if (v1 != -1)
-            while (F2E[v1][t1] != i) t1 += 1;
+            while (F2E[v1][t1] != i)
+                t1 += 1;
         if (v2 != -1)
-            while (F2E[v2][t2] != i) t2 -= 1;
+            while (F2E[v2][t2] != i)
+                t2 -= 1;
         t1 += v1 * 3;
         t2 += v2 * 3;
         if (v1 != -1)
@@ -952,7 +1023,7 @@ void Hierarchy::FixFlip() {
         Vector2i diff2 = rshift90(EdgeDiff[F2E[f][1]], FQ[f][1]);
         return diff1[0] * diff2[1] - diff1[1] * diff2[0];
     };
-    std::vector<int> valences(F2E.size() * 3, -10000);  // comment this line
+    std::vector<int> valences(F2E.size() * 3, -10000); // comment this line
     auto CheckShrink = [&](int deid, int allowed_edge_length) {
         // Check if we want shrink direct edge deid so that all edge length is smaller than
         // allowed_edge_length
@@ -1002,7 +1073,8 @@ void Hierarchy::FixFlip() {
             int deid = corresponding_edges[i];
             int eid = F2E[deid / 3][deid % 3];
             for (int j = 0; j < 2; ++j) {
-                if (corresponding_diff[i][j] != 0 && AllowChange[eid * 2 + j] == 0) return false;
+                if (corresponding_diff[i][j] != 0 && AllowChange[eid * 2 + j] == 0)
+                    return false;
             }
             auto& res = new_values[eid];
             res -= corresponding_diff[i];
@@ -1016,7 +1088,8 @@ void Hierarchy::FixFlip() {
         int prev_area = 0, current_area = 0;
         for (int f = 0; f < corresponding_faces.size(); ++f) {
             int area = Area(corresponding_faces[f]);
-            if (area < 0) prev_area += 1;
+            if (area < 0)
+                prev_area += 1;
         }
         for (auto& p : new_values) {
             std::swap(EdgeDiff[p.first], p.second);
@@ -1065,8 +1138,7 @@ void Hierarchy::FixFlip() {
     }
     if (update) {
         Hierarchy flip_hierarchy;
-        flip_hierarchy.DownsampleEdgeGraph(mFQ.back(), mF2E.back(), mEdgeDiff.back(),
-                                           mAllowChanges.back(), -1);
+        flip_hierarchy.DownsampleEdgeGraph(mFQ.back(), mF2E.back(), mEdgeDiff.back(), mAllowChanges.back(), -1);
         flip_hierarchy.FixFlip();
         flip_hierarchy.UpdateGraphValue(mFQ.back(), mF2E.back(), mEdgeDiff.back());
     }
@@ -1092,7 +1164,8 @@ void Hierarchy::PropagateEdge() {
             }
         }
         for (int i = 0; i < toUpperFace.size(); ++i) {
-            if (toUpperFace[i] == -1) continue;
+            if (toUpperFace[i] == -1)
+                continue;
             Vector3i eid_orient = FQ[toUpperFace[i]];
             for (int j = 0; j < 3; ++j) {
                 nFQ[i][j] = (eid_orient[j] + toUpperOrients[F2E[i][j]]) % 4;
@@ -1103,7 +1176,8 @@ void Hierarchy::PropagateEdge() {
 
 void Hierarchy::clearConstraints() {
     int levels = mV.size();
-    if (levels == 0) return;
+    if (levels == 0)
+        return;
     for (int i = 0; i < levels; ++i) {
         int size = mV[i].cols();
         mCQ[i].resize(3, size);
@@ -1117,7 +1191,8 @@ void Hierarchy::clearConstraints() {
 
 void Hierarchy::propagateConstraints() {
     int levels = mV.size();
-    if (levels == 0) return;
+    if (levels == 0)
+        return;
 
     for (int l = 0; l < levels - 1; ++l) {
         auto& N = mN[l];
@@ -1163,7 +1238,8 @@ void Hierarchy::propagateConstraints() {
             if (cq != Vector3d::Zero()) {
                 Vector3d n = N_next.col(i);
                 cq -= n.dot(cq) * n;
-                if (cq.squaredNorm() > RCPOVERFLOW) cq.normalize();
+                if (cq.squaredNorm() > RCPOVERFLOW)
+                    cq.normalize();
             }
 
             if (has_co0 && !has_co1) {
@@ -1176,7 +1252,7 @@ void Hierarchy::propagateConstraints() {
                 double scale_x = mScale;
                 double scale_y = mScale;
                 if (with_scale) {
-                  // FIXME
+                    // FIXME
                     // scale_x *= S(0, i);
                     // scale_y *= S(1, i);
                 }
@@ -1186,17 +1262,16 @@ void Hierarchy::propagateConstraints() {
                 double scale_x_1 = mScale;
                 double scale_y_1 = mScale;
                 if (with_scale) {
-                  // FIXME
+                    // FIXME
                     // scale_x_1 *= S(0, j);
                     // scale_y_1 *= S(1, j);
                 }
                 double inv_scale_x_1 = 1.0f / scale_x_1;
                 double inv_scale_y_1 = 1.0f / scale_y_1;
                 auto result = compat_position_extrinsic_4(
-                    V.col(upper[0]), N.col(upper[0]), CQ.col(upper[0]), CO.col(upper[0]),
-                    V.col(upper[1]), N.col(upper[1]), CQ.col(upper[1]), CO.col(upper[1]), scale_x,
-                    scale_y, inv_scale_x, inv_scale_y, scale_x_1, scale_y_1, inv_scale_x_1,
-                    inv_scale_y_1);
+                    V.col(upper[0]), N.col(upper[0]), CQ.col(upper[0]), CO.col(upper[0]), V.col(upper[1]),
+                    N.col(upper[1]), CQ.col(upper[1]), CO.col(upper[1]), scale_x, scale_y, inv_scale_x, inv_scale_y,
+                    scale_x_1, scale_y_1, inv_scale_x_1, inv_scale_y_1);
                 cow = COw[upper[0]] + COw[upper[1]];
                 co = (result.first * COw[upper[0]] + result.second * COw[upper[1]]) / cow;
             }
@@ -1208,8 +1283,10 @@ void Hierarchy::propagateConstraints() {
                         cqw *= 0.5f;
                         cow *= 0.5f;
 #else
-            if (cqw > 0) cqw = 1;
-            if (cow > 0) cow = 1;
+            if (cqw > 0)
+                cqw = 1;
+            if (cow > 0)
+                cow = 1;
 #endif
 
             CQw_next[i] = cqw;
@@ -1220,7 +1297,7 @@ void Hierarchy::propagateConstraints() {
     }
 }
 #ifdef WITH_CUDA
-#include <cuda_runtime.h>
+#    include <cuda_runtime.h>
 
 void Hierarchy::CopyToDevice() {
     if (cudaAdj.empty()) {
@@ -1232,8 +1309,7 @@ void Hierarchy::CopyToDevice() {
                 offset[j + 1] = offset[j] + mAdj[i][j].size();
             }
             cudaMalloc(&cudaAdjOffset[i], sizeof(int) * (mAdj[i].size() + 1));
-            cudaMemcpy(cudaAdjOffset[i], offset.data(), sizeof(int) * (mAdj[i].size() + 1),
-                       cudaMemcpyHostToDevice);
+            cudaMemcpy(cudaAdjOffset[i], offset.data(), sizeof(int) * (mAdj[i].size() + 1), cudaMemcpyHostToDevice);
             //            cudaAdjOffset[i] = (int*)malloc(sizeof(int) * (mAdj[i].size() + 1));
             //            memcpy(cudaAdjOffset[i], offset.data(), sizeof(int) * (mAdj[i].size() +
             //            1));
@@ -1242,11 +1318,9 @@ void Hierarchy::CopyToDevice() {
             //            cudaAdj[i] = (Link*)malloc(sizeof(Link) * offset.back());
             std::vector<Link> plainlink(offset.back());
             for (int j = 0; j < mAdj[i].size(); ++j) {
-                memcpy(plainlink.data() + offset[j], mAdj[i][j].data(),
-                       mAdj[i][j].size() * sizeof(Link));
+                memcpy(plainlink.data() + offset[j], mAdj[i][j].data(), mAdj[i][j].size() * sizeof(Link));
             }
-            cudaMemcpy(cudaAdj[i], plainlink.data(), plainlink.size() * sizeof(Link),
-                       cudaMemcpyHostToDevice);
+            cudaMemcpy(cudaAdj[i], plainlink.data(), plainlink.size() * sizeof(Link), cudaMemcpyHostToDevice);
         }
     }
 
@@ -1258,8 +1332,7 @@ void Hierarchy::CopyToDevice() {
         }
     }
     for (int i = 0; i < mN.size(); ++i) {
-        cudaMemcpy(cudaN[i], mN[i].data(), sizeof(glm::dvec3) * mN[i].cols(),
-                   cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaN[i], mN[i].data(), sizeof(glm::dvec3) * mN[i].cols(), cudaMemcpyHostToDevice);
         //        memcpy(cudaN[i], mN[i].data(), sizeof(glm::dvec3) * mN[i].cols());
     }
 
@@ -1271,8 +1344,7 @@ void Hierarchy::CopyToDevice() {
         }
     }
     for (int i = 0; i < mV.size(); ++i) {
-        cudaMemcpy(cudaV[i], mV[i].data(), sizeof(glm::dvec3) * mV[i].cols(),
-                   cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaV[i], mV[i].data(), sizeof(glm::dvec3) * mV[i].cols(), cudaMemcpyHostToDevice);
         //        memcpy(cudaV[i], mV[i].data(), sizeof(glm::dvec3) * mV[i].cols());
     }
 
@@ -1284,8 +1356,7 @@ void Hierarchy::CopyToDevice() {
         }
     }
     for (int i = 0; i < mQ.size(); ++i) {
-        cudaMemcpy(cudaQ[i], mQ[i].data(), sizeof(glm::dvec3) * mQ[i].cols(),
-                   cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaQ[i], mQ[i].data(), sizeof(glm::dvec3) * mQ[i].cols(), cudaMemcpyHostToDevice);
         //        memcpy(cudaQ[i], mQ[i].data(), sizeof(glm::dvec3) * mQ[i].cols());
     }
     if (cudaO.empty()) {
@@ -1296,8 +1367,7 @@ void Hierarchy::CopyToDevice() {
         }
     }
     for (int i = 0; i < mO.size(); ++i) {
-        cudaMemcpy(cudaO[i], mO[i].data(), sizeof(glm::dvec3) * mO[i].cols(),
-                   cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaO[i], mO[i].data(), sizeof(glm::dvec3) * mO[i].cols(), cudaMemcpyHostToDevice);
         //        memcpy(cudaO[i], mO[i].data(), sizeof(glm::dvec3) * mO[i].cols());
     }
     if (cudaPhases.empty()) {
@@ -1328,17 +1398,16 @@ void Hierarchy::CopyToDevice() {
         }
     }
     for (int i = 0; i < mToUpper.size(); ++i) {
-        cudaMemcpy(cudaToUpper[i], mToUpper[i].data(), sizeof(glm::ivec2) * mToUpper[i].cols(),
-                   cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaToUpper[i], mToUpper[i].data(), sizeof(glm::ivec2) * mToUpper[i].cols(), cudaMemcpyHostToDevice);
         //        memcpy(cudaToUpper[i], mToUpper[i].data(), sizeof(glm::ivec2) *
         //        mToUpper[i].cols());
     }
     cudaDeviceSynchronize();
 }
 
-void Hierarchy::CopyToHost() {}
+void Hierarchy::CopyToHost() {
+}
 
 #endif
 
 } // namespace CadUSD::qflow
-

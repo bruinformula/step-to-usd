@@ -23,17 +23,24 @@ using namespace Eigen;
 namespace CadUSD::qflow {
 
 class MaxFlowHelper {
-   public:
-    MaxFlowHelper() {}
-    virtual ~MaxFlowHelper(){};
-    virtual void resize(int n, int m) = 0;
-    virtual void addEdge(int x, int y, int c, int rc, int v, int cost = 1) = 0;
+  public:
+    MaxFlowHelper() {
+    }
+    virtual ~MaxFlowHelper() {};
+    virtual void resize(int n,
+                        int m) = 0;
+    virtual void addEdge(int x,
+                         int y,
+                         int c,
+                         int rc,
+                         int v,
+                         int cost = 1) = 0;
     virtual int compute() = 0;
     virtual void applyTo(std::vector<Vector2i>& edge_diff) = 0;
 };
 
 class BoykovMaxFlowHelper : public MaxFlowHelper {
-   public:
+  public:
     typedef int EdgeWeightType;
     typedef adjacency_list_traits<vecS, vecS, directedS> Traits;
     // clang-format off
@@ -49,20 +56,28 @@ class BoykovMaxFlowHelper : public MaxFlowHelper {
         property < edge_reverse_t, Traits::edge_descriptor > > > > Graph;
     // clang-format on
 
-   public:
-    BoykovMaxFlowHelper() { rev = get(edge_reverse, g); }
-    void resize(int n, int m) {
+  public:
+    BoykovMaxFlowHelper() {
+        rev = get(edge_reverse, g);
+    }
+    void resize(int n,
+                int m) {
         vertex_descriptors.resize(n);
-        for (int i = 0; i < n; ++i) vertex_descriptors[i] = add_vertex(g);
+        for (int i = 0; i < n; ++i)
+            vertex_descriptors[i] = add_vertex(g);
     }
     int compute() {
-        EdgeWeightType flow =
-            boykov_kolmogorov_max_flow(g, vertex_descriptors.front(), vertex_descriptors.back());
+        EdgeWeightType flow = boykov_kolmogorov_max_flow(g, vertex_descriptors.front(), vertex_descriptors.back());
         return flow;
     }
-    void addDirectEdge(Traits::vertex_descriptor& v1, Traits::vertex_descriptor& v2,
-                       property_map<Graph, edge_reverse_t>::type& rev, const int capacity,
-                       const int inv_capacity, Graph& g, Traits::edge_descriptor& e1,
+    void addDirectEdge(Traits::vertex_descriptor& v1,
+                       Traits::vertex_descriptor& v2,
+                       property_map<Graph,
+                                    edge_reverse_t>::type& rev,
+                       const int capacity,
+                       const int inv_capacity,
+                       Graph& g,
+                       Traits::edge_descriptor& e1,
                        Traits::edge_descriptor& e2) {
         e1 = add_edge(v1, v2, g).first;
         e2 = add_edge(v2, v1, g).first;
@@ -72,7 +87,12 @@ class BoykovMaxFlowHelper : public MaxFlowHelper {
         rev[e1] = e2;
         rev[e2] = e1;
     }
-    void addEdge(int x, int y, int c, int rc, int v, int cost = 1) {
+    void addEdge(int x,
+                 int y,
+                 int c,
+                 int rc,
+                 int v,
+                 int cost = 1) {
         Traits::edge_descriptor e1, e2;
         addDirectEdge(vertex_descriptors[x], vertex_descriptors[y], rev, c, rc, g, e1, e2);
         if (v != -1) {
@@ -82,8 +102,7 @@ class BoykovMaxFlowHelper : public MaxFlowHelper {
     }
     void applyTo(std::vector<Vector2i>& edge_diff) {
         property_map<Graph, edge_capacity_t>::type capacity = get(edge_capacity, g);
-        property_map<Graph, edge_residual_capacity_t>::type residual_capacity =
-            get(edge_residual_capacity, g);
+        property_map<Graph, edge_residual_capacity_t>::type residual_capacity = get(edge_residual_capacity, g);
 
         graph_traits<Graph>::vertex_iterator u_iter, u_end;
         graph_traits<Graph>::out_edge_iterator ei, e_end;
@@ -94,14 +113,13 @@ class BoykovMaxFlowHelper : public MaxFlowHelper {
                     if (flow > 0) {
                         auto it = edge_to_variables.find(*ei);
                         if (it != edge_to_variables.end()) {
-                            edge_diff[it->second.first / 2][it->second.first % 2] +=
-                                it->second.second * flow;
+                            edge_diff[it->second.first / 2][it->second.first % 2] += it->second.second * flow;
                         }
                     }
                 }
     }
 
-   private:
+  private:
     Graph g;
     property_map<Graph, edge_reverse_t>::type rev;
     std::vector<Traits::vertex_descriptor> vertex_descriptors;
@@ -109,25 +127,36 @@ class BoykovMaxFlowHelper : public MaxFlowHelper {
 };
 
 class NetworkSimplexFlowHelper : public MaxFlowHelper {
-   public:
+  public:
     using Weight = int;
     using Capacity = int;
     using Graph = lemon::SmartDigraph;
     using Node = Graph::Node;
     using Arc = Graph::Arc;
-    template <typename ValueType>
-    using ArcMap = lemon::SmartDigraph::ArcMap<ValueType>;
+    template <typename ValueType> using ArcMap = lemon::SmartDigraph::ArcMap<ValueType>;
     using Preflow = lemon::Preflow<lemon::SmartDigraph, ArcMap<Capacity>>;
     using NetworkSimplex = lemon::NetworkSimplex<lemon::SmartDigraph, Capacity, Weight>;
 
-   public:
-    NetworkSimplexFlowHelper() : cost(graph), capacity(graph), flow(graph), variable(graph) {}
-    ~NetworkSimplexFlowHelper(){};
-    void resize(int n, int m) {
-        nodes.reserve(n);
-        for (int i = 0; i < n; ++i) nodes.push_back(graph.addNode());
+  public:
+    NetworkSimplexFlowHelper()
+        : cost(graph),
+          capacity(graph),
+          flow(graph),
+          variable(graph) {
     }
-    void addEdge(int x, int y, int c, int rc, int v, int cst = 1) {
+    ~NetworkSimplexFlowHelper() {};
+    void resize(int n,
+                int m) {
+        nodes.reserve(n);
+        for (int i = 0; i < n; ++i)
+            nodes.push_back(graph.addNode());
+    }
+    void addEdge(int x,
+                 int y,
+                 int c,
+                 int rc,
+                 int v,
+                 int cst = 1) {
         assert(x >= 0);
         assert(v >= -1);
         if (c) {
@@ -175,13 +204,14 @@ class NetworkSimplexFlowHelper : public MaxFlowHelper {
     void applyTo(std::vector<Vector2i>& edge_diff) {
         for (Graph::ArcIt e(graph); e != lemon::INVALID; ++e) {
             int var = variable[e].first;
-            if (var == -1) continue;
+            if (var == -1)
+                continue;
             int sgn = variable[e].second;
             edge_diff[var / 2][var % 2] -= sgn * flow[e];
         }
     }
 
-   private:
+  private:
     Graph graph;
     ArcMap<Weight> cost;
     ArcMap<Capacity> capacity;
@@ -192,7 +222,7 @@ class NetworkSimplexFlowHelper : public MaxFlowHelper {
 };
 
 class ECMaxFlowHelper : public MaxFlowHelper {
-   public:
+  public:
     struct FlowInfo {
         int id;
         int capacity, flow;
@@ -200,21 +230,34 @@ class ECMaxFlowHelper : public MaxFlowHelper {
         FlowInfo* rev;
     };
     struct SearchInfo {
-        SearchInfo(int _id, int _prev_id, FlowInfo* _info)
-            : id(_id), prev_id(_prev_id), info(_info) {}
+        SearchInfo(int _id,
+                   int _prev_id,
+                   FlowInfo* _info)
+            : id(_id),
+              prev_id(_prev_id),
+              info(_info) {
+        }
         int id;
         int prev_id;
         FlowInfo* info;
     };
-    ECMaxFlowHelper() { num = 0; }
+    ECMaxFlowHelper() {
+        num = 0;
+    }
     int num;
     std::vector<FlowInfo*> variable_to_edge;
-    void resize(int n, int m) {
+    void resize(int n,
+                int m) {
         graph.resize(n);
         variable_to_edge.resize(m, 0);
         num = n;
     }
-    void addEdge(int x, int y, int c, int rc, int v, int cost = 0) {
+    void addEdge(int x,
+                 int y,
+                 int c,
+                 int rc,
+                 int v,
+                 int cost = 0) {
         FlowInfo flow;
         flow.id = y;
         flow.capacity = c;
@@ -247,7 +290,8 @@ class ECMaxFlowHelper : public MaxFlowHelper {
             while (q_front < q.size()) {
                 int vert = q[q_front].id;
                 for (auto& l : graph[vert]) {
-                    if (vhash[l.id] || l.capacity <= l.flow) continue;
+                    if (vhash[l.id] || l.capacity <= l.flow)
+                        continue;
                     q.push_back(SearchInfo(l.id, q_front, &l));
                     vhash[l.id] = 1;
                     if (l.id == num - 1) {
@@ -255,10 +299,12 @@ class ECMaxFlowHelper : public MaxFlowHelper {
                         break;
                     }
                 }
-                if (found) break;
+                if (found)
+                    break;
                 q_front += 1;
             }
-            if (q_front == q.size()) break;
+            if (q_front == q.size())
+                break;
             int loc = q.size() - 1;
             while (q[loc].prev_id != -1) {
                 q[loc].info->flow += 1;
@@ -285,7 +331,9 @@ class ECMaxFlowHelper : public MaxFlowHelper {
             }
         }
     }
-    void applyFlow(int v1, int v2, int flow) {
+    void applyFlow(int v1,
+                   int v2,
+                   int flow) {
         for (auto& it : graph[v1]) {
             if (it.id == v2) {
                 it.flow += flow;

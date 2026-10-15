@@ -1,57 +1,57 @@
 #include <cassert>
-#include <filesystem>
-#include <unordered_map>
 #include <exception>
+#include <filesystem>
 #include <iostream>
+#include <unordered_map>
 
+#include <BRepBndLib.hxx>
 #include <BinXCAFDrivers.hxx>
-#include <STEPCAFControl_Reader.hxx>
-#include <TDocStd_Application.hxx>
-#include <TDocStd_Document.hxx>
-#include <XCAFDoc_DocumentTool.hxx>
-#include <XCAFDoc_ShapeTool.hxx>
-#include <TDF_Label.hxx>
-#include <TopLoc_Location.hxx>
-#include <gp_Trsf.hxx>
-#include <XCAFDoc_ColorTool.hxx>
-#include <XCAFDoc_MaterialTool.hxx>
-#include <XCAFDoc_LayerTool.hxx>
-#include <OSD_Parallel.hxx>
+#include <Bnd_Box.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <NCollection_Sequence.hxx>
+#include <OSD_Parallel.hxx>
 #include <PCDM_ReaderStatus.hxx>
 #include <PCDM_StoreStatus.hxx>
+#include <Quantity_Color.hxx>
 #include <Quantity_TypeOfColor.hxx>
+#include <STEPCAFControl_Reader.hxx>
 #include <Standard_Failure.hxx>
+#include <Standard_Handle.hxx>
 #include <TCollection_ExtendedString.hxx>
 #include <TCollection_HAsciiString.hxx>
+#include <TDF_Label.hxx>
 #include <TDF_LabelSequence.hxx>
-#include <TopoDS_Shape.hxx>
-#include <XCAFDoc_ColorType.hxx>
-#include <gp_XYZ.hxx>
-#include <Quantity_Color.hxx>
-#include <Standard_Handle.hxx>
 #include <TDataStd_Name.hxx>
-#include <Bnd_Box.hxx>
-#include <BRepBndLib.hxx>
+#include <TDocStd_Application.hxx>
+#include <TDocStd_Document.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS_Shape.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <XCAFDoc_ColorType.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_LayerTool.hxx>
+#include <XCAFDoc_MaterialTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_XYZ.hxx>
 
+#include "CadUSD/Logger.h"
 #include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/UsdUtils.h"
-#include "CadUSD/Logger.h"
 
 namespace CadUSD {
 
 std::string getLabelName(const TDF_Label& label) {
     occt::handle<TDataStd_Name> nameAttr;
-    if (!label.FindAttribute(TDataStd_Name::GetID(), nameAttr)) 
+    if (!label.FindAttribute(TDataStd_Name::GetID(), nameAttr))
         return "";
-    
+
     const TCollection_ExtendedString& ext = nameAttr->Get();
     std::string result;
     for (int i = 1; i <= ext.Length(); i++) {
         char16_t c = ext.Value(i);
-        if (c < 128) result += static_cast<char>(c);
+        if (c < 128)
+            result += static_cast<char>(c);
     }
 
     // OCCT sometimes stores the entry path as the name attribute — treat as unnamed
@@ -90,10 +90,8 @@ std::string stableLabelSuffix(const TDF_Label& label) {
     return std::string(buf);
 }
 
-std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
-    const fs::path& xbfPath
-) {
-    try {        
+std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(const fs::path& xbfPath) {
+    try {
         OSD_Parallel::SetUseOcctThreads(true);
         occt::handle<TDocStd_Application> app = new TDocStd_Application();
         BinXCAFDrivers::DefineFormat(app);
@@ -124,23 +122,19 @@ std::optional<OpenCascadeAssembly> OpenCascadeAssembly::loadFromFile(
     }
 }
 
-const std::vector<std::pair<TDF_Label, TopoDS_Shape>>& OpenCascadeAssembly::getDefinitionShapes() {
+const std::vector<std::pair<TDF_Label,
+                            TopoDS_Shape>>&
+OpenCascadeAssembly::getDefinitionShapes() {
     if (!defs.empty()) {
         return defs;
     }
 
-    defs = std::vector<std::pair<TDF_Label, TopoDS_Shape>>(
-        definitionShapes.begin(),
-        definitionShapes.end()
-    );
+    defs = std::vector<std::pair<TDF_Label, TopoDS_Shape>>(definitionShapes.begin(), definitionShapes.end());
 
-    std::sort(
-        defs.begin(), 
-        defs.end(), 
-        [this](const std::pair<TDF_Label, TopoDS_Shape>& a, const std::pair<TDF_Label, TopoDS_Shape>& b) {
-            return definitionLabelSuffixes.at(a.first) < definitionLabelSuffixes.at(b.first);
-        }
-    );
+    std::sort(defs.begin(), defs.end(),
+              [this](const std::pair<TDF_Label, TopoDS_Shape>& a, const std::pair<TDF_Label, TopoDS_Shape>& b) {
+                  return definitionLabelSuffixes.at(a.first) < definitionLabelSuffixes.at(b.first);
+              });
     return defs;
 }
 
@@ -159,7 +153,8 @@ const std::vector<SdfPath> OpenCascadeAssembly::getNodePaths(const SdfPath& asse
             parentPath = nodePaths[node.parentIdx];
         }
 
-        if (parentPath.IsEmpty()) continue;
+        if (parentPath.IsEmpty())
+            continue;
 
         // instanceLabel entry is unique per slot in the XCAF tree,
         // so two rods under the same parent get different suffixes
@@ -182,8 +177,8 @@ const std::vector<SdfPath> OpenCascadeAssembly::getNodePaths(const SdfPath& asse
     return nodePaths;
 }
 
-const std::vector<OpenCascadeAssembly::ExportablePart>
-OpenCascadeAssembly::getExportableLeaves(const SdfPath& assemblyRoot) const {
+const std::vector<OpenCascadeAssembly::ExportablePart> OpenCascadeAssembly::getExportableLeaves(
+    const SdfPath& assemblyRoot) const {
     std::vector<SdfPath> paths = getNodePaths(assemblyRoot);
 
     // partNodes is stored pre-order, so every
@@ -194,17 +189,14 @@ OpenCascadeAssembly::getExportableLeaves(const SdfPath& assemblyRoot) const {
         gp_Trsf parentWorld = (node.parentIdx >= 0) ? worldTransforms[node.parentIdx] : gp_Trsf();
         worldTransforms[i] = parentWorld * node.localTransform;
     }
- 
+
     std::vector<ExportablePart> result;
     result.reserve(partNodes.size());
     for (size_t i = 0; i < partNodes.size(); i++) {
-        if (partNodes[i].type != PartNodeType::Leaf) continue;
-        result.push_back(ExportablePart{
-            paths[i],
-            partNodes[i].definitionLabel,
-            shapeTool->GetShape(partNodes[i].definitionLabel),
-            worldTransforms[i]
-        });
+        if (partNodes[i].type != PartNodeType::Leaf)
+            continue;
+        result.push_back(ExportablePart{paths[i], partNodes[i].definitionLabel,
+                                        shapeTool->GetShape(partNodes[i].definitionLabel), worldTransforms[i]});
     }
     return result;
 }
@@ -240,8 +232,10 @@ void OpenCascadeAssembly::buildInstanceTree() {
 
     int leaves = 0, assemblies = 0;
     for (const auto& n : partNodes) {
-        if (n.type == PartNodeType::Leaf)     leaves++;
-        if (n.type == PartNodeType::Assembly) assemblies++;
+        if (n.type == PartNodeType::Leaf)
+            leaves++;
+        if (n.type == PartNodeType::Assembly)
+            assemblies++;
     }
 
     LOG_INFO("Assembly tree built: " + std::to_string(partNodes.size()) + " nodes");
@@ -254,7 +248,7 @@ bool OpenCascadeAssembly::isLabelVisible(const TDF_Label& label) const {
     if (!colorTool->IsVisible(label))
         return false;
 
-    // Some CAD tools might export visibility as 
+    // Some CAD tools might export visibility as
     // a layer property rather than on the shape itself
     TDF_LabelSequence layers;
     layerTool->GetLayers(label, layers);
@@ -268,18 +262,24 @@ bool OpenCascadeAssembly::isLabelVisible(const TDF_Label& label) const {
 
 // Counting
 int OpenCascadeAssembly::countNodes(const TDF_Label& label) {
-    if (!shapeTool->IsShape(label)) return 0;
+    if (!shapeTool->IsShape(label))
+        return 0;
 
     if (shapeTool->IsComponent(label)) {
         TDF_Label defLabel;
-        if (!shapeTool->GetReferredShape(label, defLabel)) return 0;
-        if (shapeTool->IsSimpleShape(defLabel))  return 1;
-        if (shapeTool->IsAssembly(defLabel))     return 1 + countAssemblyChildren(defLabel);
+        if (!shapeTool->GetReferredShape(label, defLabel))
+            return 0;
+        if (shapeTool->IsSimpleShape(defLabel))
+            return 1;
+        if (shapeTool->IsAssembly(defLabel))
+            return 1 + countAssemblyChildren(defLabel);
         return 1;
     }
 
-    if (shapeTool->IsAssembly(label))    return 1 + countAssemblyChildren(label);
-    if (shapeTool->IsSimpleShape(label)) return 1;
+    if (shapeTool->IsAssembly(label))
+        return 1 + countAssemblyChildren(label);
+    if (shapeTool->IsSimpleShape(label))
+        return 1;
     return 0;
 }
 
@@ -293,16 +293,15 @@ int OpenCascadeAssembly::countAssemblyChildren(const TDF_Label& assemblyDef) {
 }
 
 // Filling
-void OpenCascadeAssembly::fillNode(
-    const TDF_Label& instLabel,
-    const TDF_Label& defLabel,
-    const std::string& parentName,
-    const gp_Trsf& parentWorld,
-    int parentIdx,
-    int depth,
-    int& cursor
-) {
-    if (!shapeTool->IsShape(instLabel)) return;
+void OpenCascadeAssembly::fillNode(const TDF_Label& instLabel,
+                                   const TDF_Label& defLabel,
+                                   const std::string& parentName,
+                                   const gp_Trsf& parentWorld,
+                                   int parentIdx,
+                                   int depth,
+                                   int& cursor) {
+    if (!shapeTool->IsShape(instLabel))
+        return;
 
     // Extract just this label's own location
     // world is computed here purely so children can extract their own localTrsf
@@ -313,10 +312,12 @@ void OpenCascadeAssembly::fillNode(
 
     if (shapeTool->IsComponent(instLabel)) {
         TDF_Label defLabel;
-        if (!shapeTool->GetReferredShape(instLabel, defLabel)) return;
+        if (!shapeTool->GetReferredShape(instLabel, defLabel))
+            return;
 
         std::string instanceName = getLabelName(instLabel);
-        if (instanceName.empty()) instanceName = parentName;
+        if (instanceName.empty())
+            instanceName = parentName;
 
         if (shapeTool->IsSimpleShape(defLabel)) {
             fillLeaf(instLabel, defLabel, instanceName, localTrsf, parentIdx, depth, cursor);
@@ -334,15 +335,13 @@ void OpenCascadeAssembly::fillNode(
     }
 }
 
-void OpenCascadeAssembly::fillLeaf(
-    const TDF_Label& instLabel,
-    const TDF_Label& defLabel,
-    const std::string& parentName,
-    const gp_Trsf& localTrsf,
-    int parentIdx,
-    int depth,
-    int& cursor
-) {
+void OpenCascadeAssembly::fillLeaf(const TDF_Label& instLabel,
+                                   const TDF_Label& defLabel,
+                                   const std::string& parentName,
+                                   const gp_Trsf& localTrsf,
+                                   int parentIdx,
+                                   int depth,
+                                   int& cursor) {
     int myIdx = cursor++;
 
     std::string defName = getLabelName(defLabel);
@@ -354,22 +353,22 @@ void OpenCascadeAssembly::fillLeaf(
     } else {
         resolved = parentName;
     }
-    
+
     partNodes[myIdx].name = resolved;
 
     // std::ostringstream e, pe;
     // defLabel.EntryDump(e);
     // defLabel.Father().EntryDump(pe);
-    // LOG_DEBUG("fillLeaf: name=" + resolved 
-    //     + " entry=" + e.str() 
+    // LOG_DEBUG("fillLeaf: name=" + resolved
+    //     + " entry=" + e.str()
     //     + " parent=" + pe.str()
     //     + " shapeType=" + std::to_string(shapeTool->GetShape(defLabel).ShapeType()));
 
     Quantity_Color color(0.8, 0.8, 0.8, Quantity_TOC_RGB);
-    
+
     occt::handle<TCollection_HAsciiString> aName;
     occt::handle<TCollection_HAsciiString> aDescription;
-    double                                 aDensity;
+    double aDensity;
     occt::handle<TCollection_HAsciiString> aDensName;
     occt::handle<TCollection_HAsciiString> aDensValType;
 
@@ -380,7 +379,7 @@ void OpenCascadeAssembly::fillLeaf(
         aDensValType->Print(std::cout);
     }
 
-    //std::cout << partNodes[myIdx].materialName << std::endl;
+    // std::cout << partNodes[myIdx].materialName << std::endl;
 
     bool hasColor = colorTool->GetColor(defLabel, XCAFDoc_ColorSurf, color);
     if (hasColor) {
@@ -389,15 +388,15 @@ void OpenCascadeAssembly::fillLeaf(
         partNodes[myIdx].color = std::nullopt;
     }
 
-    partNodes[myIdx].type             = PartNodeType::Leaf;
-    partNodes[myIdx].definitionLabel  = defLabel;
-    partNodes[myIdx].instanceLabel    = instLabel;
-    partNodes[myIdx].localTransform   = localTrsf;
-    partNodes[myIdx].parentIdx        = parentIdx;
-    partNodes[myIdx].firstChildIdx    = -1;
-    partNodes[myIdx].childCount       = 0;
-    partNodes[myIdx].depth            = depth;
-    partNodes[myIdx].visible          = isLabelVisible(instLabel) && isLabelVisible(defLabel);
+    partNodes[myIdx].type = PartNodeType::Leaf;
+    partNodes[myIdx].definitionLabel = defLabel;
+    partNodes[myIdx].instanceLabel = instLabel;
+    partNodes[myIdx].localTransform = localTrsf;
+    partNodes[myIdx].parentIdx = parentIdx;
+    partNodes[myIdx].firstChildIdx = -1;
+    partNodes[myIdx].childCount = 0;
+    partNodes[myIdx].depth = depth;
+    partNodes[myIdx].visible = isLabelVisible(instLabel) && isLabelVisible(defLabel);
 
     // Only store the shape the first time we see this definition label.
     // Subsequent instances of the same part share this entry.
@@ -412,16 +411,14 @@ void OpenCascadeAssembly::fillLeaf(
     }
 }
 
-void OpenCascadeAssembly::fillAssembly(
-    const TDF_Label& instLabel,
-    const TDF_Label& defLabel,
-    const std::string& parentName,
-    const gp_Trsf& localTrsf,
-    const gp_Trsf& world,
-    int parentIdx,
-    int depth,
-    int& cursor
-) {
+void OpenCascadeAssembly::fillAssembly(const TDF_Label& instLabel,
+                                       const TDF_Label& defLabel,
+                                       const std::string& parentName,
+                                       const gp_Trsf& localTrsf,
+                                       const gp_Trsf& world,
+                                       int parentIdx,
+                                       int depth,
+                                       int& cursor) {
     int myIdx = cursor++;
 
     std::string defName = getLabelName(defLabel);
@@ -444,21 +441,21 @@ void OpenCascadeAssembly::fillAssembly(
 
     int validChildren = 0;
     for (int i = 1; i <= components.Length(); i++) {
-        if (countNodes(components.Value(i)) > 0) 
+        if (countNodes(components.Value(i)) > 0)
             validChildren++;
     }
     // Record firstChildIdx before recursing — cursor is at the first child slot
     // right now, and recursion will fill slots contiguously from here
     int firstChild = (validChildren > 0) ? cursor : -1;
 
-    partNodes[myIdx].type             = PartNodeType::Assembly;
-    partNodes[myIdx].definitionLabel  = defLabel;
-    partNodes[myIdx].instanceLabel    = instLabel;
-    partNodes[myIdx].localTransform   = localTrsf;
-    partNodes[myIdx].parentIdx        = parentIdx;
-    partNodes[myIdx].firstChildIdx    = firstChild;
-    partNodes[myIdx].childCount       = validChildren;
-    partNodes[myIdx].depth            = depth;
+    partNodes[myIdx].type = PartNodeType::Assembly;
+    partNodes[myIdx].definitionLabel = defLabel;
+    partNodes[myIdx].instanceLabel = instLabel;
+    partNodes[myIdx].localTransform = localTrsf;
+    partNodes[myIdx].parentIdx = parentIdx;
+    partNodes[myIdx].firstChildIdx = firstChild;
+    partNodes[myIdx].childCount = validChildren;
+    partNodes[myIdx].depth = depth;
 
     for (int i = 1; i <= components.Length(); i++) {
         TDF_Label child = components.Value(i);
@@ -467,7 +464,7 @@ void OpenCascadeAssembly::fillAssembly(
     }
 }
 
-// Debug 
+// Debug
 void OpenCascadeAssembly::debugPrintInstances() const {
     for (size_t i = 0; i < partNodes.size(); i++) {
         const PartNode& inst = partNodes[i];
@@ -475,15 +472,33 @@ void OpenCascadeAssembly::debugPrintInstances() const {
 
         std::string shapeType;
         switch (shapeTool->GetShape(inst.definitionLabel).ShapeType()) {
-            case TopAbs_COMPOUND:  shapeType = "COMPOUND"; break;
-            case TopAbs_COMPSOLID: shapeType = "COMPSOLID"; break;
-            case TopAbs_SOLID:     shapeType = "SOLID"; break;
-            case TopAbs_SHELL:     shapeType = "SHELL"; break;
-            case TopAbs_FACE:      shapeType = "FACE"; break;
-            case TopAbs_WIRE:      shapeType = "WIRE"; break;
-            case TopAbs_EDGE:      shapeType = "EDGE"; break;
-            case TopAbs_VERTEX:    shapeType = "VERTEX"; break;
-            default:               shapeType = "UNKNOWN"; break;
+            case TopAbs_COMPOUND:
+                shapeType = "COMPOUND";
+                break;
+            case TopAbs_COMPSOLID:
+                shapeType = "COMPSOLID";
+                break;
+            case TopAbs_SOLID:
+                shapeType = "SOLID";
+                break;
+            case TopAbs_SHELL:
+                shapeType = "SHELL";
+                break;
+            case TopAbs_FACE:
+                shapeType = "FACE";
+                break;
+            case TopAbs_WIRE:
+                shapeType = "WIRE";
+                break;
+            case TopAbs_EDGE:
+                shapeType = "EDGE";
+                break;
+            case TopAbs_VERTEX:
+                shapeType = "VERTEX";
+                break;
+            default:
+                shapeType = "UNKNOWN";
+                break;
         }
 
         std::ostringstream oss;
@@ -491,15 +506,10 @@ void OpenCascadeAssembly::debugPrintInstances() const {
         std::string dump = oss.str();
 
         gp_XYZ lt = inst.localTransform.TranslationPart();
-        std::cout << "[" << i << "] " << type
-                  << " name=" << inst.name
-                  << " shapeType=" << shapeType
-                  << " dump=" << dump
-                  << " parent="     << inst.parentIdx
-                  << " firstChild=" << inst.firstChildIdx
-                  << " childCount=" << inst.childCount
-                  << " depth="      << inst.depth
-                  << " localT=("    << lt.X() << "," << lt.Y() << "," << lt.Z() << ")"
+        std::cout << "[" << i << "] " << type << " name=" << inst.name << " shapeType=" << shapeType << " dump=" << dump
+                  << " parent=" << inst.parentIdx << " firstChild=" << inst.firstChildIdx
+                  << " childCount=" << inst.childCount << " depth=" << inst.depth << " localT=(" << lt.X() << ","
+                  << lt.Y() << "," << lt.Z() << ")"
                   << "\n";
     }
 }

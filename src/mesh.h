@@ -1,21 +1,21 @@
-#pragma once 
+#pragma once
 
-#include <unordered_set>
 #include <filesystem>
 #include <string>
+#include <unordered_set>
 
 #pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/primRange.h>
+#include <pxr/usd/usd/stage.h>
 
-#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
 
 #include <pxr/base/work/loops.h>
@@ -37,7 +37,8 @@ struct CadUsdTesselateArgs {
     std::filesystem::path inputUsdFile;
     std::unordered_set<SdfPath, SdfPath::Hash> selectedPaths;
 
-    ParseResult parse(const std::string& token, const std::string& nextToken);
+    ParseResult parse(const std::string& token,
+                      const std::string& nextToken);
 
     bool verify();
 };

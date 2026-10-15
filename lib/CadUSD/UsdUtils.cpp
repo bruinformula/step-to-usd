@@ -8,9 +8,9 @@
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include <pxr/usd/usd/variantSets.h>
@@ -19,8 +19,8 @@
 
 #include "tokens.h"
 
-#include "CadUSD/Tessellation/TessellationRoutine.h"
 #include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationRoutine.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -28,42 +28,39 @@ namespace CadUSD {
 
 namespace fs = std::filesystem;
 
-UsdStageRefPtr initUsdStage(
-    const fs::path& newStagePath, 
-    bool clearExisting
-) {
+UsdStageRefPtr initUsdStage(const fs::path& newStagePath,
+                            bool clearExisting) {
     SdfLayerRefPtr layer = SdfLayer::FindOrOpen(newStagePath.string());
-    
+
     if (!layer) {
-        //std::cout << "Creating new layer at " << newStagePath << "\n";
+        // std::cout << "Creating new layer at " << newStagePath << "\n";
         layer = SdfLayer::CreateNew(newStagePath.string());
     } else if (clearExisting) {
-        //std::cout << "Cleaning internal contents of layer: " << newStagePath << "\n";
+        // std::cout << "Cleaning internal contents of layer: " << newStagePath << "\n";
         layer->Clear();
     }
 
-    if (!layer) return nullptr;
+    if (!layer)
+        return nullptr;
 
     layer->SetField(SdfPath::AbsoluteRootPath(), UsdGeomTokens->upAxis, VtValue(UsdGeomTokens->z));
 
-    // Open the stage. 
+    // Open the stage.
     UsdStageRefPtr stage = UsdStage::Open(layer, UsdStage::LoadNone);
 
     // stage->Save();
     return stage;
 }
 
-void addStageSubLayer(
-    const UsdStageRefPtr& stage, 
-    const fs::path& subLayerPath
-) {
+void addStageSubLayer(const UsdStageRefPtr& stage,
+                      const fs::path& subLayerPath) {
     SdfLayerHandle rootLayer = stage->GetRootLayer();
 
     bool alreadyExists = false;
     for (const auto& path : rootLayer->GetSubLayerPaths()) {
-        if (path == subLayerPath.string() || path == subLayerPath) { 
-            alreadyExists = true; 
-            break; 
+        if (path == subLayerPath.string() || path == subLayerPath) {
+            alreadyExists = true;
+            break;
         }
     }
 
@@ -75,9 +72,9 @@ void addStageSubLayer(
     }
 }
 
-std::unordered_set<SdfPath, SdfPath::Hash> getVariantsOnPrim(
-    const UsdPrim& prim
-) {
+std::unordered_set<SdfPath,
+                   SdfPath::Hash>
+getVariantsOnPrim(const UsdPrim& prim) {
     std::vector<std::string> variantSetNames;
     prim.GetVariantSets().GetNames(&variantSetNames);
 
@@ -99,8 +96,10 @@ std::string sanitizeUsdName(const std::string_view& name) {
     result.reserve(name.size());
 
     for (char c : name) {
-        if (std::isalnum(c) || c == '_') result += c;
-        else result += '_'; // replace hyphens, spaces, dots
+        if (std::isalnum(c) || c == '_')
+            result += c;
+        else
+            result += '_'; // replace hyphens, spaces, dots
     }
 
     if (!result.empty() && std::isdigit(result[0]))
@@ -109,10 +108,11 @@ std::string sanitizeUsdName(const std::string_view& name) {
     return result;
 }
 
-std::unordered_set<SdfPath, SdfPath::Hash> reparentPaths(
-    const SdfPath& newRoot,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& paths
-) {
+std::unordered_set<SdfPath,
+                   SdfPath::Hash>
+reparentPaths(const SdfPath& newRoot,
+              const std::unordered_set<SdfPath,
+                                       SdfPath::Hash>& paths) {
     std::unordered_set<SdfPath, SdfPath::Hash> reparented;
     if (newRoot == SdfPath::AbsoluteRootPath()) {
         return paths;
@@ -128,7 +128,8 @@ std::unordered_set<SdfPath, SdfPath::Hash> reparentPaths(
 };
 
 template <typename T>
-void updateIfAuthored(const UsdAttribute& attr, T* value) {
+void updateIfAuthored(const UsdAttribute& attr,
+                      T* value) {
     bool hasValue = attr.HasValue();
     if (hasValue) {
         attr.Get(value);
@@ -137,9 +138,11 @@ void updateIfAuthored(const UsdAttribute& attr, T* value) {
 
 // Helper to read a token attr and convert to CurveType
 template <>
-void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveSampling* value) {
+void updateIfAuthored(const UsdAttribute& attr,
+                      TessParams::CurveSampling* value) {
     bool hasValue = attr.HasValue();
-    if (!hasValue) return;
+    if (!hasValue)
+        return;
 
     TfToken token;
     if (!attr.Get(&token)) {
@@ -157,9 +160,11 @@ void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveSampling* value
 }
 
 template <>
-void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveType* value) {
+void updateIfAuthored(const UsdAttribute& attr,
+                      TessParams::CurveType* value) {
     bool hasValue = attr.HasValue();
-    if (!hasValue) return;
+    if (!hasValue)
+        return;
 
     TfToken token;
     if (!attr.Get(&token)) {
@@ -179,10 +184,15 @@ void updateIfAuthored(const UsdAttribute& attr, TessParams::CurveType* value) {
     }
 }
 
-template void updateIfAuthored<float>(const UsdAttribute&, float*);
-template void updateIfAuthored<double>(const UsdAttribute&, double*);
-template void updateIfAuthored<int>(const UsdAttribute&, int*);
-template void updateIfAuthored<uint64_t>(const UsdAttribute&, uint64_t*);
-template void updateIfAuthored<bool>(const UsdAttribute&, bool*);
+template void updateIfAuthored<float>(const UsdAttribute&,
+                                      float*);
+template void updateIfAuthored<double>(const UsdAttribute&,
+                                       double*);
+template void updateIfAuthored<int>(const UsdAttribute&,
+                                    int*);
+template void updateIfAuthored<uint64_t>(const UsdAttribute&,
+                                         uint64_t*);
+template void updateIfAuthored<bool>(const UsdAttribute&,
+                                     bool*);
 
 } // namespace CadUSD

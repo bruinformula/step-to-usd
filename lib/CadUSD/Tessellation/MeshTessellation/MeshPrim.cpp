@@ -1,27 +1,30 @@
-#include <string>
-#include <numeric>
 #include <algorithm>
+#include <numeric>
+#include <string>
 
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/sdf/types.h>
-#include <pxr/usd/sdf/path.h>
-#include <pxr/usd/usdGeom/mesh.h>
-#include <pxr/usd/usdGeom/tokens.h>
-#include <pxr/usd/usdGeom/primvarsAPI.h>
-#include <pxr/usd/usdGeom/subset.h>
-#include <pxr/usd/usdGeom/primvar.h>
-#include <pxr/base/vt/array.h>
-#include <pxr/base/vt/types.h>
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
+#include <pxr/base/vt/array.h>
+#include <pxr/base/vt/types.h>
+#include <pxr/pxr.h>
+
+#include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/types.h>
+
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
+
+#include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/pointBased.h>
+#include <pxr/usd/usdGeom/primvar.h>
+#include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdGeom/subset.h>
+#include <pxr/usd/usdGeom/tokens.h>
 
 #pragma pop_macro("Handle")
 
@@ -40,7 +43,8 @@ static bool anyNonZero(const VtArray<float>& values) {
     return std::any_of(values.begin(), values.end(), [](float v) { return v != 0.0f; });
 }
 
-bool MeshTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
+bool MeshTessellationRoutine::writePartMember(UsdStageRefPtr stage,
+                                              SdfPath& partPath) const {
     SdfPath meshPath = partPath.AppendChild(TfToken("Mesh"));
     SdfPath wireframePath = partPath.AppendChild(TfToken("Wireframe"));
 
@@ -53,42 +57,33 @@ bool MeshTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& par
     return true;
 }
 
-bool MeshTessellationRoutine::defineMeshPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool MeshTessellationRoutine::defineMeshPrim(UsdStageRefPtr stage,
+                                             const SdfPath& protoPath,
+                                             const TessParams& params) const {
     UsdGeomMesh protoMesh = UsdGeomMesh::Define(stage, protoPath.AppendChild(TfToken("Mesh")));
 
     if (params.meshEnableSurfaceSubsets) {
         for (const auto& surfaceIDBounds : surfaceIDBounds) {
-            UsdGeomSubset::Define(
-                stage,
-                protoMesh.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))
-            );
+            UsdGeomSubset::Define(stage, protoMesh.GetPath().AppendChild(
+                                             TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID))));
         }
     }
-    
+
     UsdGeomPrimvarsAPI api(protoMesh);
     api.CreatePrimvar(TfToken("st"), SdfValueTypeNames->TexCoord2fArray, UsdGeomTokens->faceVarying);
     api.CreatePrimvar(TfToken("isBoundaryVertex"), SdfValueTypeNames->BoolArray, UsdGeomTokens->vertex);
     api.CreatePrimvar(TfToken("boundaryTangent"), SdfValueTypeNames->Normal3fArray, UsdGeomTokens->vertex);
     for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
-        if (!anyNonZero(boundaryEdgeDistances[k])) continue;
-        api.CreatePrimvar(
-            boundaryEdgeDistanceName(k),
-            SdfValueTypeNames->FloatArray,
-            UsdGeomTokens->faceVarying
-        );
+        if (!anyNonZero(boundaryEdgeDistances[k]))
+            continue;
+        api.CreatePrimvar(boundaryEdgeDistanceName(k), SdfValueTypeNames->FloatArray, UsdGeomTokens->faceVarying);
     }
     return true;
 }
 
-bool MeshTessellationRoutine::writeMeshPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool MeshTessellationRoutine::writeMeshPrim(UsdStageRefPtr stage,
+                                            const SdfPath& protoPath,
+                                            const TessParams& params) const {
     UsdGeomMesh protoMesh(stage->GetPrimAtPath(protoPath.AppendChild(TfToken("Mesh"))));
 
     if (params.meshEnableSurfaceSubsets) {
@@ -97,11 +92,13 @@ bool MeshTessellationRoutine::writeMeshPrim(
 
             VtIntArray indices(count);
             std::iota(indices.begin(), indices.end(), surfaceIDBounds.startIdx);
-            
-            UsdGeomSubset subset(stage->GetPrimAtPath(protoMesh.GetPath().AppendChild(TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
+
+            UsdGeomSubset subset(stage->GetPrimAtPath(protoMesh.GetPath().AppendChild(
+                TfToken("SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID)))));
 
             if (!subset) {
-                LOG_ERR("writeMeshGeometry: missing subset prim SurfaceSubset_" + std::to_string(surfaceIDBounds.surfaceID));
+                LOG_ERR("writeMeshGeometry: missing subset prim SurfaceSubset_" +
+                        std::to_string(surfaceIDBounds.surfaceID));
                 continue;
             }
 
@@ -109,7 +106,7 @@ bool MeshTessellationRoutine::writeMeshPrim(
             subset.CreateIndicesAttr().Set(indices);
             subset.CreateFamilyNameAttr().Set(TfToken("materialBind"));
         }
-        
+
         UsdGeomSubset::SetFamilyType(protoMesh, TfToken("materialBind"), UsdGeomTokens->partition);
     }
 
@@ -130,19 +127,24 @@ bool MeshTessellationRoutine::writeMeshPrim(
     }
 
     UsdGeomPrimvarsAPI api(protoMesh);
-    if (params.meshEnableUVs) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st"))) p.Set(perSurfaceUVs);
-    if (params.meshEnableIsBoundaryVertex) if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex"))) p.Set(isBoundaryVertex);
+    if (params.meshEnableUVs)
+        if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("st")))
+            p.Set(perSurfaceUVs);
+    if (params.meshEnableIsBoundaryVertex)
+        if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("isBoundaryVertex")))
+            p.Set(isBoundaryVertex);
     if (!boundaryTangents.empty() && boundaryTangents.size() == points.size()) {
         if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("boundaryTangent")))
             p.Set(boundaryTangents);
     }
 
     for (int k = 0; k < kBoundaryEdgeSlots; ++k) {
-        if (!anyNonZero(boundaryEdgeDistances[k])) continue;
+        if (!anyNonZero(boundaryEdgeDistances[k]))
+            continue;
 
         if (boundaryEdgeDistances[k].size() != faceVertexIndices.size()) {
-            LOG_ERR("writeMeshGeometry: boundaryEdgeDistance" + std::to_string(k) +
-                    " size mismatch at " + protoPath.GetString());
+            LOG_ERR("writeMeshGeometry: boundaryEdgeDistance" + std::to_string(k) + " size mismatch at " +
+                    protoPath.GetString());
             continue;
         }
         if (UsdGeomPrimvar p = api.GetPrimvar(boundaryEdgeDistanceName(k))) {
@@ -153,10 +155,8 @@ bool MeshTessellationRoutine::writeMeshPrim(
     return true;
 }
 
-void MeshTessellationRoutine::clearPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath
-) const {
+void MeshTessellationRoutine::clearPrim(UsdStageRefPtr stage,
+                                        const SdfPath& protoPath) const {
     stage->RemovePrim(protoPath.AppendChild(TfToken("Mesh")));
     stage->RemovePrim(protoPath.AppendChild(TfToken("Wireframe")));
 }

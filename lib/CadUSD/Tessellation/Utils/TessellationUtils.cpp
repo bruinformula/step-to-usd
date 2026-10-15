@@ -1,23 +1,23 @@
-#include <vector>
 #include <algorithm>
+#include <vector>
 
-#include <TopoDS_Shape.hxx>
-#include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <TopoDS_Shape.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/pxr.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
+#include <pxr/pxr.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #pragma pop_macro("Handle")
 
-#include "CadUSD/Tessellation/TessellationUtils.h"
 #include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -26,7 +26,8 @@ namespace CadUSD {
 // Split each original curve into pieces no longer than pointLimit.
 // For oversized curves, each continuation piece repeats the previous
 // piece's endpoint as its first point to avoid visual gaps.
-std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts, uint64_t pointLimit) {
+std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts,
+                                              uint64_t pointLimit) {
     std::vector<CurvePiece> pieces;
     int pointOffset = 0;
 
@@ -79,7 +80,9 @@ std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts, uint64_t
 }
 
 // Group pieces into prim-sized chunks. If combine==false, each piece is its own chunk.
-std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts, uint64_t pointLimit, bool combine) {
+std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts,
+                                           uint64_t pointLimit,
+                                           bool combine) {
     std::vector<CurvePiece> pieces = splitCurvesIntoPieces(counts, pointLimit);
     std::vector<CurveChunk> chunks;
 
@@ -97,7 +100,8 @@ std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts, uint64_t po
         chunk.pointCount = 0;
         while (i < pieces.size()) {
             int c = pieces[i].pointCount;
-            if (!chunk.pieces.empty() && (uint64_t)(chunk.pointCount + c) > pointLimit) break;
+            if (!chunk.pieces.empty() && (uint64_t)(chunk.pointCount + c) > pointLimit)
+                break;
             chunk.pieces.push_back(pieces[i]);
             chunk.pointCount += c;
             i++;
@@ -109,14 +113,16 @@ std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts, uint64_t po
 
 VtIntArray chunkVertexCounts(const CurveChunk& chunk) {
     VtIntArray counts(chunk.pieces.size());
-    for (size_t j = 0; j < chunk.pieces.size(); ++j) counts[j] = chunk.pieces[j].pointCount;
+    for (size_t j = 0; j < chunk.pieces.size(); ++j)
+        counts[j] = chunk.pieces[j].pointCount;
     return counts;
 }
 
 std::vector<float> computeArcValues(const GCPnts_QuasiUniformDeflection& sampler) {
     int n = sampler.NbPoints();
     std::vector<float> arc(n, 0.0f);
-    if (n < 2) return arc;
+    if (n < 2)
+        return arc;
 
     float total = 0.0f;
     for (int i = 2; i <= n; ++i)
@@ -137,11 +143,7 @@ double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape) {
     double xmin, ymin, zmin, xmax, ymax, zmax;
     bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 
-    double diagonal = std::sqrt(
-        std::pow(xmax - xmin, 2) + 
-        std::pow(ymax - ymin, 2) + 
-        std::pow(zmax - zmin, 2)
-    );
+    double diagonal = std::sqrt(std::pow(xmax - xmin, 2) + std::pow(ymax - ymin, 2) + std::pow(zmax - zmin, 2));
 
     return diagonal;
 }

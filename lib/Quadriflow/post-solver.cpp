@@ -35,32 +35,48 @@ const double COEFF_LENGTH = 1;
 /// Number of iterations of the CGNR solver
 const int N_ITER = 100;
 
-template <typename T, typename T2>
-T DotProduct(const T a[3], const T2 b[3]) {
+template <typename T,
+          typename T2>
+T DotProduct(const T a[3],
+             const T2 b[3]) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-template <typename T>
-T Length2(const T a[3]) {
+template <typename T> T Length2(const T a[3]) {
     return DotProduct(a, a);
 }
 
 namespace ceres {
-inline double min(const double f, const double g) { return std::min(f, g); }
+inline double min(const double f,
+                  const double g) {
+    return std::min(f, g);
+}
 
-template <typename T, int N>
-inline Jet<T, N> min(const Jet<T, N>& f, const Jet<T, N>& g) {
+template <typename T,
+          int N>
+inline Jet<T,
+           N>
+min(const Jet<T,
+              N>& f,
+    const Jet<T,
+              N>& g) {
     if (f.a < g.a)
         return f;
     else
         return g;
 }
-}  // namespace ceres
+} // namespace ceres
 
 bool DEBUG = 0;
 struct FaceConstraint {
-    FaceConstraint(double coeff_area, double coeff_normal, double coeff_flow, double coeff_orth,
-                   double length, Vector3d normal[4], Vector3d Q0[4], Vector3d Q1[4])
+    FaceConstraint(double coeff_area,
+                   double coeff_normal,
+                   double coeff_flow,
+                   double coeff_orth,
+                   double length,
+                   Vector3d normal[4],
+                   Vector3d Q0[4],
+                   Vector3d Q1[4])
         : coeff_area(coeff_area),
           coeff_normal(coeff_normal),
           coeff_flow(coeff_flow),
@@ -72,11 +88,22 @@ struct FaceConstraint {
               normal[2],
               normal[3],
           },
-          Q0{Q0[0], Q0[1], Q0[2], Q0[3]},
-          Q1{Q1[0], Q1[1], Q1[2], Q1[3]} {}
+          Q0{Q0[0],
+             Q0[1],
+             Q0[2],
+             Q0[3]},
+          Q1{Q1[0],
+             Q1[1],
+             Q1[2],
+             Q1[3]} {
+    }
 
     template <typename T>
-    bool operator()(const T* p0, const T* p1, const T* p2, const T* p3, T* r) const {
+    bool operator()(const T* p0,
+                    const T* p1,
+                    const T* p2,
+                    const T* p3,
+                    T* r) const {
         const T* p[] = {p0, p1, p2, p3};
         r[12] = T();
         for (int k = 0; k < 4; ++k) {
@@ -104,7 +131,8 @@ struct FaceConstraint {
             r[12] += area;
 
             assert(area != T());
-            for (int i = 0; i < 3; ++i) normal[i] /= area;
+            for (int i = 0; i < 3; ++i)
+                normal[i] /= area;
             T degree_normal = DotProduct(normal, &normal0[k][0]) - T(1);
             r[3 * k + 2] = coeff_normal * degree_normal * degree_normal;
         }
@@ -112,11 +140,16 @@ struct FaceConstraint {
         return true;
     }
 
-    static ceres::CostFunction* create(double coeff_area, double coeff_normal, double coeff_flow,
-                                       double coeff_orth, double length, Vector3d normal[4],
-                                       Vector3d Q0[4], Vector3d Q1[4]) {
-        return new ceres::AutoDiffCostFunction<FaceConstraint, 13, 3, 3, 3, 3>(new FaceConstraint(
-            coeff_area, coeff_normal, coeff_flow, coeff_orth, length, normal, Q0, Q1));
+    static ceres::CostFunction* create(double coeff_area,
+                                       double coeff_normal,
+                                       double coeff_flow,
+                                       double coeff_orth,
+                                       double length,
+                                       Vector3d normal[4],
+                                       Vector3d Q0[4],
+                                       Vector3d Q1[4]) {
+        return new ceres::AutoDiffCostFunction<FaceConstraint, 13, 3, 3, 3, 3>(
+            new FaceConstraint(coeff_area, coeff_normal, coeff_flow, coeff_orth, length, normal, Q0, Q1));
     }
 
     double coeff_area;
@@ -130,16 +163,25 @@ struct FaceConstraint {
 };
 
 struct VertexConstraint {
-    VertexConstraint(double coeff_tangent, Vector3d normal, double bias, double length)
-        : coeff{coeff_tangent / length * 10}, bias0{bias}, normal0{normal} {}
+    VertexConstraint(double coeff_tangent,
+                     Vector3d normal,
+                     double bias,
+                     double length)
+        : coeff{coeff_tangent / length * 10},
+          bias0{bias},
+          normal0{normal} {
+    }
 
     template <typename T>
-    bool operator()(const T* p, T* r) const {
+    bool operator()(const T* p,
+                    T* r) const {
         r[0] = coeff * (DotProduct(p, &normal0[0]) - bias0);
         return true;
     }
 
-    static ceres::CostFunction* create(double coeff_tangent, Vector3d normal, double bias,
+    static ceres::CostFunction* create(double coeff_tangent,
+                                       Vector3d normal,
+                                       double bias,
                                        double length) {
         return new ceres::AutoDiffCostFunction<VertexConstraint, 1, 3>(
             new VertexConstraint(coeff_tangent, normal, bias, length));
@@ -150,11 +192,22 @@ struct VertexConstraint {
     Vector3d normal0;
 };
 
-void solve(std::vector<Vector3d>& O_quad, std::vector<Vector3d>& N_quad,
-           std::vector<Vector3d>& Q_quad, std::vector<Vector4i>& F_quad,
-           std::vector<double>& B_quad, MatrixXd& V, MatrixXd& N, MatrixXd& Q, MatrixXd& O,
-           MatrixXi& F, double reference_length, double coeff_area, double coeff_tangent,
-           double coeff_normal, double coeff_flow, double coeff_orth) {
+void solve(std::vector<Vector3d>& O_quad,
+           std::vector<Vector3d>& N_quad,
+           std::vector<Vector3d>& Q_quad,
+           std::vector<Vector4i>& F_quad,
+           std::vector<double>& B_quad,
+           MatrixXd& V,
+           MatrixXd& N,
+           MatrixXd& Q,
+           MatrixXd& O,
+           MatrixXi& F,
+           double reference_length,
+           double coeff_area,
+           double coeff_tangent,
+           double coeff_normal,
+           double coeff_flow,
+           double coeff_orth) {
     printf("Parameter:  \n");
     printf("    coeff_area:      %.4f\n", coeff_area);
     printf("    coeff_tangent:   %.4f\n", coeff_tangent);
@@ -180,16 +233,16 @@ void solve(std::vector<Vector3d>& O_quad, std::vector<Vector3d>& N_quad,
             Q0[k] = Q_quad[v[k]];
             Q1[k] = Q0[k].cross(normal[k]).normalized();
         }
-        ceres::CostFunction* cost_function = FaceConstraint::create(
-            coeff_area, coeff_normal, coeff_flow, coeff_orth, reference_length, normal, Q0, Q1);
-        problem.AddResidualBlock(cost_function, nullptr, &solution[3 * v[0]], &solution[3 * v[1]],
-                                 &solution[3 * v[2]], &solution[3 * v[3]]);
+        ceres::CostFunction* cost_function =
+            FaceConstraint::create(coeff_area, coeff_normal, coeff_flow, coeff_orth, reference_length, normal, Q0, Q1);
+        problem.AddResidualBlock(cost_function, nullptr, &solution[3 * v[0]], &solution[3 * v[1]], &solution[3 * v[2]],
+                                 &solution[3 * v[3]]);
     }
 
     // Tangent constraint
     for (int vquad = 0; vquad < O_quad.size(); ++vquad) {
-        ceres::CostFunction* cost_function = VertexConstraint::create(
-            coeff_tangent, N_quad[vquad], B_quad[vquad], reference_length);
+        ceres::CostFunction* cost_function =
+            VertexConstraint::create(coeff_tangent, N_quad[vquad], B_quad[vquad], reference_length);
         problem.AddResidualBlock(cost_function, nullptr, &solution[3 * vquad]);
     }
 
@@ -215,24 +268,33 @@ void solve(std::vector<Vector3d>& O_quad, std::vector<Vector3d>& N_quad,
     return;
 }
 
-void optimize_quad_positions(std::vector<Vector3d>& O_quad, std::vector<Vector3d>& N_quad,
-                             std::vector<Vector3d>& Q_quad, std::vector<Vector4i>& F_quad,
-                             VectorXi& V2E_quad, std::vector<int>& E2E_quad, MatrixXd& V,
-                             MatrixXd& N, MatrixXd& Q, MatrixXd& O, MatrixXi& F, VectorXi& V2E,
-                             VectorXi& E2E, DisajointTree& disajoint_tree, double reference_length,
+void optimize_quad_positions(std::vector<Vector3d>& O_quad,
+                             std::vector<Vector3d>& N_quad,
+                             std::vector<Vector3d>& Q_quad,
+                             std::vector<Vector4i>& F_quad,
+                             VectorXi& V2E_quad,
+                             std::vector<int>& E2E_quad,
+                             MatrixXd& V,
+                             MatrixXd& N,
+                             MatrixXd& Q,
+                             MatrixXd& O,
+                             MatrixXi& F,
+                             VectorXi& V2E,
+                             VectorXi& E2E,
+                             DisajointTree& disajoint_tree,
+                             double reference_length,
                              bool just_serialize) {
     printf("Quad mesh info:\n");
-    printf("Number of vertices with normals and orientations: %d = %d = %d\n", (int)O_quad.size(),
-           (int)N_quad.size(), (int)Q_quad.size());
+    printf("Number of vertices with normals and orientations: %d = %d = %d\n", (int)O_quad.size(), (int)N_quad.size(),
+           (int)Q_quad.size());
     printf("Number of faces: %d\n", (int)F_quad.size());
     printf("Number of directed edges: %d\n", (int)E2E_quad.size());
     // Information for the original mesh
     printf("Triangle mesh info:\n");
-    printf(
-        "Number of vertices with normals, "
-        "orientations and associated quad positions: "
-        "%d = %d = %d = %d\n",
-        (int)V.cols(), (int)N.cols(), (int)Q.cols(), (int)O.cols());
+    printf("Number of vertices with normals, "
+           "orientations and associated quad positions: "
+           "%d = %d = %d = %d\n",
+           (int)V.cols(), (int)N.cols(), (int)Q.cols(), (int)O.cols());
     printf("Number of faces: %d\n", (int)F.cols());
     printf("Number of directed edges: %d\n", (int)E2E.size());
     printf("Reference length: %.2f\n", reference_length);
@@ -259,7 +321,7 @@ void optimize_quad_positions(std::vector<Vector3d>& O_quad, std::vector<Vector3d
 
     int n_quad = O_quad.size();
     int n_trig = O.cols();
-    std::vector<double> B_quad(n_quad);  // Average bias for quad vertex
+    std::vector<double> B_quad(n_quad); // Average bias for quad vertex
     std::vector<int> B_weight(n_quad);
 
     printf("ntrig: %d, disjoint_tree.size: %d\n", n_trig, (int)disajoint_tree.indices.size());
@@ -292,27 +354,29 @@ void optimize_quad_positions(std::vector<Vector3d>& O_quad, std::vector<Vector3d
 
     if (!just_serialize) {
         puts("Start post optimization");
-        solve(O_quad, N_quad, Q_quad, F_quad, B_quad, V, N, Q, O, F, reference_length, COEFF_AREA,
-              COEFF_TANGENT, COEFF_NORMAL, COEFF_FLOW, COEFF_ORTH);
+        solve(O_quad, N_quad, Q_quad, F_quad, B_quad, V, N, Q, O, F, reference_length, COEFF_AREA, COEFF_TANGENT,
+              COEFF_NORMAL, COEFF_FLOW, COEFF_ORTH);
     }
 }
 
 #ifdef POST_SOLVER
 
-void SaveObj(const std::string& fname, std::vector<Vector3d> O_quad,
+void SaveObj(const std::string& fname,
+             std::vector<Vector3d> O_quad,
              std::vector<Vector4i> F_quad) {
     std::ofstream os(fname);
     for (int i = 0; i < (int)O_quad.size(); ++i) {
         os << "v " << O_quad[i][0] << " " << O_quad[i][1] << " " << O_quad[i][2] << "\n";
     }
     for (int i = 0; i < (int)F_quad.size(); ++i) {
-        os << "f " << F_quad[i][0] + 1 << " " << F_quad[i][1] + 1 << " " << F_quad[i][2] + 1 << " "
-           << F_quad[i][3] + 1 << "\n";
+        os << "f " << F_quad[i][0] + 1 << " " << F_quad[i][1] + 1 << " " << F_quad[i][2] + 1 << " " << F_quad[i][3] + 1
+           << "\n";
     }
     os.close();
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc,
+         char* argv[]) {
     double coeff_area;
     double coeff_tangent;
     double coeff_normal;
@@ -321,7 +385,7 @@ int main(int argc, char* argv[]) {
 
     namespace po = boost::program_options;
     po::options_description desc("Allowed options");
-    desc.add_options()  // clang-format off
+    desc.add_options() // clang-format off
         ("help,h", "produce help message")
         ("area,a", po::value<double>(&coeff_area)->default_value(COEFF_AREA), "Set the coefficient of area constraint")
         ("tangent,t", po::value<double>(&coeff_tangent)->default_value(COEFF_TANGENT), "Set the coefficient of tangent constraint")
@@ -377,8 +441,7 @@ int main(int argc, char* argv[]) {
             int v2 = F_quad[i][(j + 1) % 4];
             int v3 = F_quad[i][(j + 3) % 4];
 
-            Vector3d face_norm =
-                (O_quad[v2] - O_quad[v1]).cross(O_quad[v3] - O_quad[v1]).normalized();
+            Vector3d face_norm = (O_quad[v2] - O_quad[v1]).cross(O_quad[v3] - O_quad[v1]).normalized();
             Vector3d vertex_norm = N_quad[v1];
             if (face_norm.dot(vertex_norm) < 0) {
                 flipped = true;
@@ -393,8 +456,8 @@ int main(int argc, char* argv[]) {
     printf("n_flip: %d\nsum_degree: %.3f\n", n_flip, sum_degree);
 
     puts("Start post optimization");
-    solve(O_quad, N_quad, Q_quad, F_quad, B_quad, V, N, Q, O, F, reference_length, coeff_area,
-          coeff_tangent, coeff_normal, coeff_flow, coeff_orth);
+    solve(O_quad, N_quad, Q_quad, F_quad, B_quad, V, N, Q, O, F, reference_length, coeff_area, coeff_tangent,
+          coeff_normal, coeff_flow, coeff_orth);
     SaveObj("postsolver.obj", O_quad, F_quad);
 
     n_flip = 0;
@@ -406,8 +469,7 @@ int main(int argc, char* argv[]) {
             int v2 = F_quad[i][(j + 1) % 4];
             int v3 = F_quad[i][(j + 3) % 4];
 
-            Vector3d face_norm =
-                (O_quad[v2] - O_quad[v1]).cross(O_quad[v3] - O_quad[v1]).normalized();
+            Vector3d face_norm = (O_quad[v2] - O_quad[v1]).cross(O_quad[v3] - O_quad[v1]).normalized();
             Vector3d vertex_norm = N_quad[v1];
             if (face_norm.dot(vertex_norm) < 0) {
                 flipped = true;
@@ -425,4 +487,3 @@ int main(int argc, char* argv[]) {
 #endif
 
 } // namespace CadUSD::qflow
-

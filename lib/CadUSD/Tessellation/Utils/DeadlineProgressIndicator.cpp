@@ -1,6 +1,6 @@
 
-#include <chrono>
 #include <Message_ProgressIndicator.hxx>
+#include <chrono>
 
 #include "CadUSD/Logger.h"
 #include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
@@ -18,7 +18,7 @@ DeadlineProgressIndicator::~DeadlineProgressIndicator() {
 // OCCT polls this at internal checkpoints
 bool DeadlineProgressIndicator::UserBreak() {
     if (Clock::now() >= _deadline) {
-        if (!_timedOut) {  // Only log once on first timeout detection
+        if (!_timedOut) { // Only log once on first timeout detection
             LOG_WARN(label + "operation timed out");
         }
         _timedOut = true;
@@ -28,10 +28,13 @@ bool DeadlineProgressIndicator::UserBreak() {
     return false;
 }
 
-void DeadlineProgressIndicator::Show(const Message_ProgressScope& scope, const bool isForced) {
+void DeadlineProgressIndicator::Show(const Message_ProgressScope& scope,
+                                     const bool isForced) {
     // LOG_DEBUG(label + "Show called (forced=" + std::string(isForced ? "true" : "false") + ")");
 }
 
-bool DeadlineProgressIndicator::timedOut() const { return _timedOut; }
+bool DeadlineProgressIndicator::timedOut() const {
+    return _timedOut;
+}
 
 } // namespace CadUSD

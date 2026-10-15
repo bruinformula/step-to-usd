@@ -1,4 +1,5 @@
 #include "Quadriflow/dedge.hpp"
+#include "Quadriflow/compare-key.hpp"
 #include "Quadriflow/config.hpp"
 
 #include <atomic>
@@ -6,18 +7,24 @@
 #include <iostream>
 #include <set>
 #include <vector>
-#include "Quadriflow/compare-key.hpp"
+
 #ifdef WITH_TBB
-#include "tbb/tbb.h"
+#    include "tbb/tbb.h"
 #endif
+
 namespace CadUSD::qflow {
 
-inline int dedge_prev(int e, int deg) { return (e % deg == 0u) ? e + (deg - 1) : e - 1; }
+inline int dedge_prev(int e,
+                      int deg) {
+    return (e % deg == 0u) ? e + (deg - 1) : e - 1;
+}
 
-inline bool atomicCompareAndExchange(volatile int* v, uint32_t newValue, int oldValue) {
+inline bool atomicCompareAndExchange(volatile int* v,
+                                     uint32_t newValue,
+                                     int oldValue) {
 #if defined(_WIN32)
-    return _InterlockedCompareExchange(reinterpret_cast<volatile long*>(v), (long)newValue,
-                                       (long)oldValue) == (long)oldValue;
+    return _InterlockedCompareExchange(reinterpret_cast<volatile long*>(v), (long)newValue, (long)oldValue) ==
+           (long)oldValue;
 #else
     return __sync_bool_compare_and_swap(v, oldValue, newValue);
 #endif
@@ -27,8 +34,12 @@ const int INVALID = -1;
 
 #undef max
 #undef min
-bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E,
-                          VectorXi& boundary, VectorXi& nonManifold) {
+bool compute_direct_graph(MatrixXd& V,
+                          MatrixXi& F,
+                          VectorXi& V2E,
+                          VectorXi& E2E,
+                          VectorXi& boundary,
+                          VectorXi& nonManifold) {
     V2E.resize(V.cols());
     V2E.setConstant(INVALID);
 
@@ -36,34 +47,33 @@ bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E
     std::vector<std::pair<uint32_t, uint32_t>> tmp(F.size());
 
 #ifdef WITH_TBB
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t)F.cols(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t>& range) {
-            for (uint32_t f = range.begin(); f != range.end(); ++f) {
-                for (uint32_t i = 0; i < deg; ++i) {
-                    uint32_t idx_cur = F(i, f), idx_next = F((i + 1) % deg, f),
-                             edge_id = deg * f + i;
-                    if (idx_cur >= V.cols() || idx_next >= V.cols())
-                        throw std::runtime_error(
-                            "Mesh data contains an out-of-bounds vertex reference!");
-                    if (idx_cur == idx_next) continue;
+    tbb::parallel_for(tbb::blocked_range<uint32_t>(0u, (uint32_t)F.cols(), GRAIN_SIZE),
+                      [&](const tbb::blocked_range<uint32_t>& range) {
+                          for (uint32_t f = range.begin(); f != range.end(); ++f) {
+                              for (uint32_t i = 0; i < deg; ++i) {
+                                  uint32_t idx_cur = F(i, f), idx_next = F((i + 1) % deg, f), edge_id = deg * f + i;
+                                  if (idx_cur >= V.cols() || idx_next >= V.cols())
+                                      throw std::runtime_error("Mesh data contains an out-of-bounds vertex reference!");
+                                  if (idx_cur == idx_next)
+                                      continue;
 
-                    tmp[edge_id] = std::make_pair(idx_next, INVALID);
-                    if (!atomicCompareAndExchange(&V2E[idx_cur], edge_id, INVALID)) {
-                        uint32_t idx = V2E[idx_cur];
-                        while (!atomicCompareAndExchange((int*)&tmp[idx].second, edge_id, INVALID))
-                            idx = tmp[idx].second;
-                    }
-                }
-            }
-        });
+                                  tmp[edge_id] = std::make_pair(idx_next, INVALID);
+                                  if (!atomicCompareAndExchange(&V2E[idx_cur], edge_id, INVALID)) {
+                                      uint32_t idx = V2E[idx_cur];
+                                      while (!atomicCompareAndExchange((int*)&tmp[idx].second, edge_id, INVALID))
+                                          idx = tmp[idx].second;
+                                  }
+                              }
+                          }
+                      });
 #else
     for (int f = 0; f < F.cols(); ++f) {
         for (unsigned int i = 0; i < deg; ++i) {
             unsigned int idx_cur = F(i, f), idx_next = F((i + 1) % deg, f), edge_id = deg * f + i;
             if (idx_cur >= V.cols() || idx_next >= V.cols())
                 throw std::runtime_error("Mesh data contains an out-of-bounds vertex reference!");
-            if (idx_cur == idx_next) continue;
+            if (idx_cur == idx_next)
+                continue;
 
             tmp[edge_id] = std::make_pair(idx_next, -1);
             if (V2E[idx_cur] == -1)
@@ -86,13 +96,14 @@ bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E
     E2E.setConstant(INVALID);
 
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int f = 0; f < F.cols(); ++f) {
         for (uint32_t i = 0; i < deg; ++i) {
             uint32_t idx_cur = F(i, f), idx_next = F((i + 1) % deg, f), edge_id_cur = deg * f + i;
 
-            if (idx_cur == idx_next) continue;
+            if (idx_cur == idx_next)
+                continue;
 
             uint32_t it = V2E[idx_next], edge_id_opp = INVALID;
             while (it != INVALID) {
@@ -122,7 +133,7 @@ bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E
 
     /* Detect boundary regions of the mesh and adjust vertex->edge pointers*/
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < V.cols(); ++i) {
         uint32_t edge = V2E[i];
@@ -175,7 +186,8 @@ bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E
                 int deid = deid0;
                 do {
                     colors[deid] = num_color;
-                    if (num_color != 0) F(deid % 3, deid / 3) = num_v;
+                    if (num_color != 0)
+                        F(deid % 3, deid / 3) = num_v;
                     deid = deid / 3 * 3 + (deid + 2) % 3;
                     deid = E2E[deid];
                 } while (deid != deid0);
@@ -198,7 +210,12 @@ bool compute_direct_graph(MatrixXd& V, MatrixXi& F, VectorXi& V2E, VectorXi& E2E
     return true;
 }
 
-void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& F, std::vector<int>& V2E, std::vector<int>& E2E, VectorXi& boundary, VectorXi& nonManifold) {
+void compute_direct_graph_quad(std::vector<Vector3d>& V,
+                               std::vector<Vector4i>& F,
+                               std::vector<int>& V2E,
+                               std::vector<int>& E2E,
+                               VectorXi& boundary,
+                               VectorXi& nonManifold) {
     V2E.clear();
     E2E.clear();
     boundary = VectorXi();
@@ -209,39 +226,37 @@ void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& 
     std::vector<std::pair<uint32_t, uint32_t>> tmp(F.size() * deg);
 
 #ifdef WITH_TBB
-    tbb::parallel_for(
-        tbb::blocked_range<uint32_t>(0u, (uint32_t)F.size(), GRAIN_SIZE),
-        [&](const tbb::blocked_range<uint32_t>& range) {
-            for (uint32_t f = range.begin(); f != range.end(); ++f) {
-                for (uint32_t i = 0; i < deg; ++i) {
-                    uint32_t idx_cur = F[f][i], idx_next = F[f][(i + 1) % deg],
-                             edge_id = deg * f + i;
-                    if (idx_cur >= V.size() || idx_next >= V.size())
-                        throw std::runtime_error(
-                            "Mesh data contains an out-of-bounds vertex reference!");
-                    if (idx_cur == idx_next) continue;
+    tbb::parallel_for(tbb::blocked_range<uint32_t>(0u, (uint32_t)F.size(), GRAIN_SIZE),
+                      [&](const tbb::blocked_range<uint32_t>& range) {
+                          for (uint32_t f = range.begin(); f != range.end(); ++f) {
+                              for (uint32_t i = 0; i < deg; ++i) {
+                                  uint32_t idx_cur = F[f][i], idx_next = F[f][(i + 1) % deg], edge_id = deg * f + i;
+                                  if (idx_cur >= V.size() || idx_next >= V.size())
+                                      throw std::runtime_error("Mesh data contains an out-of-bounds vertex reference!");
+                                  if (idx_cur == idx_next)
+                                      continue;
 
-                    tmp[edge_id] = std::make_pair(idx_next, INVALID);
-                    if (!atomicCompareAndExchange(&V2E[idx_cur], edge_id, INVALID)) {
-                        uint32_t idx = V2E[idx_cur];
-                        while (!atomicCompareAndExchange((int*)&tmp[idx].second, edge_id, INVALID))
-                            idx = tmp[idx].second;
-                    }
-                }
-            }
-        });
+                                  tmp[edge_id] = std::make_pair(idx_next, INVALID);
+                                  if (!atomicCompareAndExchange(&V2E[idx_cur], edge_id, INVALID)) {
+                                      uint32_t idx = V2E[idx_cur];
+                                      while (!atomicCompareAndExchange((int*)&tmp[idx].second, edge_id, INVALID))
+                                          idx = tmp[idx].second;
+                                  }
+                              }
+                          }
+                      });
 #else
     for (int f = 0; f < F.size(); ++f) {
         for (unsigned int i = 0; i < deg; ++i) {
             unsigned int idx_cur = F[f][i], idx_next = F[f][(i + 1) % deg], edge_id = deg * f + i;
             if (idx_cur >= V.size() || idx_next >= V.size())
                 throw std::runtime_error("Mesh data contains an out-of-bounds vertex reference!");
-            if (idx_cur == idx_next) continue;
+            if (idx_cur == idx_next)
+                continue;
             tmp[edge_id] = std::make_pair(idx_next, -1);
             if (V2E[idx_cur] == -1) {
                 V2E[idx_cur] = edge_id;
-            }
-            else {
+            } else {
                 unsigned int idx = V2E[idx_cur];
                 while (tmp[idx].second != -1) {
                     idx = tmp[idx].second;
@@ -257,13 +272,14 @@ void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& 
     E2E.resize(F.size() * deg, INVALID);
 
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int f = 0; f < F.size(); ++f) {
         for (uint32_t i = 0; i < deg; ++i) {
             uint32_t idx_cur = F[f][i], idx_next = F[f][(i + 1) % deg], edge_id_cur = deg * f + i;
 
-            if (idx_cur == idx_next) continue;
+            if (idx_cur == idx_next)
+                continue;
 
             uint32_t it = V2E[idx_next], edge_id_opp = INVALID;
             while (it != INVALID) {
@@ -293,7 +309,7 @@ void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& 
 
     /* Detect boundary regions of the mesh and adjust vertex->edge pointers*/
 #ifdef WITH_OMP
-#pragma omp parallel for
+#    pragma omp parallel for
 #endif
     for (int i = 0; i < V.size(); ++i) {
         uint32_t edge = V2E[i];
@@ -328,7 +344,8 @@ void compute_direct_graph_quad(std::vector<Vector3d>& V, std::vector<Vector4i>& 
 #endif
 }
 
-void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
+void remove_nonmanifold(std::vector<Vector4i>& F,
+                        std::vector<Vector3d>& V) {
     typedef std::pair<uint32_t, uint32_t> Edge;
 
     int degree = 4;
@@ -337,8 +354,10 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
     std::vector<std::set<int>> VF(V.size());
 
     auto kill_face_single = [&](uint32_t f) {
-        if (F[f][0] == INVALID) return;
-        for (int i = 0; i < degree; ++i) E[F[f][i]].erase(F[f][(i + 1) % degree]);
+        if (F[f][0] == INVALID)
+            return;
+        for (int i = 0; i < degree; ++i)
+            E[F[f][i]].erase(F[f][(i + 1) % degree]);
         F[f].setConstant(INVALID);
     };
 
@@ -357,7 +376,8 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
     uint32_t nm_edge = 0, nm_vert = 0;
 
     for (uint32_t f = 0; f < (uint32_t)F.size(); ++f) {
-        if (F[f][0] == INVALID) continue;
+        if (F[f][0] == INVALID)
+            continue;
         if (degree == 4 && F[f][2] == F[f][3]) {
             /* Special handling of irregular faces */
             irregular[F[f][2]][F[f][0]] = std::make_pair(F[f][1], f);
@@ -381,7 +401,8 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
             uint32_t v0 = F[f][e], v1 = F[f][(e + 1) % degree], v2 = F[f][(e + 2) % degree];
 
             E[v0].insert(v1);
-            if (degree == 4) E[v0].insert(v2);
+            if (degree == 4)
+                E[v0].insert(v2);
             VF[v0].insert(f);
         }
     }
@@ -399,23 +420,28 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
             uint32_t next = face[cur].first, it = 0;
             while (true) {
                 ++it;
-                if (next == pred) break;
-                if (E[cur].find(next) != E[cur].end() && it == 1) nonmanifold = true;
+                if (next == pred)
+                    break;
+                if (E[cur].find(next) != E[cur].end() && it == 1)
+                    nonmanifold = true;
                 edges.push_back(Edge(cur, next));
                 next = face[next].first;
             }
-            if (cur == stop) break;
+            if (cur == stop)
+                break;
         }
 
         if (nonmanifold) {
             nm_edge++;
-            for (auto& i : item.second) F[i.second.second].setConstant(INVALID);
+            for (auto& i : item.second)
+                F[i.second.second].setConstant(INVALID);
             continue;
         } else {
             for (auto e : edges) {
                 E[e.first].insert(e.second);
 
-                for (auto e2 : face) VF[e.first].insert(e2.second.second);
+                for (auto e2 : face)
+                    VF[e.first].insert(e2.second.second);
             }
         }
     }
@@ -446,14 +472,17 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
         f_adjacent.clear();
 
         for (uint32_t f : VF[i]) {
-            if (F[f][0] == INVALID) continue;
+            if (F[f][0] == INVALID)
+                continue;
 
-            for (uint32_t k = 0; k < degree; ++k) v_unmarked.insert(F[f][k]);
+            for (uint32_t k = 0; k < degree; ++k)
+                v_unmarked.insert(F[f][k]);
 
             f_adjacent.insert(f);
         }
 
-        if (v_unmarked.empty()) continue;
+        if (v_unmarked.empty())
+            continue;
         v_marked.insert(i);
         v_unmarked.erase(i);
 
@@ -461,17 +490,18 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
 
         if (v_unmarked.size() > 0) {
             nm_vert++;
-            for (uint32_t f : f_adjacent) kill_face(f);
+            for (uint32_t f : f_adjacent)
+                kill_face(f);
         }
     }
 
     if (nm_vert > 0 || nm_edge > 0) {
-        std::cout << "Non-manifold elements:  vertices=" << nm_vert << ", edges=" << nm_edge
-                  << std::endl;
+        std::cout << "Non-manifold elements:  vertices=" << nm_vert << ", edges=" << nm_edge << std::endl;
     }
     uint32_t nFaces = 0, nFacesOrig = F.size();
     for (uint32_t f = 0; f < (uint32_t)F.size(); ++f) {
-        if (F[f][0] == INVALID) continue;
+        if (F[f][0] == INVALID)
+            continue;
         if (nFaces != f) {
             F[nFaces] = F[f];
         }
@@ -485,4 +515,3 @@ void remove_nonmanifold(std::vector<Vector4i>& F, std::vector<Vector3d>& V) {
 }
 
 } // namespace CadUSD::qflow
-

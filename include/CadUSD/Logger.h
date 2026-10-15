@@ -1,18 +1,24 @@
 #pragma once
 
+#include <chrono>
 #include <iostream>
 #include <mutex>
-#include <chrono>
 #include <string>
 
 namespace CadUSD {
 
 class Logger {
-public:
-    enum Level { INFO, DEBUG, ERR, NONE, WARN };
+  public:
+    enum Level {
+        INFO,
+        DEBUG,
+        ERR,
+        NONE,
+        WARN
+    };
     inline static Level activeLevel = INFO;
 
-private:
+  private:
     // Track current progress state so we can redraw after interruptions
     inline static std::string progressLabel;
     inline static int progressCurrent = 0;
@@ -27,14 +33,17 @@ private:
 
     static void redrawProgress() {
         if (progressActive)
-            std::cerr << "\r[" << progressCurrent << "/" << progressTotal << "] " 
-                      << progressLabel << "..." << std::flush;
+            std::cerr << "\r[" << progressCurrent << "/" << progressTotal << "] " << progressLabel << "..."
+                      << std::flush;
     }
 
-public:
-    static void log(Level lvl, const std::string& msg) {
-        if (activeLevel == NONE) return;
-        if (lvl == DEBUG && activeLevel != DEBUG) return;
+  public:
+    static void log(Level lvl,
+                    const std::string& msg) {
+        if (activeLevel == NONE)
+            return;
+        if (lvl == DEBUG && activeLevel != DEBUG)
+            return;
 
         std::lock_guard<std::mutex> lock(mtx);
         clearProgress();
@@ -55,8 +64,11 @@ public:
         redrawProgress();
     }
 
-    static void progress(int current, int total, const std::string& label) {
-        if (activeLevel == NONE || activeLevel == DEBUG) return;
+    static void progress(int current,
+                         int total,
+                         const std::string& label) {
+        if (activeLevel == NONE || activeLevel == DEBUG)
+            return;
 
         std::lock_guard<std::mutex> lock(mtx);
         progressCurrent = current;
@@ -67,7 +79,8 @@ public:
     }
 
     static void progressDone() {
-        if (activeLevel == NONE || activeLevel == DEBUG) return;
+        if (activeLevel == NONE || activeLevel == DEBUG)
+            return;
 
         std::lock_guard<std::mutex> lock(mtx);
         progressActive = false;
@@ -78,9 +91,12 @@ public:
 class ScopedTimer {
     std::string name;
     std::chrono::high_resolution_clock::time_point start;
-public:
-    ScopedTimer(const std::string& n) : name(n), start(std::chrono::high_resolution_clock::now()) {
-        Logger::log(Logger::DEBUG, "Start: " + name); 
+
+  public:
+    ScopedTimer(const std::string& n)
+        : name(n),
+          start(std::chrono::high_resolution_clock::now()) {
+        Logger::log(Logger::DEBUG, "Start: " + name);
     }
     ~ScopedTimer() {
         auto end = std::chrono::high_resolution_clock::now();

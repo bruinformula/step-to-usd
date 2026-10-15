@@ -13,8 +13,7 @@ void Parametrizer::ComputeOrientationSingularities() {
         int abs_index = 0;
         for (int k = 0; k < 3; ++k) {
             int i = F(k, f), j = F(k == 2 ? 0 : (k + 1), f);
-            auto value =
-                compat_orientation_extrinsic_index_4(Q.col(i), N.col(i), Q.col(j), N.col(j));
+            auto value = compat_orientation_extrinsic_index_4(Q.col(i), N.col(i), Q.col(j), N.col(j));
             index += value.second - value.first;
             abs_index += std::abs(value.second - value.first);
         }
@@ -29,8 +28,7 @@ void Parametrizer::ComputeOrientationSingularities() {
 }
 
 void Parametrizer::ComputePositionSingularities() {
-    const MatrixXd &V = hierarchy.mV[0], &N = hierarchy.mN[0], &Q = hierarchy.mQ[0],
-                   &O = hierarchy.mO[0];
+    const MatrixXd &V = hierarchy.mV[0], &N = hierarchy.mN[0], &Q = hierarchy.mQ[0], &O = hierarchy.mO[0];
     const MatrixXi& F = hierarchy.mF;
 
     pos_sing.clear();
@@ -66,25 +64,28 @@ void Parametrizer::ComputePositionSingularities() {
         pos_rank(0, f) = best[0];
         pos_rank(1, f) = best[1];
         pos_rank(2, f) = best[2];
-        for (int k = 0; k < 3; ++k) q[k] = rotate90_by(q[k], n[k], best[k]);
+        for (int k = 0; k < 3; ++k)
+            q[k] = rotate90_by(q[k], n[k], best[k]);
 
         for (int k = 0; k < 3; ++k) {
             int kn = k == 2 ? 0 : (k + 1);
-            double scale_x = hierarchy.mScale, scale_y = hierarchy.mScale,
-                   scale_x_1 = hierarchy.mScale, scale_y_1 = hierarchy.mScale;
+            double scale_x = hierarchy.mScale, scale_y = hierarchy.mScale, scale_x_1 = hierarchy.mScale,
+                   scale_y_1 = hierarchy.mScale;
             if (flag_adaptive_scale) {
                 scale_x *= hierarchy.mS[0](0, F(k, f));
                 scale_y *= hierarchy.mS[0](1, F(k, f));
                 scale_x_1 *= hierarchy.mS[0](0, F(kn, f));
                 scale_y_1 *= hierarchy.mS[0](1, F(kn, f));
-                if (best[k] % 2 != 0) std::swap(scale_x, scale_y);
-                if (best[kn] % 2 != 0) std::swap(scale_x_1, scale_y_1);
+                if (best[k] % 2 != 0)
+                    std::swap(scale_x, scale_y);
+                if (best[kn] % 2 != 0)
+                    std::swap(scale_x_1, scale_y_1);
             }
-            double inv_scale_x = 1.0 / scale_x, inv_scale_y = 1.0 / scale_y,
-                   inv_scale_x_1 = 1.0 / scale_x_1, inv_scale_y_1 = 1.0 / scale_y_1;
+            double inv_scale_x = 1.0 / scale_x, inv_scale_y = 1.0 / scale_y, inv_scale_x_1 = 1.0 / scale_x_1,
+                   inv_scale_y_1 = 1.0 / scale_y_1;
             std::pair<Vector2i, Vector2i> value = compat_position_extrinsic_index_4(
-                v[k], n[k], q[k], o[k], v[kn], n[kn], q[kn], o[kn], scale_x, scale_y, inv_scale_x,
-                inv_scale_y, scale_x_1, scale_y_1, inv_scale_x_1, inv_scale_y_1, nullptr);
+                v[k], n[k], q[k], o[k], v[kn], n[kn], q[kn], o[kn], scale_x, scale_y, inv_scale_x, inv_scale_y,
+                scale_x_1, scale_y_1, inv_scale_x_1, inv_scale_y_1, nullptr);
             auto diff = value.first - value.second;
             index += diff;
             pos_index(k * 2, f) = diff[0];
@@ -124,8 +125,10 @@ void Parametrizer::AnalyzeValence() {
                 printf("OMG! valence = 2\n");
                 exit(0);
             }
-            if (sum_int % 4 == 1) sing1.insert(F(j, i));
-            if (sum_int % 4 == 3) sing2.insert(F(j, i));
+            if (sum_int % 4 == 1)
+                sing1.insert(F(j, i));
+            if (sum_int % 4 == 3)
+                sing2.insert(F(j, i));
         }
     }
     int count3 = 0, count4 = 0;
@@ -138,6 +141,4 @@ void Parametrizer::AnalyzeValence() {
     printf("singularity: <%d %d> <%d %d>\n", (int)sing1.size(), (int)sing2.size(), count3, count4);
 }
 
-
 } // namespace CadUSD::qflow
-

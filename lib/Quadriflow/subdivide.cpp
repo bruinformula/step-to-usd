@@ -1,4 +1,3 @@
-#include "Quadriflow/subdivide.hpp"
 
 #include <fstream>
 #include <queue>
@@ -7,11 +6,18 @@
 #include "Quadriflow/disajoint-tree.hpp"
 #include "Quadriflow/field-math.hpp"
 #include "Quadriflow/parametrizer.hpp"
+#include "Quadriflow/subdivide.hpp"
 
 namespace CadUSD::qflow {
 
-void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi &E2E, VectorXi &boundary,
-               VectorXi &nonmanifold, double maxLength) {
+void subdivide(MatrixXi& F,
+               MatrixXd& V,
+               VectorXd& rho,
+               VectorXi& V2E,
+               VectorXi& E2E,
+               VectorXi& boundary,
+               VectorXi& nonmanifold,
+               double maxLength) {
     typedef std::pair<double, int> Edge;
 
     std::priority_queue<Edge> queue;
@@ -20,11 +26,13 @@ void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi 
 
     for (int i = 0; i < E2E.size(); ++i) {
         int v0 = F(i % 3, i / 3), v1 = F((i + 1) % 3, i / 3);
-        if (nonmanifold[v0] || nonmanifold[v1]) continue;
+        if (nonmanifold[v0] || nonmanifold[v1])
+            continue;
         double length = (V.col(v0) - V.col(v1)).squaredNorm();
         if (length > maxLength || length > std::max(maxLength * 0.75, std::min(rho[v0], rho[v1]) * 1.0)) {
             int other = E2E[i];
-            if (other == -1 || other > i) queue.push(Edge(length, i));
+            if (other == -1 || other > i)
+                queue.push(Edge(length, i));
         }
     }
 
@@ -94,9 +102,10 @@ void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi 
         /* Update E2E */
         const int e0p = E2E[dedge_prev_3(e0)], e0n = E2E[dedge_next_3(e0)];
 
-#define sE2E(a, b) \
-    E2E[a] = b;    \
-    if (b != -1) E2E[b] = a;
+#define sE2E(a, b)                                                                                                     \
+    E2E[a] = b;                                                                                                        \
+    if (b != -1)                                                                                                       \
+        E2E[b] = a;
         sE2E(3 * f0 + 0, 3 * f3 + 2);
         sE2E(3 * f0 + 1, e0p);
         sE2E(3 * f3 + 1, e0n);
@@ -118,13 +127,14 @@ void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi 
         V2E[vn] = 3 * f0 + 0;
         V2E[v1] = 3 * f3 + 1;
         V2E[v0p] = 3 * f0 + 1;
-        if (!is_boundary) V2E[v1p] = 3 * f1 + 2;
+        if (!is_boundary)
+            V2E[v1p] = 3 * f1 + 2;
 
         auto schedule = [&](int f) {
             for (int i = 0; i < 3; ++i) {
                 double length = (V.col(F(i, f)) - V.col(F((i + 1) % 3, f))).squaredNorm();
-                if (length > maxLength
-                    || length > std::max(maxLength * 0.75, std::min(rho[F(i, f)], rho[F((i + 1) % 3, f)]) * 1.0))
+                if (length > maxLength ||
+                    length > std::max(maxLength * 0.75, std::min(rho[F(i, f)], rho[F((i + 1) % 3, f)]) * 1.0))
                     queue.push(Edge(length, f * 3 + i));
             }
         };
@@ -145,17 +155,34 @@ void subdivide(MatrixXi &F, MatrixXd &V, VectorXd& rho, VectorXi &V2E, VectorXi 
     E2E.conservativeResize(nF * 3);
 }
 
-void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, MatrixXd &O, MatrixXd* S,
-                        VectorXi &V2E, VectorXi &E2E, VectorXi &boundary, VectorXi &nonmanifold,
-                        std::vector<Vector2i> &edge_diff, std::vector<DEdge> &edge_values,
-                        std::vector<Vector3i> &face_edgeOrients, std::vector<Vector3i> &face_edgeIds,
-                        std::vector<int>& sharp_edges, std::map<int, int> &singularities, int max_len) {
+void subdivide_edgeDiff(MatrixXi& F,
+                        MatrixXd& V,
+                        MatrixXd& N,
+                        MatrixXd& Q,
+                        MatrixXd& O,
+                        MatrixXd* S,
+                        VectorXi& V2E,
+                        VectorXi& E2E,
+                        VectorXi& boundary,
+                        VectorXi& nonmanifold,
+                        std::vector<Vector2i>& edge_diff,
+                        std::vector<DEdge>& edge_values,
+                        std::vector<Vector3i>& face_edgeOrients,
+                        std::vector<Vector3i>& face_edgeIds,
+                        std::vector<int>& sharp_edges,
+                        std::map<int,
+                                 int>& singularities,
+                        int max_len) {
     struct EdgeLink {
         int id;
         double length;
         Vector2i diff;
-        int maxlen() const { return std::max(abs(diff[0]), abs(diff[1])); }
-        bool operator<(const EdgeLink &link) const { return maxlen() < link.maxlen(); }
+        int maxlen() const {
+            return std::max(abs(diff[0]), abs(diff[1]));
+        }
+        bool operator<(const EdgeLink& link) const {
+            return maxlen() < link.maxlen();
+        }
     };
 
     struct FaceOrient {
@@ -182,10 +209,11 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         for (int j = 0; j < 3; ++j) {
             int final_orient = face_edgeOrients[i][j];
             int eid = face_edgeIds[i][j];
-            auto value = compat_orientation_extrinsic_index_4(
-                Q.col(edge_values[eid].x), N.col(edge_values[eid].x), orient.q, orient.n);
+            auto value = compat_orientation_extrinsic_index_4(Q.col(edge_values[eid].x), N.col(edge_values[eid].x),
+                                                              orient.q, orient.n);
             int target_orient = (value.second - value.first + 4) % 4;
-            if (F(j, i) == edge_values[eid].y) target_orient = (target_orient + 2) % 4;
+            if (F(j, i) == edge_values[eid].y)
+                target_orient = (target_orient + 2) % 4;
             orient_diff[j] = (final_orient - target_orient + 4) % 4;
         }
         if (orient_diff[0] == orient_diff[1])
@@ -194,14 +222,14 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
             orient.orient = orient_diff[2];
         else if (orient_diff[1] == orient_diff[2])
             orient.orient = orient_diff[1];
-        orient.d = Vector3i((orient_diff[0] - orient.orient + 4) % 4,
-                            (orient_diff[1] - orient.orient + 4) % 4,
+        orient.d = Vector3i((orient_diff[0] - orient.orient + 4) % 4, (orient_diff[1] - orient.orient + 4) % 4,
                             (orient_diff[2] - orient.orient + 4) % 4);
         face_spaces[i] = (orient);
     }
     for (int i = 0; i < E2E.size(); ++i) {
         int v0 = F(i % 3, i / 3), v1 = F((i + 1) % 3, i / 3);
-        if (nonmanifold[v0] || nonmanifold[v1]) continue;
+        if (nonmanifold[v0] || nonmanifold[v1])
+            continue;
         double length = (V.col(v0) - V.col(v1)).squaredNorm();
         Vector2i diff = diffs[i];
         if (abs(diff[0]) > max_len || abs(diff[1]) > max_len) {
@@ -215,13 +243,13 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
             }
         }
     }
-    auto AnalyzeOrient = [&](int f0, const Vector3i &d) {
+    auto AnalyzeOrient = [&](int f0, const Vector3i& d) {
         for (int j = 0; j < 3; ++j) {
             int orient = face_spaces[f0].orient + d[j];
             int v = std::min(F(j, f0), F((j + 1) % 3, f0));
-            auto value = compat_orientation_extrinsic_index_4(
-                Q.col(v), N.col(v), face_spaces[f0].q, face_spaces[f0].n);
-            if (F(j, f0) != v) orient += 2;
+            auto value = compat_orientation_extrinsic_index_4(Q.col(v), N.col(v), face_spaces[f0].q, face_spaces[f0].n);
+            if (F(j, f0) != v)
+                orient += 2;
             face_edgeOrients[f0][j] = (orient + value.second - value.first + 4) % 4;
         }
         face_spaces[f0].d = d;
@@ -237,9 +265,9 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
             auto diff = edge_diff[face_edgeIds[f0][j]];
             if (rshift90(diff, face_edgeOrients[f0][j]) != diffs[f0 * 3 + j]) {
                 int orient = 0;
-                while (orient < 4 && rshift90(diff, orient) != diffs[f0 * 3 + j]) orient += 1;
-                face_spaces[f0].d[j] =
-                    (face_spaces[f0].d[j] + orient - face_edgeOrients[f0][j]) % 4;
+                while (orient < 4 && rshift90(diff, orient) != diffs[f0 * 3 + j])
+                    orient += 1;
+                face_spaces[f0].d[j] = (face_spaces[f0].d[j] + orient - face_edgeOrients[f0][j]) % 4;
                 face_edgeOrients[f0][j] = orient;
             }
         }
@@ -287,7 +315,8 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         if ((V.col(v0) - V.col(v1)).squaredNorm() != edge.length) {
             continue;
         }
-        if (abs(diffs[e0][0]) < 2 && abs(diffs[e0][1]) < 2) continue;
+        if (abs(diffs[e0][0]) < 2 && abs(diffs[e0][1]) < 2)
+            continue;
         if (f1 != -1) {
             face_edgeOrients.push_back(Vector3i());
             sharp_edges.push_back(0);
@@ -316,7 +345,7 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         O.col(vn) = (O.col(v0) + O.col(v1)) * 0.5;
         if (S)
             S->col(vn) = S->col(v0);
-        
+
         nonmanifold[vn] = false;
         boundary[vn] = is_boundary;
 
@@ -362,7 +391,7 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         auto D01 = diffs[e0];
         auto D1p = diffs[e0 / 3 * 3 + (e0 + 1) % 3];
         auto Dp0 = diffs[e0 / 3 * 3 + (e0 + 2) % 3];
-        
+
         Vector2i D0n = D01 / 2;
 
         auto orients1 = face_spaces[f0];
@@ -371,7 +400,7 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         sharp_edges[f0 * 3] = sharp_eid0p;
         sharp_edges[f0 * 3 + 1] = sharp_eid02;
         sharp_edges[f0 * 3 + 2] = sharp_eid0;
-        
+
         diffs[f0 * 3] = D01 + D1p - D0n;
         diffs[f0 * 3 + 1] = Dp0;
         diffs[f0 * 3 + 2] = D0n;
@@ -386,12 +415,13 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
 
             auto Ds10 = diffs[e1];
             auto Ds0p = diffs[e1 / 3 * 3 + (e1 + 1) % 3];
-            
+
             auto Dsp1 = diffs[e1 / 3 * 3 + (e1 + 2) % 3];
             int orient = 0;
-            while (rshift90(D01, orient) != Ds10) orient += 1;
+            while (rshift90(D01, orient) != Ds10)
+                orient += 1;
             Vector2i Dsn0 = rshift90(D0n, orient);
-            
+
             F.col(f1) << vn, v0, v1p;
             eid1p = edge_values.size();
             sharp_eid1p = 0;
@@ -441,9 +471,10 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
 
         const int e0p = E2E[dedge_prev_3(e0)], e0n = E2E[dedge_next_3(e0)];
 
-#define sE2E(a, b) \
-    E2E[a] = b;    \
-    if (b != -1) E2E[b] = a;
+#define sE2E(a, b)                                                                                                     \
+    E2E[a] = b;                                                                                                        \
+    if (b != -1)                                                                                                       \
+        E2E[b] = a;
         sE2E(3 * f0 + 0, 3 * f3 + 2);
         sE2E(3 * f0 + 1, e0p);
         sE2E(3 * f3 + 1, e0n);
@@ -464,7 +495,8 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
         V2E[vn] = 3 * f0 + 0;
         V2E[v1] = 3 * f3 + 1;
         V2E[v0p] = 3 * f0 + 1;
-        if (!is_boundary) V2E[v1p] = 3 * f1 + 2;
+        if (!is_boundary)
+            V2E[v1p] = 3 * f1 + 2;
 
         auto schedule = [&](int f) {
             for (int i = 0; i < 3; ++i) {
@@ -501,32 +533,21 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
             auto eid = face_edgeIds[i][j];
             auto diff = edge_diff[eid];
             if (abs(diff[0]) > 1 || abs(diff[1]) > 1) {
-                printf(
-                    "wrong init: face=%d corner=%d eid=%d diff=(%d,%d)\n",
-                    i, j, eid, diff[0], diff[1]);
-            
-                printf(
-                    "F=(%d,%d,%d)\n",
-                    F(0,i), F(1,i), F(2,i));
-            
-                printf(
-                    "face_edgeOrients=(%d,%d,%d)\n",
-                    face_edgeOrients[i][0],
-                    face_edgeOrients[i][1],
-                    face_edgeOrients[i][2]);
-            
+                printf("wrong init: face=%d corner=%d eid=%d diff=(%d,%d)\n", i, j, eid, diff[0], diff[1]);
+
+                printf("F=(%d,%d,%d)\n", F(0, i), F(1, i), F(2, i));
+
+                printf("face_edgeOrients=(%d,%d,%d)\n", face_edgeOrients[i][0], face_edgeOrients[i][1],
+                       face_edgeOrients[i][2]);
+
                 for (int k = 0; k < 3; ++k) {
-                    int v = F(k,i);
-            
-                    printf(
-                        "  v%d=%d  N=(%.6f, %.6f, %.6f) "
-                        "Q=(%.6f, %.6f, %.6f, %.6f)\n",
-                        k,
-                        v,
-                        N(0,v), N(1,v), N(2,v),
-                        Q(0,v), Q(1,v), Q(2,v), Q(3,v));
+                    int v = F(k, i);
+
+                    printf("  v%d=%d  N=(%.6f, %.6f, %.6f) "
+                           "Q=(%.6f, %.6f, %.6f, %.6f)\n",
+                           k, v, N(0, v), N(1, v), N(2, v), Q(0, v), Q(1, v), Q(2, v), Q(3, v));
                 }
-            
+
                 exit(0);
             }
         }
@@ -540,4 +561,3 @@ void subdivide_edgeDiff(MatrixXi &F, MatrixXd &V, MatrixXd &N, MatrixXd &Q, Matr
 }
 
 } // namespace CadUSD::qflow
-

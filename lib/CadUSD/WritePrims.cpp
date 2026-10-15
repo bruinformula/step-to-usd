@@ -1,66 +1,66 @@
-#include <ostream>
+#include <atomic>
 #include <iostream>
-#include <utility>
+#include <mutex>
+#include <ostream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <string>
+#include <utility>
 #include <vector>
-#include <mutex>
-#include <atomic>
 
-#include <TDF_Label.hxx>
 #include <Quantity_Color.hxx>
+#include <TDF_Label.hxx>
+#include <TDF_Tool.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_XYZ.hxx>
-#include <TDF_Tool.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/modelAPI.h>
-#include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/usd/references.h>
-#include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/editContext.h>
+#include <pxr/usd/usd/inherits.h>
+#include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/references.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/variantSets.h>
 
 #include <pxr/usd/sdf/changeBlock.h>
-#include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/path.h>
-#include <pxr/usd/sdf/variantSpec.h>
+#include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/variantSetSpec.h>
+#include <pxr/usd/sdf/variantSpec.h>
 
-#include <pxr/usd/usdGeom/mesh.h>
-#include <pxr/usd/usdGeom/xform.h>
-#include <pxr/usd/usdGeom/scope.h>
-#include <pxr/usd/usdGeom/tokens.h>
-#include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/imageable.h>
-#include <pxr/usd/usdGeom/subset.h>
+#include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/primvar.h>
+#include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdGeom/scope.h>
+#include <pxr/usd/usdGeom/subset.h>
+#include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 
-#include <pxr/usd/sdf/copyUtils.h>
 #include <pxr/base/work/loops.h>
+#include <pxr/usd/sdf/copyUtils.h>
 
-#include <pxr/base/vt/array.h>
-#include <pxr/base/vt/types.h>
+#include <pxr/base/gf/vec3f.h>
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/base/gf/vec3f.h>
+#include <pxr/base/vt/array.h>
+#include <pxr/base/vt/types.h>
 
 #pragma pop_macro("Handle")
 
 #include "cadAPI.h"
 
 #include "CadUSD/CadUsdPipeline.h"
-#include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/Logger.h"
+#include "CadUSD/OpenCascadeAssembly.h"
 #include "CadUSD/UsdUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -68,18 +68,13 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace CadUSD {
 
 // Write CAD pat
-void CadUsdPipeline::writePartClass(
-    UsdStageRefPtr prototypesStage
-) {
+void CadUsdPipeline::writePartClass(UsdStageRefPtr prototypesStage) {
     const UsdPrim& prototypesPrimOnContainerStage = containerStage->GetPrimAtPath(pathConfig.prototypesPath);
-    std::optional<SdfReference> defaultParamsRef = CadUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
+    std::optional<SdfReference> defaultParamsRef =
+        CadUsdPipeline::getPrototypesDefaultParams(prototypesPrimOnContainerStage);
 
-    fs::path containerStagePath = fs::canonical(
-        containerStage->GetRootLayer()->GetResolvedPath().GetPathString()
-    );
-    fs::path prototypesStagePath = fs::canonical(
-        prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString()
-    );
+    fs::path containerStagePath = fs::canonical(containerStage->GetRootLayer()->GetResolvedPath().GetPathString());
+    fs::path prototypesStagePath = fs::canonical(prototypesStage->GetRootLayer()->GetResolvedPath().GetPathString());
 
     fs::path relativePath = fs::relative(containerStagePath, prototypesStagePath.parent_path());
 
@@ -90,23 +85,18 @@ void CadUsdPipeline::writePartClass(
     UsdGeomImageable(partPrim).CreateVisibilityAttr().Set(UsdGeomTokens->inherited);
 
     partRoutine.writePartMember(prototypesStage, pathConfig.partPath);
-    
+
     if (defaultParamsRef.has_value()) {
-        partPrim.GetPrim().GetReferences().AddReference(
-            relativePath.string(),
-            defaultParamsRef->GetPrimPath(),
-            defaultParamsRef->GetLayerOffset()
-        );
+        partPrim.GetPrim().GetReferences().AddReference(relativePath.string(), defaultParamsRef->GetPrimPath(),
+                                                        defaultParamsRef->GetLayerOffset());
     }
 }
 
 // MARK: - Write Prototype Xforms
-void CadUsdPipeline::writePrototypeXforms(
-    PrototypeContainer& proto,
-    LabelMap<SdfPath>& protoPaths
-) {
+void CadUsdPipeline::writePrototypeXforms(PrototypeContainer& proto,
+                                          LabelMap<SdfPath>& protoPaths) {
     const auto& defs = proto.model->getDefinitionShapes();
-    
+
     const int total = (int)defs.size();
     int completed = 0;
 
@@ -119,7 +109,7 @@ void CadUsdPipeline::writePrototypeXforms(
     fs::path relativePath;
 
     UsdGeomXform::Define(proto.stage, pathConfig.containerPrimPath);
-    
+
     const LabelMap<std::string>& definitionNames = proto.model->definitionNames;
     const LabelMap<std::string>& definitionLabelSuffixes = proto.model->definitionLabelSuffixes;
 
@@ -134,9 +124,7 @@ void CadUsdPipeline::writePrototypeXforms(
 
         auto it = definitionNames.find(defLabel);
         std::string rawName;
-        bool hasRealName = (it != definitionNames.end()
-                            && !it->second.empty()
-                            && !isAutoGeneratedName(it->second));
+        bool hasRealName = (it != definitionNames.end() && !it->second.empty() && !isAutoGeneratedName(it->second));
 
         std::string suffix = definitionLabelSuffixes.at(defLabel);
 
@@ -168,17 +156,17 @@ void CadUsdPipeline::writePrototypeXforms(
 
         TCollection_AsciiString entry;
         TDF_Tool::Entry(defLabel, entry);
-        
+
         AutolibCadAPI api(protoPrim);
         UsdGeomPrimvar labelPrimvar(api.CreateCadLabelAttr());
-        
+
         {
             SdfChangeBlock changeBlock;
-            
+
             std::string displayName = hasRealName ? it->second : ("Part_" + suffix);
             protoPrim.SetDisplayName(displayName);
             protoPrim.GetInherits().AddInherit(pathConfig.partPath);
-            
+
             labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
             labelPrimvar.Set(TfToken(entry.ToCString()));
         }
@@ -193,30 +181,24 @@ void CadUsdPipeline::writePrototypeXforms(
 
 // rotation block: transposed relative to OCC Value(row,col) convention
 // translation: from TranslationPart() into the last row
-static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t, double linearScale) {
+static GfMatrix4d trsfToGfMatrix(const gp_Trsf& t,
+                                 double linearScale) {
     gp_XYZ trans = t.TranslationPart();
     auto clean = [](double v) { return std::abs(v) < 1e-10 ? 0.0 : v; };
-    return GfMatrix4d(
-        clean(t.Value(1,1)), clean(t.Value(2,1)), clean(t.Value(3,1)), 0.0,
-        clean(t.Value(1,2)), clean(t.Value(2,2)), clean(t.Value(3,2)), 0.0,
-        clean(t.Value(1,3)), clean(t.Value(2,3)), clean(t.Value(3,3)), 0.0,
-        clean(trans.X() * linearScale),
-        clean(trans.Y() * linearScale),
-        clean(trans.Z() * linearScale),
-        1.0
-    );
+    return GfMatrix4d(clean(t.Value(1, 1)), clean(t.Value(2, 1)), clean(t.Value(3, 1)), 0.0, clean(t.Value(1, 2)),
+                      clean(t.Value(2, 2)), clean(t.Value(3, 2)), 0.0, clean(t.Value(1, 3)), clean(t.Value(2, 3)),
+                      clean(t.Value(3, 3)), 0.0, clean(trans.X() * linearScale), clean(trans.Y() * linearScale),
+                      clean(trans.Z() * linearScale), 1.0);
 }
 
 // Assembly Xforms
-void CadUsdPipeline::writeAssemblyXforms(
-    const PrototypeContainer& proto, 
-    const std::vector<SdfPath>& paths
-) {
+void CadUsdPipeline::writeAssemblyXforms(const PrototypeContainer& proto,
+                                         const std::vector<SdfPath>& paths) {
 
     const auto& partNodes = proto.model->partNodes;
     const double& linearScale = proto.sourceToOutputScale;
     LOG_SCOPED_TIMER("writeAssemblyXforms (" + std::to_string(partNodes.size()) + " nodes)");
-    
+
     // pre compute which instances have children
     std::vector<bool> hasChildren(partNodes.size(), false);
     for (size_t i = 0; i < partNodes.size(); i++) {
@@ -233,7 +215,8 @@ void CadUsdPipeline::writeAssemblyXforms(
             std::cerr << "[" << i << "] Failed to define Xform at " << paths[i] << "\n";
             completed++;
             if (Logger::activeLevel == Logger::DEBUG) {
-                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Failed to write Assembly Xform for " + paths[i].GetString());
+                LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) +
+                          "] Failed to write Assembly Xform for " + paths[i].GetString());
             } else {
                 LOG_PROGRESS(completed, total, "Writing Assembly Prims");
             }
@@ -244,7 +227,7 @@ void CadUsdPipeline::writeAssemblyXforms(
 
             TCollection_AsciiString entry;
             TDF_Tool::Entry(node.instanceLabel, entry);
-            
+
             AutolibCadAPI api(xform.GetPrim());
             api.CreateCadLabelAttr().Set(TfToken(entry.ToCString()));
 
@@ -257,7 +240,7 @@ void CadUsdPipeline::writeAssemblyXforms(
                     xform.GetPrim().SetDisplayName(pathName.substr(2));
                 }
             }
-            
+
             // Usd composes the full world transform later
             xform.AddTransformOp().Set(trsfToGfMatrix(node.localTransform, linearScale));
             if (node.type == OpenCascadeAssembly::PartNodeType::Leaf) {
@@ -265,7 +248,8 @@ void CadUsdPipeline::writeAssemblyXforms(
                 if (protoIter == proto.model->protoPaths.end()) {
                     completed++;
                     if (Logger::activeLevel == Logger::DEBUG) {
-                        LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
+                        LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) +
+                                  "] Skip missing prototype Assembly Xform: " + paths[i].GetString());
                     } else {
                         LOG_PROGRESS(completed, total, "Writing Assembly Prims");
                     }
@@ -282,24 +266,17 @@ void CadUsdPipeline::writeAssemblyXforms(
                 UsdGeomImageable api(xform.GetPrim());
                 api.GetVisibilityAttr().Set(UsdGeomTokens->inherited);
                 if (node.color.has_value()) { // TODO: Support muliple colors per mesh
-                    VtArray<GfVec3f> displayColor = {{
-                        static_cast<float>(node.color->Red()),
-                        static_cast<float>(node.color->Green()),
-                        static_cast<float>(node.color->Blue())
-                    }};
-                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(
-                        TfToken("primvars:displayColor"),
-                        SdfValueTypeNames->Color3fArray,
-                        false
-                    );
+                    VtArray<GfVec3f> displayColor = {{static_cast<float>(node.color->Red()),
+                                                      static_cast<float>(node.color->Green()),
+                                                      static_cast<float>(node.color->Blue())}};
+                    UsdAttribute colorAttr = xform.GetPrim().CreateAttribute(TfToken("primvars:displayColor"),
+                                                                             SdfValueTypeNames->Color3fArray, false);
                     colorAttr.Set(displayColor);
                     UsdGeomPrimvar labelPrimvar(colorAttr);
                     labelPrimvar.SetInterpolation(UsdGeomTokens->constant);
                 }
                 if (!node.visible) {
-                    UsdGeomImageable(xform.GetPrim())
-                        .CreateVisibilityAttr()
-                        .Set(UsdGeomTokens->invisible);
+                    UsdGeomImageable(xform.GetPrim()).CreateVisibilityAttr().Set(UsdGeomTokens->invisible);
                 }
             } else {
                 UsdModelAPI(xform.GetPrim()).SetKind(TfToken("assembly"));
@@ -307,7 +284,8 @@ void CadUsdPipeline::writeAssemblyXforms(
         } // SdfChangeBlock
         completed++;
         if (Logger::activeLevel == Logger::DEBUG) {
-            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) + "] Writing Assembly Prims: " + paths[i].GetString());
+            LOG_DEBUG("[" + std::to_string(completed) + "/" + std::to_string(total) +
+                      "] Writing Assembly Prims: " + paths[i].GetString());
         } else {
             LOG_PROGRESS(completed, total, "Writing Assembly Prims");
         }
@@ -315,21 +293,21 @@ void CadUsdPipeline::writeAssemblyXforms(
     LOG_PROGRESS_DONE();
 }
 
-void CadUsdPipeline::writePrototypeGeometries(
-    UsdStageRefPtr stage,
-    std::vector<const TessellationJob*>& jobs,
-    const std::unordered_set<SdfPath, SdfPath::Hash>& selectedPaths,
-    const std::string& variantSetName,
-    const std::string& variantName
-) {
+void CadUsdPipeline::writePrototypeGeometries(UsdStageRefPtr stage,
+                                              std::vector<const TessellationJob*>& jobs,
+                                              const std::unordered_set<SdfPath,
+                                                                       SdfPath::Hash>& selectedPaths,
+                                              const std::string& variantSetName,
+                                              const std::string& variantName) {
     const int total = (int)jobs.size();
-    if (total == 0) return;
+    if (total == 0)
+        return;
 
     // Sort it for load balancing
     std::sort(jobs.begin(), jobs.end(), [](const TessellationJob* a, const TessellationJob* b) {
         return a->routine->size() > b->routine->size();
     });
-    
+
     std::atomic<int> completed(0);
     std::string logLabel = "";
     if (!variantSetName.empty()) {
@@ -347,131 +325,137 @@ void CadUsdPipeline::writePrototypeGeometries(
 
     // This Sort of resolves a data race
     // with creating use stages in the code below
-    // Something about creating a lota SdfLayers causes 
+    // Something about creating a lota SdfLayers causes
     // some trouble with the global registry or something
     int grainSize = 4;
-    
-    WorkParallelForN(total, [&](int startIdx, int endIdx) {
-        TfErrorMark mark;
-        SdfLayerRefPtr threadLayer = SdfLayer::CreateAnonymous();
-        UsdStageRefPtr threadStage = UsdStage::Open(threadLayer);
 
-        // their properties are later populated in the SdfChangeBlock 
-        for (int i = startIdx; i < endIdx; i++) {
-            const SdfPath& protoPath = jobs[i]->protoPath;
-            const TessParams& params = jobs[i]->params;
-            const TessellationRoutine& routine = *jobs[i]->routine;
+    WorkParallelForN(
+        total,
+        [&](int startIdx, int endIdx) {
+            TfErrorMark mark;
+            SdfLayerRefPtr threadLayer = SdfLayer::CreateAnonymous();
+            UsdStageRefPtr threadStage = UsdStage::Open(threadLayer);
 
-            if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
-                continue;
-            }
-
-            UsdGeomScope protoXform;
-                
-            auto variantSelection = protoPath.GetVariantSelection();
-            
-            if (!variantSelection.first.empty()) {
-                SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
-                
-                UsdPrim basePrim = threadStage->GetPrimAtPath(baseProtoPath);
-                if (!basePrim) {
-                    protoXform = UsdGeomScope::Define(threadStage, baseProtoPath);
-                    basePrim = protoXform.GetPrim();
-                } else {
-                    protoXform = UsdGeomScope(basePrim);
-                }
-                
-                UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
-                vset.AddVariant(variantSelection.second);
-                vset.SetVariantSelection(variantSelection.second);
-                UsdEditContext ctx(vset.GetVariantEditContext());
-                
-                routine.clearPrim(threadStage, baseProtoPath);
-                routine.definePrim(threadStage, baseProtoPath, params);
-
-            } else {
-                protoXform = UsdGeomScope::Get(threadStage, protoPath);
-                if (!protoXform) {
-                    protoXform = UsdGeomScope::Define(threadStage, protoPath);
-                }
-
-                if (!protoXform) {
-                    LOG_ERR("Failed to define scope at " + protoPath.GetString());
-                    continue;
-                }
-                        
-                routine.clearPrim(threadStage, protoPath);
-                routine.definePrim(threadStage, protoPath, params);
-            }
-        }
-
-        if (!mark.IsClean()) {
-            for (const auto& error : mark)
-                LOG_ERR("Usd: " + error.GetCommentary());
-        }
-
-        { // SdfChangeBlock
-            SdfChangeBlock block;
+            // their properties are later populated in the SdfChangeBlock
             for (int i = startIdx; i < endIdx; i++) {
                 const SdfPath& protoPath = jobs[i]->protoPath;
                 const TessParams& params = jobs[i]->params;
                 const TessellationRoutine& routine = *jobs[i]->routine;
 
                 if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
-                    int c = ++completed;
-                    if (Logger::activeLevel != Logger::DEBUG) {
-                        LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
-                    }
                     continue;
                 }
 
+                UsdGeomScope protoXform;
+
                 auto variantSelection = protoPath.GetVariantSelection();
-                SdfPath writeProtoPath = variantSelection.first.empty() ? protoPath : protoPath.StripAllVariantSelections();
-                
-                // If variant selected, we need the edit context 
-                // active to author values inside the variant
-                std::optional<UsdEditContext> ctx;
+
                 if (!variantSelection.first.empty()) {
-                    UsdPrim basePrim = threadStage->GetPrimAtPath(writeProtoPath);
+                    SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
+
+                    UsdPrim basePrim = threadStage->GetPrimAtPath(baseProtoPath);
+                    if (!basePrim) {
+                        protoXform = UsdGeomScope::Define(threadStage, baseProtoPath);
+                        basePrim = protoXform.GetPrim();
+                    } else {
+                        protoXform = UsdGeomScope(basePrim);
+                    }
+
                     UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
                     vset.AddVariant(variantSelection.second);
                     vset.SetVariantSelection(variantSelection.second);
-                    ctx.emplace(vset.GetVariantEditContext());
-                }
+                    UsdEditContext ctx(vset.GetVariantEditContext());
 
-                UsdGeomScope protoXform = UsdGeomScope::Get(threadStage, writeProtoPath);
+                    routine.clearPrim(threadStage, baseProtoPath);
+                    routine.definePrim(threadStage, baseProtoPath, params);
 
-                if (!protoXform) {
-                    LOG_ERR("writePrototypeGeometries: protoXform invalid at " + writeProtoPath.GetString() + " — define pass was skipped or failed");
-                    int c = ++completed;
-                    LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
-                    continue;
-                }
-
-                routine.writePrim(threadStage, writeProtoPath, params);
-
-                int c = ++completed;
-                if (Logger::activeLevel == Logger::DEBUG) {
-                    LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) + "] Writing Geometry: " + protoPath.GetString());
                 } else {
-                    LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
+                    protoXform = UsdGeomScope::Get(threadStage, protoPath);
+                    if (!protoXform) {
+                        protoXform = UsdGeomScope::Define(threadStage, protoPath);
+                    }
+
+                    if (!protoXform) {
+                        LOG_ERR("Failed to define scope at " + protoPath.GetString());
+                        continue;
+                    }
+
+                    routine.clearPrim(threadStage, protoPath);
+                    routine.definePrim(threadStage, protoPath, params);
                 }
             }
-        } // SdfChangeBlock
-        
-        if (!mark.IsClean()) {
-            for (const auto& error : mark)
-                LOG_ERR("Usd: " + error.GetCommentary());
-        }
 
-        std::lock_guard<std::mutex> resLock(resultsMutex);
-        threadResults.push_back({startIdx, endIdx, threadLayer});
-    }, grainSize);
+            if (!mark.IsClean()) {
+                for (const auto& error : mark)
+                    LOG_ERR("Usd: " + error.GetCommentary());
+            }
+
+            { // SdfChangeBlock
+                SdfChangeBlock block;
+                for (int i = startIdx; i < endIdx; i++) {
+                    const SdfPath& protoPath = jobs[i]->protoPath;
+                    const TessParams& params = jobs[i]->params;
+                    const TessellationRoutine& routine = *jobs[i]->routine;
+
+                    if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
+                        int c = ++completed;
+                        if (Logger::activeLevel != Logger::DEBUG) {
+                            LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
+                        }
+                        continue;
+                    }
+
+                    auto variantSelection = protoPath.GetVariantSelection();
+                    SdfPath writeProtoPath =
+                        variantSelection.first.empty() ? protoPath : protoPath.StripAllVariantSelections();
+
+                    // If variant selected, we need the edit context
+                    // active to author values inside the variant
+                    std::optional<UsdEditContext> ctx;
+                    if (!variantSelection.first.empty()) {
+                        UsdPrim basePrim = threadStage->GetPrimAtPath(writeProtoPath);
+                        UsdVariantSet vset = basePrim.GetVariantSets().AddVariantSet(variantSelection.first);
+                        vset.AddVariant(variantSelection.second);
+                        vset.SetVariantSelection(variantSelection.second);
+                        ctx.emplace(vset.GetVariantEditContext());
+                    }
+
+                    UsdGeomScope protoXform = UsdGeomScope::Get(threadStage, writeProtoPath);
+
+                    if (!protoXform) {
+                        LOG_ERR("writePrototypeGeometries: protoXform invalid at " + writeProtoPath.GetString() +
+                                " — define pass was skipped or failed");
+                        int c = ++completed;
+                        LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
+                        continue;
+                    }
+
+                    routine.writePrim(threadStage, writeProtoPath, params);
+
+                    int c = ++completed;
+                    if (Logger::activeLevel == Logger::DEBUG) {
+                        LOG_DEBUG("[" + std::to_string(c) + "/" + std::to_string(total) +
+                                  "] Writing Geometry: " + protoPath.GetString());
+                    } else {
+                        LOG_PROGRESS(c, total, "Writing Geometry" + logLabel);
+                    }
+                }
+            } // SdfChangeBlock
+
+            if (!mark.IsClean()) {
+                for (const auto& error : mark)
+                    LOG_ERR("Usd: " + error.GetCommentary());
+            }
+
+            std::lock_guard<std::mutex> resLock(resultsMutex);
+            threadResults.push_back({startIdx, endIdx, threadLayer});
+        },
+        grainSize);
 
     // Merge back on the main stage
 
-    // There are two passes here to handle variant and non-variant geometry separately 
-    // SdfCopy doesn't handle copying into variant bodies, so geometry under variants 
+    // There are two passes here to handle variant and non-variant geometry separately
+    // SdfCopy doesn't handle copying into variant bodies, so geometry under variants
     // is written directly to the main stage in a separate pass
 
     { // SdfChangeBlock
@@ -480,15 +464,18 @@ void CadUsdPipeline::writePrototypeGeometries(
 
         // pre-create variant specs in mainLayer so the variant bodies exist
         for (const auto& res : threadResults) {
-            if (!res.layer) continue;
+            if (!res.layer)
+                continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i]->protoPath;
                 auto variantSelection = protoPath.GetVariantSelection();
-                if (variantSelection.first.empty()) continue; // skip variants 
+                if (variantSelection.first.empty())
+                    continue; // skip variants
 
                 SdfPath baseProtoPath = protoPath.StripAllVariantSelections();
                 SdfPrimSpecHandle primSpec = mainLayer->GetPrimAtPath(baseProtoPath);
-                if (!primSpec) continue;
+                if (!primSpec)
+                    continue;
 
                 SdfVariantSetSpecHandle vsetSpec;
                 auto vsetProxy = primSpec->GetVariantSets();
@@ -509,16 +496,19 @@ void CadUsdPipeline::writePrototypeGeometries(
 
         // write the non variants
         for (const auto& res : threadResults) {
-            if (!res.layer) continue;
+            if (!res.layer)
+                continue;
             for (size_t i = res.startIdx; i < res.endIdx; i++) {
                 const SdfPath& protoPath = jobs[i]->protoPath;
                 if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
                     continue; // Skip filtered
                 }
-                if (!protoPath.GetVariantSelection().first.empty()) continue; // only non variants
+                if (!protoPath.GetVariantSelection().first.empty())
+                    continue; // only non variants
 
-                SdfPath copyPath = protoPath.GetVariantSelection().first.empty() ? protoPath : protoPath.StripAllVariantSelections();
-                
+                SdfPath copyPath =
+                    protoPath.GetVariantSelection().first.empty() ? protoPath : protoPath.StripAllVariantSelections();
+
                 SdfPrimSpecHandle srcSpec = res.layer->GetPrimAtPath(copyPath);
                 SdfPrimSpecHandle dstSpec = mainLayer->GetPrimAtPath(copyPath);
                 if (srcSpec && dstSpec) {
@@ -538,7 +528,8 @@ void CadUsdPipeline::writePrototypeGeometries(
 
     // Variant geometry written to main stage
     for (const auto& res : threadResults) {
-        if (!res.layer) continue;
+        if (!res.layer)
+            continue;
         for (size_t i = res.startIdx; i < res.endIdx; i++) {
             const SdfPath& protoPath = jobs[i]->protoPath;
             if (!isPrototypeActiveInFilter(selectedPaths, protoPath, variantSetName, variantName)) {
@@ -546,7 +537,8 @@ void CadUsdPipeline::writePrototypeGeometries(
             }
 
             auto variantSelection = protoPath.GetVariantSelection();
-            if (variantSelection.first.empty()) continue;
+            if (variantSelection.first.empty())
+                continue;
 
             const TessParams& params = jobs[i]->params;
             const TessellationRoutine& routine = *jobs[i]->routine;

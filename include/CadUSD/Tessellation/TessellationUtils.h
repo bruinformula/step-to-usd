@@ -2,17 +2,17 @@
 
 #include <vector>
 
-#include <TopoDS_Shape.hxx>
-#include <GCPnts_QuasiUniformDeflection.hxx>
-#include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>
+#include <TopoDS_Shape.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/pxr.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
+#include <pxr/pxr.h>
 
 #pragma pop_macro("Handle")
 
@@ -29,7 +29,8 @@ struct CurvePiece {
 // Split each original curve into pieces no longer than pointLimit.
 // For oversized curves, each continuation piece repeats the previous
 // piece's endpoint as its first point to avoid visual gaps.
-std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts, uint64_t pointLimit);
+std::vector<CurvePiece> splitCurvesIntoPieces(const VtIntArray& counts,
+                                              uint64_t pointLimit);
 
 struct CurveChunk {
     std::vector<CurvePiece> pieces;
@@ -38,12 +39,15 @@ struct CurveChunk {
 };
 
 // Group pieces into prim-sized chunks. If combine==false, each piece is its own chunk.
-std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts, uint64_t pointLimit, bool combine);
+std::vector<CurveChunk> computeCurveChunks(const VtIntArray& counts,
+                                           uint64_t pointLimit,
+                                           bool combine);
 
 VtIntArray chunkVertexCounts(const CurveChunk& chunk);
 
 template <typename T>
-VtArray<T> gatherChunkValues(const VtArray<T>& source, const CurveChunk& chunk) {
+VtArray<T> gatherChunkValues(const VtArray<T>& source,
+                             const CurveChunk& chunk) {
     std::vector<T> values;
     for (const auto& piece : chunk.pieces) {
         if (piece.pointCount <= 0 || piece.pointOffset < 0) {
@@ -55,17 +59,13 @@ VtArray<T> gatherChunkValues(const VtArray<T>& source, const CurveChunk& chunk) 
             continue;
         }
 
-        values.insert(
-            values.end(),
-            source.begin() + piece.pointOffset,
-            source.begin() + end
-        );
+        values.insert(values.end(), source.begin() + piece.pointOffset, source.begin() + end);
     }
     return VtArray<T>(values.begin(), values.end());
 }
 
 std::vector<float> computeArcValues(const GCPnts_QuasiUniformDeflection& sampler);
 
-double computeBoundingBoxDiagonal(const TopoDS_Shape &defShape);
+double computeBoundingBoxDiagonal(const TopoDS_Shape& defShape);
 
 } // namespace CadUSD

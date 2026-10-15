@@ -1,24 +1,24 @@
-#include <utility>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #pragma push_macro("Handle")
 #undef Handle
 
+#include <pxr/base/gf/vec3f.h>
+#include <pxr/base/tf/staticData.h>
+#include <pxr/base/tf/token.h>
+#include <pxr/base/vt/array.h>
 #include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/scope.h>
 #include <pxr/usd/usdGeom/tokens.h>
-#include <pxr/base/vt/array.h>
-#include <pxr/base/tf/staticData.h>
-#include <pxr/base/tf/token.h>
-#include <pxr/base/gf/vec3f.h>
 #include <stddef.h>
 
 #pragma pop_macro("Handle")
@@ -29,11 +29,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace CadUSD {
 
-bool SketchTessellationRoutine::defineSketchPlanePrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::defineSketchPlanePrim(UsdStageRefPtr stage,
+                                                      const SdfPath& protoPath,
+                                                      const TessParams& params) const {
     SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
     UsdGeomScope::Define(stage, sketchPlanesPath);
     for (size_t pi = 0; pi < sketchPlaneBounds.size(); ++pi) {
@@ -42,20 +40,16 @@ bool SketchTessellationRoutine::defineSketchPlanePrim(
     return true;
 }
 
-bool SketchTessellationRoutine::writeSketchPlanePrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::writeSketchPlanePrim(UsdStageRefPtr stage,
+                                                     const SdfPath& protoPath,
+                                                     const TessParams& params) const {
     SdfPath sketchPlanesPath = protoPath.AppendChild(TfToken("SketchPlanes"));
 
     for (size_t pi = 0; pi < sketchPlaneBounds.size(); ++pi) {
         const SketchPlaneBounds& b = sketchPlaneBounds[pi];
 
-        if (b.pointStart < 0 || b.pointCount <= 0 ||
-            b.faceCountStart < 0 || b.faceCountCount <= 0 ||
-            b.faceIndexStart < 0 || b.faceIndexCount <= 0 ||
-            b.normalStart < 0 || b.normalCount <= 0) {
+        if (b.pointStart < 0 || b.pointCount <= 0 || b.faceCountStart < 0 || b.faceCountCount <= 0 ||
+            b.faceIndexStart < 0 || b.faceIndexCount <= 0 || b.normalStart < 0 || b.normalCount <= 0) {
             continue;
         }
 
@@ -73,10 +67,8 @@ bool SketchTessellationRoutine::writeSketchPlanePrim(
         VtArray<GfVec3f> points;
         VtArray<GfVec3f> normals;
 
-        VtArray<int> counts(
-            sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
-            sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount
-        );
+        VtArray<int> counts(sketchPlaneFaceVertexCounts.begin() + b.faceCountStart,
+                            sketchPlaneFaceVertexCounts.begin() + b.faceCountStart + b.faceCountCount);
 
         VtArray<int> indices;
         indices.reserve(b.faceIndexCount);
@@ -97,18 +89,16 @@ bool SketchTessellationRoutine::writeSketchPlanePrim(
             indices.push_back(it->second);
         }
 
-        if (corruptPlane) continue; 
+        if (corruptPlane)
+            continue;
 
         // Normals are faceVarying (one per face-vertex), slice directly
-        normals = VtArray<GfVec3f>(
-            sketchPlaneNormals.begin() + b.normalStart,
-            sketchPlaneNormals.begin() + b.normalStart + b.normalCount
-        );
+        normals = VtArray<GfVec3f>(sketchPlaneNormals.begin() + b.normalStart,
+                                   sketchPlaneNormals.begin() + b.normalStart + b.normalCount);
 
         {
-            UsdGeomMesh mesh(stage->GetPrimAtPath(
-                sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi)))
-            ));
+            UsdGeomMesh mesh(
+                stage->GetPrimAtPath(sketchPlanesPath.AppendChild(TfToken("Plane_" + std::to_string(pi)))));
             mesh.GetPointsAttr().Set(points);
             mesh.GetFaceVertexCountsAttr().Set(counts);
             mesh.GetFaceVertexIndicesAttr().Set(indices);

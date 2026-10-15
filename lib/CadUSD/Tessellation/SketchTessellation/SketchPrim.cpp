@@ -4,38 +4,39 @@
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/sdf/types.h>
-#include <pxr/usd/sdf/path.h>
-#include <pxr/usd/usdGeom/scope.h>
-#include <pxr/usd/usdGeom/tokens.h>
-#include <pxr/usd/usdGeom/primvarsAPI.h>
-#include <pxr/usd/usdGeom/basisCurves.h>
-#include <pxr/usd/usdGeom/primvar.h>
-#include <pxr/base/vt/array.h>
-#include <pxr/base/vt/types.h>
+#include <pxr/base/gf/vec3f.h>
 #include <pxr/base/tf/staticData.h>
 #include <pxr/base/tf/token.h>
-#include <pxr/base/gf/vec3f.h>
+#include <pxr/base/vt/array.h>
+#include <pxr/base/vt/types.h>
+#include <pxr/pxr.h>
+#include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/types.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/pointBased.h>
+#include <pxr/usd/usdGeom/primvar.h>
+#include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdGeom/scope.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #pragma pop_macro("Handle")
 
 #include "CadUSD/Logger.h"
-#include "CadUSD/Tessellation/TessellationUtils.h"
 #include "CadUSD/Tessellation/TessellationRoutine.h"
+#include "CadUSD/Tessellation/TessellationUtils.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace CadUSD {
 
-bool SketchTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& partPath) const {
+bool SketchTessellationRoutine::writePartMember(UsdStageRefPtr stage,
+                                                SdfPath& partPath) const {
     SdfPath sketchPath = partPath.AppendChild(TfToken("Sketch"));
     SdfPath sketchPlanesPath = partPath.AppendChild(TfToken("SketchPlanes"));
 
@@ -48,57 +49,51 @@ bool SketchTessellationRoutine::writePartMember(UsdStageRefPtr stage, SdfPath& p
     return true;
 }
 
-bool SketchTessellationRoutine::defineSketchPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::defineSketchPrim(UsdStageRefPtr stage,
+                                                 const SdfPath& protoPath,
+                                                 const TessParams& params) const {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
     UsdGeomScope::Define(stage, sketchPath);
 
     if (params.sketchPointLimit <= 0) {
-        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " + std::to_string(params.sketchPointLimit) + ", must be > 0.");
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " +
+                std::to_string(params.sketchPointLimit) + ", must be > 0.");
         return false;
     }
 
     uint64_t numSubCurves = (sketchPoints.size() + params.sketchPointLimit - 1) / params.sketchPointLimit;
 
     if (params.sketchCombineCurves && numSubCurves == 1) {
-        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(
-            stage, sketchPath.AppendChild(TfToken("Curves"))
-        );
+        UsdGeomBasisCurves curves = UsdGeomBasisCurves::Define(stage, sketchPath.AppendChild(TfToken("Curves")));
         if (!sketchArcValues.empty()) {
-            UsdGeomPrimvarsAPI(curves).CreatePrimvar(
-                TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
-            );
+            UsdGeomPrimvarsAPI(curves).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray,
+                                                     UsdGeomTokens->vertex);
         }
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+        std::vector<CurveChunk> chunks =
+            computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
-            UsdGeomBasisCurves sketchCurve = UsdGeomBasisCurves::Define(
-                stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))
-            );
+            UsdGeomBasisCurves sketchCurve =
+                UsdGeomBasisCurves::Define(stage, sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci))));
 
             if (!sketchArcValues.empty()) {
-                UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(
-                    TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex
-                );
+                UsdGeomPrimvarsAPI(sketchCurve)
+                    .CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
             }
         }
     }
     return true;
 }
 
-bool SketchTessellationRoutine::writeSketchPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
+                                                const SdfPath& protoPath,
+                                                const TessParams& params) const {
     SdfPath sketchPath = protoPath.AppendChild(TfToken("Sketch"));
 
     if (params.sketchPointLimit <= 0) {
-        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " + std::to_string(params.sketchPointLimit) + ", must be > 0.");
+        LOG_ERR("Prim: " + protoPath.GetString() + ": defineSketchGeometry: invalid sketchPointLimit " +
+                std::to_string(params.sketchPointLimit) + ", must be > 0.");
         return false;
     }
 
@@ -132,9 +127,10 @@ bool SketchTessellationRoutine::writeSketchPrim(
         }
 
         if (sketchArcValues.size() == sketchPoints.size()) {
-            UsdGeomPrimvarsAPI(sketchCurve).CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
+            UsdGeomPrimvarsAPI(sketchCurve)
+                .CreatePrimvar(TfToken("uArc"), SdfValueTypeNames->FloatArray, UsdGeomTokens->vertex);
         }
-        
+
         if (sketchArcValues.size() == sketchPoints.size()) {
             UsdGeomPrimvarsAPI api(sketchCurve);
             if (UsdGeomPrimvar p = api.GetPrimvar(TfToken("uArc")))
@@ -143,15 +139,17 @@ bool SketchTessellationRoutine::writeSketchPrim(
 
         sketchCurve.CreateWidthsAttr().Set(VtArray{0.005f});
         sketchCurve.SetWidthsInterpolation(UsdGeomTokens->constant);
-        
+
         sketchCurve.GetDisplayColorAttr().Set(VtArray<GfVec3f>{{0.4f, 0.7f, 1.0f}});
     } else {
-        std::vector<CurveChunk> chunks = computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
+        std::vector<CurveChunk> chunks =
+            computeCurveChunks(sketchCounts, params.sketchPointLimit, params.sketchCombineCurves);
 
         for (size_t ci = 0; ci < chunks.size(); ++ci) {
             const CurveChunk& chunk = chunks[ci];
 
-            UsdGeomBasisCurves sketchCurve(stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
+            UsdGeomBasisCurves sketchCurve(
+                stage->GetPrimAtPath(sketchPath.AppendChild(TfToken("Curve_" + std::to_string(ci)))));
             if (!sketchCurve) {
                 LOG_ERR("writeSketchGeometry: missing curve prim Curve_" + std::to_string(ci));
                 continue;
@@ -191,10 +189,8 @@ bool SketchTessellationRoutine::writeSketchPrim(
     return true;
 }
 
-void SketchTessellationRoutine::clearPrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath
-) const {
+void SketchTessellationRoutine::clearPrim(UsdStageRefPtr stage,
+                                          const SdfPath& protoPath) const {
     stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
     stage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlane")));
 }

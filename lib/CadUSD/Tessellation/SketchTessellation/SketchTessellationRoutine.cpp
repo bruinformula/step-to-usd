@@ -1,54 +1,55 @@
-#include <chrono>
-#include <utility>
 #include <algorithm>
+#include <chrono>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <GProp_PEquation.hxx>
-#include <TColgp_Array1OfPnt.hxx>
 #include <BOPAlgo_BuilderFace.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_ListIteratorOfListOfShape.hxx>
-#include <TDF_Label.hxx>
-#include <TopLoc_Location.hxx>
-#include <gp_Trsf.hxx>
-#include <ShapeFix_Shape.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
-#include <BRepTools.hxx>
-#include <TopExp_Explorer.hxx>
-#include <TopoDS.hxx>
-#include <Poly_Triangulation.hxx>
-#include <BRepAdaptor_Surface.hxx>
-#include <GeomLProp_SLProps.hxx>
-#include <GeomAPI_ProjectPointOnSurf.hxx>
-#include <BRepBndLib.hxx>
-#include <TopExp.hxx>
-#include <IMeshTools_Parameters.hxx>
-#include <BRepAdaptor_Curve.hxx>
-#include <GCPnts_QuasiUniformDeflection.hxx>
-#include <BRepExtrema_SelfIntersection.hxx>
-#include <BRepTools.hxx>
-#include <BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
-#include <Bnd_Box.hxx>
 #include <BOPAlgo_Splitter.hxx>
-#include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRep_Builder.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepExtrema_MapOfIntegerPackedMapOfInteger.hxx>
+#include <BRepExtrema_SelfIntersection.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepOffsetAPI_MakeFilling.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <Bnd_Box.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>
+#include <GProp_PEquation.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomAbs_Shape.hxx>
 #include <GeomAdaptor_Surface.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <Geom_Plane.hxx>
+#include <IMeshTools_Parameters.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressRange.hxx>
 #include <NCollection_IndexedDataMap.hxx>
 #include <NCollection_IndexedMap.hxx>
 #include <NCollection_List.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <Poly_Triangle.hxx>
+#include <Poly_Triangulation.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
+#include <ShapeFix_Shape.hxx>
 #include <Standard_Failure.hxx>
 #include <Standard_Handle.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TDF_Label.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
@@ -56,47 +57,42 @@
 #include <TopoDS_Wire.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
+#include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
-#include <Message_ProgressIndicator.hxx>
-#include <Message_ProgressRange.hxx>
-#include <BRepOffsetAPI_MakeFilling.hxx>
-#include <Geom_Plane.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
 
-#include <pxr/pxr.h>
 #include <pxr/base/work/loops.h>
 #include <pxr/base/work/workTBB/loops_impl.h>
+#include <pxr/pxr.h>
 
-#include <pxr/base/vt/array.h>
-#include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec2f.h>
+#include <pxr/base/gf/vec3f.h>
+#include <pxr/base/vt/array.h>
 #include <pxr/usd/sdf/path.h>
 
 #pragma pop_macro("Handle")
 
 #include "CadUSD/Logger.h"
+#include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
 #include "CadUSD/Tessellation/TessellationRoutine.h"
 #include "CadUSD/Tessellation/TessellationUtils.h"
-#include "CadUSD/Tessellation/DeadlineProgressIndicator.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace CadUSD {
 
-struct SketchTessellationContext { 
+struct SketchTessellationContext {
     std::vector<TopoDS_Edge> freeEdges;
 };
 
-void SketchTessellationRoutine::initializeFreeEdges(
-    const TopoDS_Shape& defShape,
-    SketchTessellationContext& ctx
-) const {
+void SketchTessellationRoutine::initializeFreeEdges(const TopoDS_Shape& defShape,
+                                                    SketchTessellationContext& ctx) const {
 
-    // sketches in STEP 242 are registered as free edges 
-    // in the defintion shape and are not guaranteed to be connected to any faces, 
-    // so we have to do a separate edge walk to find them and sample 
+    // sketches in STEP 242 are registered as free edges
+    // in the defintion shape and are not guaranteed to be connected to any faces,
+    // so we have to do a separate edge walk to find them and sample
 
     NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> edgeToFaces;
     TopExp::MapShapesAndAncestors(defShape, TopAbs_EDGE, TopAbs_FACE, edgeToFaces);
@@ -104,7 +100,8 @@ void SketchTessellationRoutine::initializeFreeEdges(
     ctx.freeEdges.reserve(edgeToFaces.Extent());
     for (TopExp_Explorer edgeExp(defShape, TopAbs_EDGE); edgeExp.More(); edgeExp.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(edgeExp.Current());
-        if (BRep_Tool::Degenerated(edge)) continue;
+        if (BRep_Tool::Degenerated(edge))
+            continue;
 
         int edgeIdx = edgeToFaces.FindIndex(edge);
         bool isFreeEdge = (edgeIdx == 0) || (edgeToFaces.FindFromIndex(edgeIdx).Extent() == 0);
@@ -114,18 +111,16 @@ void SketchTessellationRoutine::initializeFreeEdges(
     }
 }
 
-void SketchTessellationRoutine::tessellateSketchPlane(
-    const TopoDS_Shape& defShape, 
-    const SdfPath& protoPath,
-    SketchTessellationContext& ctx
-) {
+void SketchTessellationRoutine::tessellateSketchPlane(const TopoDS_Shape& defShape,
+                                                      const SdfPath& protoPath,
+                                                      SketchTessellationContext& ctx) {
     // Build sketch planes from free edges using OCCT topology:
     // split all free edges at intersections, connect split edges into wires,
     // convert closed wires into planar faces, then triangulate those faces.
 
     std::string protoName = protoPath.GetName();
     // TODO: Support Muliplanar sketches
-    
+
     // Assemble free edges into a compound and connect them into wires
     TopoDS_Compound freeEdgeCompound;
     BRep_Builder builder;
@@ -140,9 +135,9 @@ void SketchTessellationRoutine::tessellateSketchPlane(
         for (const TopoDS_Edge& edge : ctx.freeEdges) {
             splitter.AddArgument(edge);
         }
-        
+
         splitter.Perform();
-        if (!splitter.HasErrors()) { 
+        if (!splitter.HasErrors()) {
             splitShape = splitter.Shape();
         } else {
             std::ostringstream e;
@@ -166,11 +161,8 @@ void SketchTessellationRoutine::tessellateSketchPlane(
 
     double diagonal = computeBoundingBoxDiagonal(freeEdgeCompound);
 
-    opencascade::handle<TopTools_HSequenceOfShape> wireSeq =  new TopTools_HSequenceOfShape();
-    double edgeTolerance = std::max(
-        params.sketchPlaneCombineTolerance,
-        diagonal * params.sketchPlaneCombineTolerance
-    );
+    opencascade::handle<TopTools_HSequenceOfShape> wireSeq = new TopTools_HSequenceOfShape();
+    double edgeTolerance = std::max(params.sketchPlaneCombineTolerance, diagonal * params.sketchPlaneCombineTolerance);
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edgeSeq, edgeTolerance, true, wireSeq);
 
     if (wireSeq->Length() >= edgeSeq->Length()) {
@@ -183,15 +175,16 @@ void SketchTessellationRoutine::tessellateSketchPlane(
             LOG_DEBUG("  -> Sketch plane wire connect fallback used (shared=false)");
         }
     }
-    LOG_DEBUG("  -> Sketch plane wire candidates=" + std::to_string(wireSeq->Length()) + " (tol=" + std::to_string(edgeTolerance) + ")");
+    LOG_DEBUG("  -> Sketch plane wire candidates=" + std::to_string(wireSeq->Length()) +
+              " (tol=" + std::to_string(edgeTolerance) + ")");
 
     // Build a planar face from every closed wire.
     auto isWireGeometricallyClosed = [&](const TopoDS_Wire& wire, double tol) -> bool {
         TopoDS_Vertex vFirst, vLast;
         TopExp::Vertices(wire, vFirst, vLast);
-        if (vFirst.IsNull() || vLast.IsNull()) 
+        if (vFirst.IsNull() || vLast.IsNull())
             return false;
-        if (vFirst.IsSame(vLast))               
+        if (vFirst.IsSame(vLast))
             return true;
         return BRep_Tool::Pnt(vFirst).Distance(BRep_Tool::Pnt(vLast)) <= tol;
     };
@@ -210,8 +203,10 @@ void SketchTessellationRoutine::tessellateSketchPlane(
 
         const bool topoClosed = BRep_Tool::IsClosed(wire);
         const bool geomClosed = isWireGeometricallyClosed(wire, edgeTolerance);
-        if (geomClosed) ++geomClosedWireCount;
-        if (!(topoClosed || geomClosed)) continue;
+        if (geomClosed)
+            ++geomClosedWireCount;
+        if (!(topoClosed || geomClosed))
+            continue;
         ++closedWireCount;
 
         BRepBuilderAPI_MakeFace makeFace(wire, true);
@@ -220,22 +215,23 @@ void SketchTessellationRoutine::tessellateSketchPlane(
             continue;
         }
         const TopoDS_Face f = makeFace.Face();
-        if (f.IsNull()) { ++makeFaceFailedCount; continue; }
-        
+        if (f.IsNull()) {
+            ++makeFaceFailedCount;
+            continue;
+        }
+
         builder.Add(faceCompound, f);
         ++builtFaceCount;
-
     }
 
-    LOG_DEBUG("  -> Sketch plane closed wires=" + std::to_string(closedWireCount) +
-            ", geomClosed=" + std::to_string(geomClosedWireCount) +
-            ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
-            ", builtFaces=" + std::to_string(builtFaceCount));
+    LOG_DEBUG("  -> Sketch plane closed wires=" + std::to_string(closedWireCount) + ", geomClosed=" +
+              std::to_string(geomClosedWireCount) + ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
+              ", builtFaces=" + std::to_string(builtFaceCount));
 
     // Union all faces so overlapping / nested regions
     // collapse into one non-overlapping shell.
     // We iterate over the compound and fuse each face into
-    // a running accumulator. 
+    // a running accumulator.
 
     TopoDS_Shape unifiedShape = faceCompound; // safe fallback
 
@@ -252,13 +248,13 @@ void SketchTessellationRoutine::tessellateSketchPlane(
             for (; faceIt.More(); faceIt.Next()) {
                 BRepAlgoAPI_Fuse fuse(running, faceIt.Current());
                 fuse.Build();
-                
+
                 if (fuse.IsDone() && !fuse.HasErrors()) {
                     running = fuse.Shape();
                 } else {
                     std::ostringstream e;
                     fuse.DumpErrors(e);
-                    LOG_DEBUG("  -> Sketch plane: one fuse step failed with error " + e.str() +", face skipped");
+                    LOG_DEBUG("  -> Sketch plane: one fuse step failed with error " + e.str() + ", face skipped");
                 }
             }
 
@@ -273,7 +269,7 @@ void SketchTessellationRoutine::tessellateSketchPlane(
     ShapeFix_Shape fixer(defShape);
     fixer.SetPrecision(params.sketchPlaneFixPrecision);
     fixer.SetMaxTolerance(params.sketchPlaneFixTolerance);
-    
+
     opencascade::handle<DeadlineProgressIndicator> fixProgress;
     {
         std::string label = "ShapeFix_Shape for part " + protoName + ": ";
@@ -287,7 +283,7 @@ void SketchTessellationRoutine::tessellateSketchPlane(
     sketchPlaneMeshParams.Deflection = diagonal * params.sketchPlaneLinearDeflection;
     sketchPlaneMeshParams.Angle = params.sketchPlaneAngularDeflection;
     sketchPlaneMeshParams.MinSize = params.sketchPlaneMinSize;
-    
+
     BRepMesh_IncrementalMesh planeMesher(unifiedShape, sketchPlaneMeshParams);
     opencascade::handle<DeadlineProgressIndicator> meshProgress;
     {
@@ -323,18 +319,16 @@ void SketchTessellationRoutine::tessellateSketchPlane(
 
         for (int ni = 1; ni <= tri->NbNodes(); ++ni) {
             gp_Pnt p = tri->Node(ni).Transformed(sketchTrsf);
-            sketchPlanePoints.push_back(GfVec3f(
-                static_cast<float>(p.X()),
-                static_cast<float>(p.Y()),
-                static_cast<float>(p.Z())
-            ));
+            sketchPlanePoints.push_back(
+                GfVec3f(static_cast<float>(p.X()), static_cast<float>(p.Y()), static_cast<float>(p.Z())));
         }
 
         const bool reversed = (sketchFace.Orientation() == TopAbs_REVERSED);
         for (int ti = 1; ti <= tri->NbTriangles(); ++ti) {
             int n1 = 0, n2 = 0, n3 = 0;
             tri->Triangle(ti).Get(n1, n2, n3);
-            if (reversed) std::swap(n2, n3);
+            if (reversed)
+                std::swap(n2, n3);
 
             const int i1 = basePoint + (n1 - 1);
             const int i2 = basePoint + (n2 - 1);
@@ -360,56 +354,38 @@ void SketchTessellationRoutine::tessellateSketchPlane(
         }
 
         const int pointCount = static_cast<int>(sketchPlanePoints.size()) - basePoint;
-        const int faceCountCount = static_cast<int>(sketchPlaneFaceVertexCounts.size())  - faceCountStart;
+        const int faceCountCount = static_cast<int>(sketchPlaneFaceVertexCounts.size()) - faceCountStart;
         const int faceIndexCount = static_cast<int>(sketchPlaneFaceVertexIndices.size()) - faceIndexStart;
         const int normalCount = static_cast<int>(sketchPlaneNormals.size()) - normalStart;
 
-        if (pointCount > 0 && faceCountCount > 0 &&
-            faceIndexCount > 0 && normalCount == faceIndexCount) {
-            sketchPlaneBounds.push_back({
-                basePoint,      pointCount,
-                faceCountStart, faceCountCount,
-                faceIndexStart, faceIndexCount,
-                normalStart,    normalCount
-            });
+        if (pointCount > 0 && faceCountCount > 0 && faceIndexCount > 0 && normalCount == faceIndexCount) {
+            sketchPlaneBounds.push_back({basePoint, pointCount, faceCountStart, faceCountCount, faceIndexStart,
+                                         faceIndexCount, normalStart, normalCount});
         }
     }
 
-    LOG_DEBUG(
-        "  -> Sketch plane summary: closedWires=" + std::to_string(closedWireCount) +
-        ", geomClosedWires=" + std::to_string(geomClosedWireCount) +
-        ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
-        ", emptyTriangulations=" + std::to_string(emptyTriangulationCount) +
-        ", emittedPlanes=" + std::to_string(emittedPlaneCount) +
-        ", emittedTriangles=" + std::to_string(emittedPlaneTriangles)
-    );
-    LOG_DEBUG(
-        "  -> Sketch plane output buffers: points=" +
-        std::to_string(sketchPlanePoints.size()) +
-        ", faceCounts=" +
-        std::to_string(sketchPlaneFaceVertexCounts.size()) +
-        ", faceIndices=" +
-        std::to_string(sketchPlaneFaceVertexIndices.size())
-    );
-
+    LOG_DEBUG("  -> Sketch plane summary: closedWires=" + std::to_string(closedWireCount) + ", geomClosedWires=" +
+              std::to_string(geomClosedWireCount) + ", makeFaceFailed=" + std::to_string(makeFaceFailedCount) +
+              ", emptyTriangulations=" + std::to_string(emptyTriangulationCount) + ", emittedPlanes=" +
+              std::to_string(emittedPlaneCount) + ", emittedTriangles=" + std::to_string(emittedPlaneTriangles));
+    LOG_DEBUG("  -> Sketch plane output buffers: points=" + std::to_string(sketchPlanePoints.size()) +
+              ", faceCounts=" + std::to_string(sketchPlaneFaceVertexCounts.size()) +
+              ", faceIndices=" + std::to_string(sketchPlaneFaceVertexIndices.size()));
 }
 
-void SketchTessellationRoutine::tessellateSketch(
-    const TopoDS_Shape& defShape, 
-    const SdfPath& protoPath,
-    SketchTessellationContext& ctx
-) {
+void SketchTessellationRoutine::tessellateSketch(const TopoDS_Shape& defShape,
+                                                 const SdfPath& protoPath,
+                                                 SketchTessellationContext& ctx) {
     if (params.sketchMode.type == TessParams::CurveType::None)
         return;
 
     for (const TopoDS_Edge& edge : ctx.freeEdges) {
         BRepAdaptor_Curve adaptor(edge);
 
-        GCPnts_QuasiUniformDeflection sampler(
-            adaptor, params.sketchDeflection,
-            adaptor.FirstParameter(), adaptor.LastParameter()
-        );
-        if (!sampler.IsDone() || sampler.NbPoints() < 2) continue;
+        GCPnts_QuasiUniformDeflection sampler(adaptor, params.sketchDeflection, adaptor.FirstParameter(),
+                                              adaptor.LastParameter());
+        if (!sampler.IsDone() || sampler.NbPoints() < 2)
+            continue;
 
         int n = sampler.NbPoints();
 
@@ -443,7 +419,8 @@ void SketchTessellationRoutine::tessellateSketch(
 }
 
 void SketchTessellationRoutine::applyUnitScale(const TessParams& params) {
-    if (params.unitScale == 1.0) return;
+    if (params.unitScale == 1.0)
+        return;
 
     const float s = static_cast<float>(params.unitScale);
     auto scalePoints = [s](VtArray<GfVec3f>& points) {
@@ -459,15 +436,12 @@ void SketchTessellationRoutine::applyUnitScale(const TessParams& params) {
 // Pure edge compounds (e.g. AP242 PMI annotation shapes) have no faces
 // but do carry sketch curves, so only reject if both are absent.
 bool SketchTessellationRoutine::hasValidGeometry() {
-    return !(sketchCounts.empty() &&
-             sketchPlaneFaceVertexIndices.empty());
+    return !(sketchCounts.empty() && sketchPlaneFaceVertexIndices.empty());
 }
 
-bool SketchTessellationRoutine::tessellate(
-    const TopoDS_Shape& defShape, 
-    const TessParams& params,
-    const SdfPath& protoPath
-) {
+bool SketchTessellationRoutine::tessellate(const TopoDS_Shape& defShape,
+                                           const TessParams& params,
+                                           const SdfPath& protoPath) {
     try {
         SketchTessellationContext ctx;
         initializeFreeEdges(defShape, ctx);
@@ -498,11 +472,9 @@ bool SketchTessellationRoutine::tessellate(
     return true;
 }
 
-bool SketchTessellationRoutine::definePrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::definePrim(UsdStageRefPtr stage,
+                                           const SdfPath& protoPath,
+                                           const TessParams& params) const {
     bool hasSketch = !sketchPoints.empty() && !sketchCounts.empty();
     bool hasSketchPlanes = !sketchPlaneBounds.empty();
 
@@ -519,11 +491,9 @@ bool SketchTessellationRoutine::definePrim(
     return sketchDefined && sketchPlaneDefined;
 }
 
-bool SketchTessellationRoutine::writePrim(
-    UsdStageRefPtr stage,
-    const SdfPath& protoPath,
-    const TessParams& params
-) const {
+bool SketchTessellationRoutine::writePrim(UsdStageRefPtr stage,
+                                          const SdfPath& protoPath,
+                                          const TessParams& params) const {
     bool hasSketch = !sketchPoints.empty() && !sketchCounts.empty();
     bool hasSketchPlanes = !sketchPlaneBounds.empty();
 

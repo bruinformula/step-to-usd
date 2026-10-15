@@ -1,14 +1,15 @@
 #include "Quadriflow/parametrizer.hpp"
 #include "Quadriflow/config.hpp"
 #include "Quadriflow/dedge.hpp"
+#include "Quadriflow/dset.hpp"
 #include "Quadriflow/field-math.hpp"
 #include "Quadriflow/flow.hpp"
 #include "Quadriflow/localsat.hpp"
 #include "Quadriflow/optimizer.hpp"
 #include "Quadriflow/subdivide.hpp"
-#include "Quadriflow/dset.hpp"
 
 #include <Eigen/Sparse>
+
 #include <fstream>
 #include <list>
 #include <map>
@@ -79,17 +80,18 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
 #ifdef LOG_OUTPUT
     printf("subdivide...\n");
 #endif
-    subdivide_edgeDiff(F, V, N, Q, O, &hierarchy.mS[0], V2E, hierarchy.mE2E, boundary, nonManifold,
-                       edge_diff, edge_values, face_edgeOrients, face_edgeIds, sharp_edges,
-                       singularities, 1);
+    subdivide_edgeDiff(F, V, N, Q, O, &hierarchy.mS[0], V2E, hierarchy.mE2E, boundary, nonManifold, edge_diff,
+                       edge_values, face_edgeOrients, face_edgeIds, sharp_edges, singularities, 1);
 
     allow_changes.clear();
     allow_changes.resize(edge_diff.size() * 2, 1);
     for (int i = 0; i < sharp_edges.size(); ++i) {
-        if (sharp_edges[i] == 0) continue;
+        if (sharp_edges[i] == 0)
+            continue;
         int e = face_edgeIds[i / 3][i % 3];
         for (int k = 0; k < 2; ++k) {
-            if (edge_diff[e][k] == 0) allow_changes[e * 2 + k] = 0;
+            if (edge_diff[e][k] == 0)
+                allow_changes[e * 2 + k] = 0;
         }
     }
 
@@ -98,9 +100,8 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
     int t1 = GetCurrentTime64();
 #endif
     FixFlipHierarchy();
-    subdivide_edgeDiff(F, V, N, Q, O, &hierarchy.mS[0], V2E, hierarchy.mE2E, boundary, nonManifold,
-                       edge_diff, edge_values, face_edgeOrients, face_edgeIds, sharp_edges,
-                       singularities, 1);
+    subdivide_edgeDiff(F, V, N, Q, O, &hierarchy.mS[0], V2E, hierarchy.mE2E, boundary, nonManifold, edge_diff,
+                       edge_values, face_edgeOrients, face_edgeIds, sharp_edges, singularities, 1);
     FixFlipSat();
 
 #ifdef LOG_OUTPUT
@@ -116,11 +117,11 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
         }
     }
 
-    Optimizer::optimize_positions_sharp(hierarchy, edge_values, edge_diff, sharp_edges,
-                                        sharp_vertices, sharp_constraints, with_scale);
+    Optimizer::optimize_positions_sharp(hierarchy, edge_values, edge_diff, sharp_edges, sharp_vertices,
+                                        sharp_constraints, with_scale);
 
-    Optimizer::optimize_positions_fixed(hierarchy, edge_values, edge_diff, sharp_vertices,
-                                        sharp_constraints, flag_adaptive_scale);
+    Optimizer::optimize_positions_fixed(hierarchy, edge_values, edge_diff, sharp_vertices, sharp_constraints,
+                                        flag_adaptive_scale);
 
     AdvancedExtractQuad();
 
@@ -164,9 +165,12 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
         for (int j = 0; j < 3; ++j) {
             int v1 = F(j, i);
             int v2 = F((j + 1) % 3, i);
-            if (v1 != edge_values[face_edgeIds[i][j]].x) continue;
-            if (edge_diff[face_edgeIds[i][j]].array().abs().sum() != 1) continue;
-            if (v2o[v1].size() > 1 || v2o[v2].size() > 1) continue;
+            if (v1 != edge_values[face_edgeIds[i][j]].x)
+                continue;
+            if (edge_diff[face_edgeIds[i][j]].array().abs().sum() != 1)
+                continue;
+            if (v2o[v1].size() > 1 || v2o[v2].size() > 1)
+                continue;
             for (auto o1 : v2o[v1]) {
                 for (auto o2 : v2o[v2]) {
                     auto key = std::make_pair(o1, o2);
@@ -182,7 +186,8 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
                         double s_x1 = S(0, v1), s_y1 = S(1, v1);
                         double s_x2 = S(0, v2), s_y2 = S(1, v2);
                         int rank_diff = (index.second + 4 - index.first) % 4;
-                        if (rank_diff % 2 == 1) std::swap(s_x2, s_y2);
+                        if (rank_diff % 2 == 1)
+                            std::swap(s_x2, s_y2);
                         Vector3d qd_x = 0.5 * (rotate90_by(q_2, n_2, rank_diff) + q_1);
                         Vector3d qd_y = 0.5 * (rotate90_by(q_2_y, n_2, rank_diff) + q_1_y);
                         double scale_x = (with_scale ? 0.5 * (s_x1 + s_x2) : 1) * hierarchy.mScale;
@@ -232,9 +237,8 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
         }
     }
 
-    Optimizer::optimize_positions_dynamic(F, V, N, Q, Vset, O_compact, F_compact, V2E_compact,
-                                          E2E_compact, sqrt(surface_area / F_compact.size()),
-                                          diffs, diff_count, o2e, sharp_o,
+    Optimizer::optimize_positions_dynamic(F, V, N, Q, Vset, O_compact, F_compact, V2E_compact, E2E_compact,
+                                          sqrt(surface_area / F_compact.size()), diffs, diff_count, o2e, sharp_o,
                                           compact_sharp_constraints, flag_adaptive_scale);
 
     //    optimize_quad_positions(O_compact, N_compact, Q_compact, F_compact, V2E_compact,
@@ -243,5 +247,4 @@ void Parametrizer::ComputeIndexMap(int with_scale) {
     //                            hierarchy.mScale, false);
 }
 
-}  // namespace CadUSD::qflow
-
+} // namespace CadUSD::qflow

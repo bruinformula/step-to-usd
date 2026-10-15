@@ -1,21 +1,21 @@
 
-#include <iostream>
-#include <unordered_set>
 #include <filesystem>
+#include <iostream>
 #include <string>
+#include <unordered_set>
 
 #pragma push_macro("Handle")
 #undef Handle
 
 #include <pxr/pxr.h>
-#include <pxr/usd/usd/common.h>
-#include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/common.h>
 #include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/primRange.h>
+#include <pxr/usd/usd/stage.h>
 
-#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
 
 #include <pxr/base/work/loops.h>
@@ -29,23 +29,24 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-using namespace CadUSD; 
+using namespace CadUSD;
 
-const std::string usageText =
-    " frack -- Meshes all CadContainer prims in a Usd scene\n"
-    " Options: \n"
-    "    -i, --input <path>               Path to the input Usd file. \n"
-    "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including variants. Can be multiple paths.\n"
-    "    -q, --quiet                      Suppress all output.\n"
-    "    -v, --verbose                    Prints like everything.\n"
-    "    -h, --help                       Prints this message.\n\n"
-    "    usage: frack -i <path> [options] \n";
+const std::string usageText = " frack -- Meshes all CadContainer prims in a Usd scene\n"
+                              " Options: \n"
+                              "    -i, --input <path>               Path to the input Usd file. \n"
+                              "    -p, --prim  <sdfPath>            Only tessellate the prim at this path including "
+                              "variants. Can be multiple paths.\n"
+                              "    -q, --quiet                      Suppress all output.\n"
+                              "    -v, --verbose                    Prints like everything.\n"
+                              "    -h, --help                       Prints this message.\n\n"
+                              "    usage: frack -i <path> [options] \n";
 
-CadUsdTesselateArgs::ParseResult CadUsdTesselateArgs::parse(const std::string& token, const std::string& nextToken) {
+CadUsdTesselateArgs::ParseResult CadUsdTesselateArgs::parse(const std::string& token,
+                                                            const std::string& nextToken) {
     if (token == "-i" || token == "--input") {
         if (nextToken.empty()) {
             std::cerr << "Expected another token following command-line option: " << token << std::endl;
-        return ParseResult::FAILURE;
+            return ParseResult::FAILURE;
         }
         if (!inputUsdFile.empty()) {
             std::cerr << token << " is already set!" << std::endl;

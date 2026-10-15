@@ -1,5 +1,5 @@
 #ifdef NDEBUG
-#undef NDEBUG
+#    undef NDEBUG
 #endif
 
 #include "Quadriflow/localsat.hpp"
@@ -20,15 +20,19 @@ const int max_depth = 0;
 
 using namespace Eigen;
 
-SolverStatus RunCNF(const std::string &fin_name, int n_variable, int timeout,
-                    const std::vector<std::vector<int>> &sat_clause, std::vector<int> &value) {
+SolverStatus RunCNF(const std::string& fin_name,
+                    int n_variable,
+                    int timeout,
+                    const std::vector<std::vector<int>>& sat_clause,
+                    std::vector<int>& value) {
     int n_sat_variable = 3 * n_variable;
     auto fout_name = fin_name + ".result.txt";
 
-    FILE *fout = fopen(fin_name.c_str(), "w");
+    FILE* fout = fopen(fin_name.c_str(), "w");
     fprintf(fout, "p cnf %d %d\n", n_sat_variable, (int)sat_clause.size());
-    for (auto &c : sat_clause) {
-        for (auto e : c) fprintf(fout, "%d ", e);
+    for (auto& c : sat_clause) {
+        for (auto e : c)
+            fprintf(fout, "%d ", e);
         fputs("0\n", fout);
     }
     fclose(fout);
@@ -36,11 +40,10 @@ SolverStatus RunCNF(const std::string &fin_name, int n_variable, int timeout,
     char cmd[100];
     snprintf(cmd, 99, "rm %s > /dev/null 2>&1", fout_name.c_str());
     system(cmd);
-    snprintf(cmd, 99, "timeout %d minisat %s %s > /dev/null 2>&1", timeout, fin_name.c_str(),
-             fout_name.c_str());
+    snprintf(cmd, 99, "timeout %d minisat %s %s > /dev/null 2>&1", timeout, fin_name.c_str(), fout_name.c_str());
     int exit_code = system(cmd);
 
-    FILE *fin = fopen(fout_name.c_str(), "r");
+    FILE* fin = fopen(fout_name.c_str(), "r");
     char buf[16] = {0};
     fscanf(fin, "%15s", buf);
     lprintf("  MiniSAT:");
@@ -75,20 +78,23 @@ SolverStatus RunCNF(const std::string &fin_name, int n_variable, int timeout,
     return SolverStatus::Sat;
 }
 
-SolverStatus SolveSatProblem(int n_variable, std::vector<int> &value,
-                             const std::vector<bool> flexible,  // NOQA
-                             const std::vector<Vector3i> &variable_eq,
-                             const std::vector<Vector3i> &constant_eq,
-                             const std::vector<Vector4i> &variable_ge,
-                             const std::vector<Vector2i> &constant_ge,
+SolverStatus SolveSatProblem(int n_variable,
+                             std::vector<int>& value,
+                             const std::vector<bool> flexible, // NOQA
+                             const std::vector<Vector3i>& variable_eq,
+                             const std::vector<Vector3i>& constant_eq,
+                             const std::vector<Vector4i>& variable_ge,
+                             const std::vector<Vector2i>& constant_ge,
                              int timeout) {
-    for (int v : value) assert(-1 <= v && v <= +1);
+    for (int v : value)
+        assert(-1 <= v && v <= +1);
 
     auto VAR = [&](int i, int v) {
         int index = 1 + 3 * i + v + 1;
         // We initialize the SAT problem by setting all the variable to false.
         // This is because minisat by default will try false first.
-        if (v == value[i]) index = -index;
+        if (v == value[i])
+            index = -index;
         return index;
     };
 
@@ -96,7 +102,7 @@ SolverStatus SolveSatProblem(int n_variable, std::vector<int> &value,
     std::vector<std::vector<int>> sat_clause;
     std::vector<bool> sat_ishard;
 
-    auto add_clause = [&](const std::vector<int> &clause, bool hard) {
+    auto add_clause = [&](const std::vector<int>& clause, bool hard) {
         sat_clause.push_back(clause);
         sat_ishard.push_back(hard);
     };
@@ -114,8 +120,8 @@ SolverStatus SolveSatProblem(int n_variable, std::vector<int> &value,
     }
 
     for (int i = 0; i < (int)variable_eq.size(); ++i) {
-        auto &var = variable_eq[i];
-        auto &cst = constant_eq[i];
+        auto& var = variable_eq[i];
+        auto& cst = constant_eq[i];
         for (int v0 = -1; v0 <= 1; ++v0)
             for (int v1 = -1; v1 <= 1; ++v1)
                 for (int v2 = -1; v2 <= 1; ++v2)
@@ -125,23 +131,21 @@ SolverStatus SolveSatProblem(int n_variable, std::vector<int> &value,
     }
 
     for (int i = 0; i < (int)variable_ge.size(); ++i) {
-        auto &var = variable_ge[i];
-        auto &cst = constant_ge[i];
+        auto& var = variable_ge[i];
+        auto& cst = constant_ge[i];
         for (int v0 = -1; v0 <= 1; ++v0)
             for (int v1 = -1; v1 <= 1; ++v1)
                 for (int v2 = -1; v2 <= 1; ++v2)
                     for (int v3 = -1; v3 <= 1; ++v3)
                         if (cst[0] * v0 * v1 - cst[1] * v2 * v3 < 0) {
-                            add_clause({-VAR(var[0], v0), -VAR(var[1], v1), -VAR(var[2], v2),
-                                        -VAR(var[3], v3)},
-                                       false);
+                            add_clause({-VAR(var[0], v0), -VAR(var[1], v1), -VAR(var[2], v2), -VAR(var[3], v3)}, false);
                         }
     }
 
     int nflip_before = 0, nflip_after = 0;
     for (int i = 0; i < (int)variable_ge.size(); ++i) {
-        auto &var = variable_ge[i];
-        auto &cst = constant_ge[i];
+        auto& var = variable_ge[i];
+        auto& cst = constant_ge[i];
         if (value[var[0]] * value[var[1]] * cst[0] - value[var[2]] * value[var[3]] * cst[1] < 0)
             nflip_before++;
     }
@@ -150,23 +154,27 @@ SolverStatus SolveSatProblem(int n_variable, std::vector<int> &value,
     auto rcnf = RunCNF("test.out", n_variable, timeout, sat_clause, value);
 
     for (int i = 0; i < (int)variable_eq.size(); ++i) {
-        auto &var = variable_eq[i];
-        auto &cst = constant_eq[i];
+        auto& var = variable_eq[i];
+        auto& cst = constant_eq[i];
         assert(cst[0] * value[var[0]] + cst[1] * value[var[1]] + cst[2] * value[var[2]] == 0);
     }
     for (int i = 0; i < (int)variable_ge.size(); ++i) {
-        auto &var = variable_ge[i];
-        auto &cst = constant_ge[i];
+        auto& var = variable_ge[i];
+        auto& cst = constant_ge[i];
         int area = value[var[0]] * value[var[1]] * cst[0] - value[var[2]] * value[var[3]] * cst[1];
-        if (area < 0) ++nflip_after;
+        if (area < 0)
+            ++nflip_after;
     }
     lprintf("nflip: %3d\n", nflip_after);
     return rcnf;
 }
 
-void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i> &face_edgeIds,
-                    const std::vector<Vector3i> &face_edgeOrients, const MatrixXi &F,
-                    const VectorXi &V2E, const VectorXi &E2E) {
+void ExportLocalSat(std::vector<Vector2i>& edge_diff,
+                    const std::vector<Vector3i>& face_edgeIds,
+                    const std::vector<Vector3i>& face_edgeOrients,
+                    const MatrixXi& F,
+                    const VectorXi& V2E,
+                    const VectorXi& E2E) {
     int flip_count = 0;
     int flip_count1 = 0;
 
@@ -210,7 +218,8 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
             printf("[SAT] Face %d's area < 0\n", i);
             for (int j = 0; j < 3; ++j) {
                 int v = F(j, i);
-                if (mark_vertex[v]) continue;
+                if (mark_vertex[v])
+                    continue;
                 Q.push_back(std::make_pair(v, 0));
                 mark_vertex[v] = true;
             }
@@ -220,16 +229,16 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
         constant_ge[i] = Vector2i(cst[0][0] * cst[1][1], cst[0][1] * cst[1][0]);
     }
     for (int i = 0; i < (int)variable_eq.size(); ++i) {
-        auto &var = variable_eq[i];
-        auto &cst = constant_eq[i];
+        auto& var = variable_eq[i];
+        auto& cst = constant_eq[i];
         assert((0 <= var.array()).all());
         assert((var.array() < value.size()).all());
         assert(cst[0] * value[var[0]] + cst[1] * value[var[1]] + cst[2] * value[var[2]] == 0);
     }
 
     for (int i = 0; i < (int)variable_ge.size(); ++i) {
-        auto &var = variable_ge[i];
-        auto &cst = constant_ge[i];
+        auto& var = variable_ge[i];
+        auto& cst = constant_ge[i];
         assert((0 <= variable_ge[i].array()).all());
         assert((variable_ge[i].array() < value.size()).all());
         if (value[var[0]] * value[var[1]] * cst[0] - value[var[2]] * value[var[3]] * cst[1] < 0) {
@@ -265,7 +274,8 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
                 }
             }
             e = dedge_next_3(E2E(e));
-            if (e == e0) break;
+            if (e == e0)
+                break;
         }
     }
     printf("[SAT] Mark %d vertices out of %d\n", mark_count, (int)V2E.size());
@@ -283,8 +293,7 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
         }
     }
 
-    SolveSatProblem(value.size(), value, flexible, variable_eq, constant_eq, variable_ge,
-                    constant_ge);
+    SolveSatProblem(value.size(), value, flexible, variable_eq, constant_eq, variable_ge, constant_ge);
 
     for (int i = 0; i < edge_diff.size(); ++i) {
         edge_diff[i][0] = value[2 * i + 0];
@@ -293,4 +302,3 @@ void ExportLocalSat(std::vector<Vector2i> &edge_diff, const std::vector<Vector3i
 }
 
 } // namespace CadUSD::qflow
-

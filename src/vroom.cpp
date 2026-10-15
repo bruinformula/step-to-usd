@@ -3,29 +3,29 @@
 #include <chrono>
 #include <exception>
 #include <iostream>
-#include <vector>
 #include <optional>
+#include <vector>
 
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
 #include <BinXCAFDrivers.hxx>
-#include <STEPCAFControl_Reader.hxx>
-#include <TDocStd_Application.hxx>
-#include <TDocStd_Document.hxx>
-#include <XCAFDoc_DocumentTool.hxx>
-#include <XCAFDoc_ShapeTool.hxx>
-#include <TDF_Label.hxx>
-#include <TDataStd_Name.hxx>
-#include <TCollection_ExtendedString.hxx>
-#include <gp_Trsf.hxx>
-#include <gp_TrsfForm.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <PCDM_ReaderStatus.hxx>
 #include <PCDM_StoreStatus.hxx>
+#include <STEPCAFControl_Reader.hxx>
 #include <Standard_Failure.hxx>
-#include <TopoDS_Shape.hxx>
 #include <Standard_Handle.hxx>
-#include <BRepTools.hxx>
-#include <BRep_Builder.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDF_Label.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDocStd_Application.hxx>
+#include <TDocStd_Document.hxx>
+#include <TopoDS_Shape.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_TrsfForm.hxx>
 
 #pragma push_macro("Handle")
 #undef Handle
@@ -44,39 +44,38 @@
 
 using namespace CadUSD;
 
-const std::string usageText =
-    " vroom -- CAD data io and meshing utility\n"
-    " usage: vroom convert -i <input> [-o <output>] [-p <prim>] [-v]\n"
-    "\n"
-    " The following conversions are supported:\n"
-    "    .step, .stp   STEP -> XBF\n"
-    "    .brep         BREP -> XBF\n"
-    "    .xbf          XBF  -> BREP\n"
-    "\n"
-    "    -i, --input   <path>    Path to the input file (.step, .brep, or .xbf).\n"
-    "    -o, --output  <path>    Path to the output file/directory. If omitted:\n"
-    "                              STEP/BREP -> XBF : input path with a .xbf extension\n"
-    "                              XBF -> BREP, -p given   : the prim's own name, in\n"
-    "                                the current directory\n"
-    "                              XBF -> BREP, -p omitted : current directory, filled\n"
-    "                                with one .brep per prim, mirroring prim paths\n"
-    "    -p, --prim    <path>    (XBF -> BREP only) USD-style path of a prim to\n"
-    "                            export, e.g. /Bracket__a1b2c3d4. Can be passed more\n"
-    "                            than once. If omitted, every leaf prim is exported.\n"
-    "    -v, --verbose            Enable debug logging.\n"
-    "\n"
-    " examples:\n"
-    "    vroom convert -i part.step\n"
-    "    vroom convert -i part.brep -o part.xbf\n"
-    "    vroom convert -i assem.xbf\n"
-    "    vroom convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n\n";
+const std::string usageText = " vroom -- CAD data io and meshing utility\n"
+                              " usage: vroom convert -i <input> [-o <output>] [-p <prim>] [-v]\n"
+                              "\n"
+                              " The following conversions are supported:\n"
+                              "    .step, .stp   STEP -> XBF\n"
+                              "    .brep         BREP -> XBF\n"
+                              "    .xbf          XBF  -> BREP\n"
+                              "\n"
+                              "    -i, --input   <path>    Path to the input file (.step, .brep, or .xbf).\n"
+                              "    -o, --output  <path>    Path to the output file/directory. If omitted:\n"
+                              "                              STEP/BREP -> XBF : input path with a .xbf extension\n"
+                              "                              XBF -> BREP, -p given   : the prim's own name, in\n"
+                              "                                the current directory\n"
+                              "                              XBF -> BREP, -p omitted : current directory, filled\n"
+                              "                                with one .brep per prim, mirroring prim paths\n"
+                              "    -p, --prim    <path>    (XBF -> BREP only) USD-style path of a prim to\n"
+                              "                            export, e.g. /Bracket__a1b2c3d4. Can be passed more\n"
+                              "                            than once. If omitted, every leaf prim is exported.\n"
+                              "    -v, --verbose            Enable debug logging.\n"
+                              "\n"
+                              " examples:\n"
+                              "    vroom convert -i part.step\n"
+                              "    vroom convert -i part.brep -o part.xbf\n"
+                              "    vroom convert -i assem.xbf\n"
+                              "    vroom convert -i assem.xbf -p /Bracket__a1b2c3d4 -o bracket.brep\n\n";
 
 int runMeshMode(const std::vector<std::string>& tokens) {
     CadUsdTesselateArgs args;
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
-        
+
         CadUsdTesselateArgs::ParseResult parseResult = args.parse(token, nextToken);
         switch (parseResult) {
             case CadUsdTesselateArgs::SUCCESS:
@@ -90,7 +89,7 @@ int runMeshMode(const std::vector<std::string>& tokens) {
                 return 0;
         }
     }
-    
+
     if (!args.verify()) {
         std::cerr << "Input argument verification failed." << std::endl;
         return 1;
@@ -109,14 +108,16 @@ int runMeshMode(const std::vector<std::string>& tokens) {
 
     // Search for step container prims and run populateUsd on each `containerPrim`
     for (UsdPrim prim : cadPipeline.containerStage->TraverseAll()) {
-        if (!prim.HasAPI<AutolibCadContainerAPI>()) continue;
+        if (!prim.HasAPI<AutolibCadContainerAPI>())
+            continue;
 
         cadPipeline.populateUsd(prim.GetPath(), args.selectedPaths);
     }
 
     if (Logger::activeLevel == Logger::Level::INFO) {
         auto end = std::chrono::high_resolution_clock::now();
-        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
+        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) +
+                 " seconds");
     }
     return 0;
 }
@@ -126,7 +127,7 @@ int runConvertMode(const std::vector<std::string>& tokens) {
     for (size_t i = 0; i < tokens.size(); i++) {
         const std::string& token = tokens[i];
         const std::string& nextToken = i + 1 < tokens.size() ? tokens[i + 1] : "";
-        
+
         ConvertArgs::ParseResult parseResult = args.parse(token, nextToken);
         switch (parseResult) {
             case ConvertArgs::SUCCESS:
@@ -141,7 +142,8 @@ int runConvertMode(const std::vector<std::string>& tokens) {
         }
     }
 
-    if (!args.verify()) return 1;
+    if (!args.verify())
+        return 1;
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -155,7 +157,7 @@ int runConvertMode(const std::vector<std::string>& tokens) {
                 return convertXbfToBrep(args);
             case ConversionKind::Unknown:
             default:
-                return 1; 
+                return 1;
         }
     } catch (const Standard_Failure& e) {
         LOG_ERR("OCC exception: " + std::string(e.GetMessageString()));
@@ -167,12 +169,13 @@ int runConvertMode(const std::vector<std::string>& tokens) {
 
     if (Logger::activeLevel == Logger::Level::INFO) {
         auto end = std::chrono::high_resolution_clock::now();
-        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) + " seconds");
+        LOG_INFO("Total Time Taken: " + std::to_string(std::chrono::duration<double>(end - start).count()) +
+                 " seconds");
     }
-
 }
 
-int main(int argc, char** argv) {
+int main(int argc,
+         char** argv) {
     if (argc < 2) {
         std::cerr << usageText << std::endl;
         return 1;
@@ -191,5 +194,4 @@ int main(int argc, char** argv) {
         std::cerr << usageText << std::endl;
         return 1;
     }
-
 }
