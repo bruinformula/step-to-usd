@@ -192,7 +192,7 @@ bool SketchTessellationRoutine::writeSketchPrim(UsdStageRefPtr stage,
 void SketchTessellationRoutine::clearPrim(UsdStageRefPtr stage,
                                           const SdfPath& protoPath) const {
     stage->RemovePrim(protoPath.AppendChild(TfToken("Sketch")));
-    stage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlane")));
+    stage->RemovePrim(protoPath.AppendChild(TfToken("SketchPlanes")));
 }
 
 size_t SketchTessellationRoutine::size() const {

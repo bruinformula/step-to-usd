@@ -127,7 +127,7 @@ struct CadUsdPipeline {
     void writeAssemblyXforms(const PrototypeContainer& proto,
                              const std::vector<SdfPath>& paths);
 
-    void writePrototypeGeometries(UsdStageRefPtr stage,
+    bool writePrototypeGeometries(UsdStageRefPtr stage,
                                   std::vector<const TessellationJob*>& jobs,
                                   const std::unordered_set<SdfPath,
                                                            SdfPath::Hash>& selectedPaths,

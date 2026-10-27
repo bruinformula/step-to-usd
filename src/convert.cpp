@@ -85,7 +85,7 @@ ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token,
         inputPath = nextToken;
         std::string ext = lowerExtension(inputPath);
 
-        if (ext == ".step" || ext == ".stp") {
+        if (ext == ".step" || ext == ".stp" || ext == ".STEP" || ext == ".STP") {
             kind = ConversionKind::StepToXbf;
         } else if (ext == ".brep") {
             kind = ConversionKind::BrepToXbf;
@@ -93,6 +93,7 @@ ConvertArgs::ParseResult ConvertArgs::parse(const std::string& token,
             kind = ConversionKind::XbfToBrep;
         } else {
             kind = ConversionKind::Unknown;
+            return ParseResult::FAILURE;
         }
 
         return ParseResult::SUCCESS_CONSUME_NEXT;

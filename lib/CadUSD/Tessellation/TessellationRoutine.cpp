@@ -117,8 +117,8 @@ bool TessellationRoutine::tessellate(const TopoDS_Shape& defShape,
 
     double diagonal = computeBoundingBoxDiagonal(fixedShape);
 
-    bool renderOnly = params.generic.renderPurposeThreshold != std::numeric_limits<double>::infinity() &&
-                      diagonal < params.generic.renderPurposeThreshold;
+    renderOnly = params.generic.renderPurposeThreshold != std::numeric_limits<double>::infinity() &&
+                 diagonal < params.generic.renderPurposeThreshold;
 
     IMeshTools_Parameters meshParams;
     meshParams.InParallel = false;

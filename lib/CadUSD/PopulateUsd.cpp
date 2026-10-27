@@ -717,12 +717,20 @@ static bool validateVariants(UsdStageRefPtr containerStage,
 }
 
 std::optional<CadUsdPipeline> CadUsdPipeline::create(const fs::path& inputUsdFile) {
-    UsdStageRefPtr stage = UsdStage::Open(inputUsdFile, UsdStage::LoadNone);
+
+    SdfLayerRefPtr rootLayer = SdfLayer::FindOrOpen(inputUsdFile);
+    if (!rootLayer) {
+        std::cerr << "Error: could not open layer '" << inputUsdFile << "'.\n";
+        return std::nullopt;
+    }
+    SdfLayerRefPtr sessionLayer = SdfLayer::CreateAnonymous();
+    UsdStageRefPtr stage = UsdStage::Open(rootLayer, sessionLayer, UsdStage::LoadNone);
     if (!stage) {
         LOG_ERR("Failed to create stage at " + inputUsdFile.string());
         return std::nullopt;
     }
 
+    stage->SetEditTarget(UsdEditTarget(sessionLayer)); // Route all edits to in memory layer
     std::unordered_set<CADBundleKey, CADBundleKey::Hash> referencedAssetBundles;
 
     // Do a scan for all refernced Cad Assets, so
@@ -734,9 +742,10 @@ std::optional<CadUsdPipeline> CadUsdPipeline::create(const fs::path& inputUsdFil
             return;
 
         AutolibCadContainer container(prim);
-        if (!container.GetCadSourceAssetAttr().HasAuthoredValue())
+        if (!container.GetCadSourceAssetAttr().HasAuthoredValue()) {
             LOG_WARN("Skipping prim " + prim.GetPath().GetAsString());
             return;
+        }
 
         UsdAttribute sourceAttr = container.GetCadSourceAssetAttr();
 
@@ -795,6 +804,7 @@ std::optional<CadUsdPipeline> CadUsdPipeline::create(const fs::path& inputUsdFil
     std::unordered_map<CADBundleKey, OpenCascadeAssembly, CADBundleKey::Hash> modelCache;
 
     {
+        std::mutex mutex;
         LOG_SCOPED_TIMER("Load and Parse XBF Models (" + std::to_string(referencedAssetBundles.size()) + " files)");
         WorkParallelForEach(
             referencedAssetBundles.begin(), referencedAssetBundles.end(), [&](const CADBundleKey& bundle) {
@@ -808,8 +818,10 @@ std::optional<CadUsdPipeline> CadUsdPipeline::create(const fs::path& inputUsdFil
                     LOG_ERR("Failed to load xbf model from " + bundle.xbfPath.string());
                     return;
                 }
-
-                modelCache.insert_or_assign(bundle, std::move(*optModel));
+                {
+                    std::scoped_lock lock(mutex);
+                    modelCache.insert_or_assign(bundle, std::move(*optModel));
+                }
             });
     }
 
@@ -898,7 +910,9 @@ void CadUsdPipeline::populateUsd(const SdfPath& containerPrimPath,
         std::vector<const TessellationJob*>& geomJobs = jobsByStagePath[stagePath];
 
         LOG_DEBUG("Writing " + std::to_string(geomJobs.size()) + " geometry jobs to prototype stage.");
-        writePrototypeGeometries(proto.stage, geomJobs, selectedPaths, proto.variantSetName, proto.variantName);
+        if (!writePrototypeGeometries(proto.stage, geomJobs, selectedPaths, proto.variantSetName, proto.variantName)) {
+            LOG_ERR("Geometry was lost while writing " + stagePath);
+        }
         LOG_DEBUG("Saving prototype stage.");
         proto.stage->Save();
     }
