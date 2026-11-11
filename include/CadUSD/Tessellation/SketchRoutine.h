@@ -24,6 +24,7 @@ struct SketchParams {
     uint64_t pointLimit = 65535;
     
     void populateParams(const AutolibCadTessellationAPI& api);
+    bool operator==(const SketchParams&) const = default;
 };
 
 struct SketchPlaneParams {
@@ -39,6 +40,7 @@ struct SketchPlaneParams {
     uint64_t meshTimeout = 3000;
     
     void populateParams(const AutolibCadTessellationAPI& api);
+    bool operator==(const SketchPlaneParams&) const = default;
 };
 
 // Handles the Sketch and the SketchPlane

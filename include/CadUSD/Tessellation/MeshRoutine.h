@@ -37,7 +37,12 @@ struct MeshParams {
     bool enableSurfaceID = false;
     bool enableIsBoundaryVertex = false;
 
+    double boundaryDistance = 0.01;  // output units
+    double smoothEdgeAngle = 10.0;   // degrees
+    double boundaryCurveAngle = 3.0; // degrees
+
     void populateParams(const AutolibCadTessellationAPI& api);
+    bool operator==(const MeshParams&) const = default;
 };
 
 struct WireframeParams {
@@ -50,6 +55,7 @@ struct WireframeParams {
     uint64_t pointLimit = 65535;
     
     void populateParams(const AutolibCadTessellationAPI& api);
+    bool operator==(const WireframeParams&) const = default;
 };
 
 // Handles the Mesh and the Wireframe
@@ -81,7 +87,7 @@ struct MeshTessellationRoutine : public TessellationRoutineInterface {
 
     size_t size() const override;
 
-    static constexpr int kBoundaryEdgeSlots = 6;
+    static constexpr int kBoundaryEdgeSlots = 12;
 
   private:
     VtArray<GfVec3f> points;
@@ -93,7 +99,10 @@ struct MeshTessellationRoutine : public TessellationRoutineInterface {
     VtArray<bool> isBoundaryVertex;
     VtArray<GfVec3f> boundaryTangents;
 
-    VtArray<float> boundaryEdgeDistances[kBoundaryEdgeSlots];
+    // Per triangle (uniform): the nearest boundary pieces, sampled from the CAD curves, as end points
+    VtArray<GfVec3f> boundarySegmentA[kBoundaryEdgeSlots];
+    VtArray<GfVec3f> boundarySegmentB[kBoundaryEdgeSlots];
+    VtArray<GfVec3f> boundarySegmentC[kBoundaryEdgeSlots]; // arc centre, or = A for a straight piece
 
     struct SurfaceIDBounds {
         int startIdx;

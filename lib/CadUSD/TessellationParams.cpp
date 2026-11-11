@@ -13,7 +13,6 @@
 
 #include "CadUSD/CadUsdPipeline.h"
 #include "CadUSD/Logger.h"
-#include "CadUSD/UsdUtils.h"
 #include "cadPrototypesAPI.h"
 #include "cadTessellationAPI.h"
 
@@ -39,8 +38,13 @@ TessParams CadUsdPipeline::getTessParams(UsdPrim prim,
 
     AutolibCadTessellationAPI api(prim);
 
-    // Meshing
-    
+    if (prim.HasAPI<AutolibCadTessellationAPI>()) {
+        params.generic.populateParams(api);
+        params.mesh.populateParams(api);
+        params.wireframe.populateParams(api);
+        params.sketch.populateParams(api);
+        params.sketchPlane.populateParams(api);
+    }
 
     return params;
 }

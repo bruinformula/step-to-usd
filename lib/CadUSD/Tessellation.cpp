@@ -1,3 +1,4 @@
+#include <condition_variable>
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -97,7 +98,11 @@ struct ShapeKey {
 
 static bool tessParamsEqual(const TessParams& a,
                             const TessParams& b) {
-    return std::memcmp(&a, &b, sizeof(TessParams)) == 0;
+     return a.generic == b.generic &&
+            a.mesh == b.mesh &&
+            a.wireframe == b.wireframe &&
+            a.sketch == b.sketch &&
+            a.sketchPlane == b.sketchPlane;
 }
 
 struct ParamSubgroup {
